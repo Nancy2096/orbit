@@ -74,7 +74,7 @@ interface OMILayoutProps {
 const mainNavItems = [
   { title: "Dashboard General", href: "/orbit-marketing-intelligence", icon: LayoutDashboard, phase: 1 },
   { title: "Clientes", href: "/orbit-marketing-intelligence/clients", icon: Building2, phase: 1 },
-  { title: "Marcas", href: "/orbit-marketing-intelligence/brands", icon: Tag, phase: 1 },
+  { title: "Marcas y Proyectos", href: "/orbit-marketing-intelligence/brands", icon: Tag, phase: 1 },
   { title: "Conectores", href: "/orbit-marketing-intelligence/connectors", icon: Plug, phase: 1 },
   { title: "Campañas Pagadas", href: "/orbit-marketing-intelligence/campaigns", icon: Megaphone, phase: 1 },
   { title: "Redes Orgánicas", href: "/orbit-marketing-intelligence/social", icon: Share2, phase: 2 },
