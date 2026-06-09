@@ -193,7 +193,7 @@ export default function VacationsPage() {
       .from("staff")
       .select("id, first_name, last_name, position, department, agency_id, reports_to")
       .eq("agency_id", selectedAgency)
-      .eq("status", "active")
+      .eq("is_active", true)
       .order("first_name")
     if (data) setStaff(data)
   }
