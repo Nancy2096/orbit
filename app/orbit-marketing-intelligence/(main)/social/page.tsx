@@ -363,14 +363,174 @@ export default function OrganicSocialPage() {
       </div>
 
       {/* Charts Section */}
-      <Tabs defaultValue="growth" className="space-y-4">
+      <Tabs defaultValue="dashboard" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="growth">Crecimiento</TabsTrigger>
           <TabsTrigger value="engagement">Engagement</TabsTrigger>
           <TabsTrigger value="reach">Alcance</TabsTrigger>
           <TabsTrigger value="formats">Formatos</TabsTrigger>
           <TabsTrigger value="hours">Mejores Horarios</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dashboard" className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {/* Followers growth trend */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Evolución de Seguidores</CardTitle>
+                <CardDescription>Crecimiento orgánico por red en el periodo</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={followersGrowthData}>
+                    <defs>
+                      <linearGradient id="igGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#E4405F" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#E4405F" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="fbGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#1877F2" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#1877F2" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Area type="monotone" dataKey="instagram" stroke="#E4405F" fill="url(#igGrad)" name="Instagram" />
+                    <Area type="monotone" dataKey="facebook" stroke="#1877F2" fill="url(#fbGrad)" name="Facebook" />
+                    <Area type="monotone" dataKey="tiktok" stroke="#000000" fillOpacity={0.1} fill="#000000" name="TikTok" />
+                    <Area type="monotone" dataKey="linkedin" stroke="#0A66C2" fillOpacity={0.1} fill="#0A66C2" name="LinkedIn" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Followers distribution by network */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Seguidores por Red</CardTitle>
+                <CardDescription>Distribución de la audiencia</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  const byNetwork = Object.values(
+                    mockSocialAccounts.reduce<Record<string, { name: string; value: number }>>((acc, a) => {
+                      if (!acc[a.network]) acc[a.network] = { name: a.network, value: 0 }
+                      acc[a.network].value += a.followers
+                      return acc
+                    }, {}),
+                  ).sort((a, b) => b.value - a.value)
+                  return (
+                    <>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <RePieChart>
+                          <Pie
+                            data={byNetwork}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={45}
+                            outerRadius={75}
+                            paddingAngle={2}
+                            dataKey="value"
+                          >
+                            {byNetwork.map((a, i) => (
+                              <Cell key={i} fill={networkColors[a.name] || "#94a3b8"} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                        </RePieChart>
+                      </ResponsiveContainer>
+                      <div className="mt-3 space-y-1.5">
+                        {byNetwork.map(a => (
+                          <div key={a.name} className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <div className="h-3 w-3 rounded-full" style={{ backgroundColor: networkColors[a.name] || "#94a3b8" }} />
+                              <span className="capitalize">{a.name}</span>
+                            </div>
+                            <span className="font-medium">{a.value.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )
+                })()}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Engagement by network + top posts */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card>
+              <CardHeader>
+                <CardTitle>Engagement por Red</CardTitle>
+                <CardDescription>Tasa de interacción promedio (%)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={engagementByNetwork} layout="vertical" margin={{ left: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" />
+                    <YAxis type="category" dataKey="network" width={70} tick={{ fontSize: 12 }} />
+                    <Tooltip formatter={(value: number) => [`${value}%`, "Engagement"]} />
+                    <Bar dataKey="engagement" radius={[0, 4, 4, 0]}>
+                      {engagementByNetwork.map((e, i) => (
+                        <Cell key={i} fill={e.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Publicaciones Destacadas</CardTitle>
+                <CardDescription>Los posts con mejor rendimiento orgánico</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Publicación</TableHead>
+                      <TableHead>Red</TableHead>
+                      <TableHead className="text-right">Alcance</TableHead>
+                      <TableHead className="text-right">Interacciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {publishedPosts
+                      .slice()
+                      .sort((a, b) => (b.reach || 0) - (a.reach || 0))
+                      .slice(0, 5)
+                      .map(post => {
+                        const Icon = networkIcons[post.networks[0]] || Share2
+                        const interactions =
+                          (post.likes || 0) +
+                          (post.comments || 0) +
+                          (post.shares || 0)
+                        return (
+                          <TableRow key={post.id}>
+                            <TableCell className="max-w-[220px] truncate font-medium">{post.copy}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1.5">
+                                {Icon && <Icon className="h-4 w-4" />}
+                                <span className="capitalize text-sm">{post.networks[0]}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">{(post.reach || 0).toLocaleString()}</TableCell>
+                            <TableCell className="text-right font-medium">{interactions.toLocaleString()}</TableCell>
+                          </TableRow>
+                        )
+                      })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         <TabsContent value="growth" className="space-y-4">
           <Card>

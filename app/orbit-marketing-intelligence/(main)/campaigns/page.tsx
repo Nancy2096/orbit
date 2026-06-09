@@ -180,7 +180,7 @@ const platformDistribution = [
 ]
 
 export default function PaidCampaignsPage() {
-  const [activeTab, setActiveTab] = useState("overview")
+  const [activeTab, setActiveTab] = useState("dashboard")
   const [searchTerm, setSearchTerm] = useState("")
   const [platformFilter, setPlatformFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -381,10 +381,199 @@ export default function PaidCampaignsPage() {
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="overview">Vista General</TabsTrigger>
           <TabsTrigger value="campaigns">Campañas</TabsTrigger>
           <TabsTrigger value="platforms">Por Plataforma</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dashboard" className="space-y-6">
+          {/* Executive summary metrics */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Conversion funnel */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Embudo de Conversión</CardTitle>
+                <CardDescription>Del impacto a la conversión en todas las campañas</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(() => {
+                  const totalClicks = filteredCampaigns.reduce((sum, c) => sum + c.clicks, 0)
+                  const funnel = [
+                    { label: "Impresiones", value: totalImpressions, icon: Eye, color: "#8b5cf6" },
+                    { label: "Clics", value: totalClicks, icon: MousePointer, color: "#f59e0b" },
+                    { label: "Conversiones", value: totalConversions, icon: ShoppingCart, color: "#10b981" },
+                  ]
+                  const max = funnel[0].value || 1
+                  return funnel.map((step, i) => {
+                    const pct = (step.value / max) * 100
+                    const prevValue = i > 0 ? funnel[i - 1].value : null
+                    const stepRate = prevValue ? (step.value / prevValue) * 100 : null
+                    const Icon = step.icon
+                    return (
+                      <div key={step.label} className="space-y-1.5">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 rounded-md" style={{ backgroundColor: `${step.color}1a` }}>
+                              <Icon className="h-4 w-4" style={{ color: step.color }} />
+                            </div>
+                            <span className="font-medium">{step.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold">{step.value.toLocaleString()}</span>
+                            {stepRate !== null && (
+                              <Badge variant="outline" className="text-xs">{stepRate.toFixed(1)}%</Badge>
+                            )}
+                          </div>
+                        </div>
+                        <div className="h-3 w-full rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: step.color }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </CardContent>
+            </Card>
+
+            {/* Budget utilization + efficiency */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Uso de Presupuesto</CardTitle>
+                <CardDescription>Gasto vs presupuesto asignado</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-3xl font-bold">{((totalSpent / totalBudget) * 100).toFixed(0)}%</span>
+                    <span className="text-sm text-muted-foreground">utilizado</span>
+                  </div>
+                  <Progress value={(totalSpent / totalBudget) * 100} className="mt-2 h-2" />
+                  <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>${totalSpent.toLocaleString()}</span>
+                    <span>${totalBudget.toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">CPC Promedio</p>
+                    <p className="text-lg font-bold">
+                      ${(() => {
+                        const clicks = filteredCampaigns.reduce((s, c) => s + c.clicks, 0)
+                        return clicks ? (totalSpent / clicks).toFixed(2) : "0.00"
+                      })()}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">CPA Promedio</p>
+                    <p className="text-lg font-bold">
+                      ${totalConversions ? (totalSpent / totalConversions).toFixed(2) : "0.00"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Campañas Activas</p>
+                    <p className="text-lg font-bold">{filteredCampaigns.filter(c => c.status === "active").length}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">ROAS Promedio</p>
+                    <p className="text-lg font-bold text-green-600">{avgRoas.toFixed(1)}x</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* ROAS by campaign + best/worst */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>ROAS por Campaña</CardTitle>
+                <CardDescription>Retorno de la inversión publicitaria</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart
+                    data={filteredCampaigns.filter(c => c.roas > 0).sort((a, b) => b.roas - a.roas)}
+                    layout="vertical"
+                    margin={{ left: 20 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" />
+                    <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(value: number) => [`${value.toFixed(1)}x`, "ROAS"]} />
+                    <Bar dataKey="roas" radius={[0, 4, 4, 0]}>
+                      {filteredCampaigns
+                        .filter(c => c.roas > 0)
+                        .sort((a, b) => b.roas - a.roas)
+                        .map((c, i) => (
+                          <Cell key={i} fill={c.roas >= 4 ? "#10b981" : c.roas >= 2 ? "#f59e0b" : "#ef4444"} />
+                        ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            <div className="space-y-6">
+              {(() => {
+                const ranked = filteredCampaigns.filter(c => c.roas > 0).sort((a, b) => b.roas - a.roas)
+                const best = ranked[0]
+                const worst = ranked[ranked.length - 1]
+                return (
+                  <>
+                    {best && (
+                      <Card className="border-green-200 bg-green-50/50">
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center gap-2">
+                            <ArrowUpRight className="h-4 w-4 text-green-600" />
+                            <CardTitle className="text-sm">Mejor Rendimiento</CardTitle>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="font-semibold">{best.name}</p>
+                          <Badge className={getPlatformColor(best.platform)}>{getPlatformName(best.platform)}</Badge>
+                          <div className="mt-3 flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">ROAS</span>
+                            <span className="font-bold text-green-600">{best.roas.toFixed(1)}x</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Conversiones</span>
+                            <span className="font-medium">{best.conversions.toLocaleString()}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {worst && worst !== best && (
+                      <Card className="border-red-200 bg-red-50/50">
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center gap-2">
+                            <ArrowDownRight className="h-4 w-4 text-red-600" />
+                            <CardTitle className="text-sm">Necesita Atención</CardTitle>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="font-semibold">{worst.name}</p>
+                          <Badge className={getPlatformColor(worst.platform)}>{getPlatformName(worst.platform)}</Badge>
+                          <div className="mt-3 flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">ROAS</span>
+                            <span className="font-bold text-red-600">{worst.roas.toFixed(1)}x</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">CPA</span>
+                            <span className="font-medium">${worst.cpa.toFixed(2)}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+          </div>
+        </TabsContent>
 
         <TabsContent value="overview" className="space-y-6">
           <div className="grid grid-cols-3 gap-6">
