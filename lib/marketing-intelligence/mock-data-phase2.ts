@@ -1,0 +1,843 @@
+import type {
+  SocialAccount,
+  SocialPost,
+  OrganicMetrics,
+  Conversation,
+  QuickReply,
+  Keyword,
+  SeoPage,
+  SeoHealth,
+  SeoRecommendation,
+  Competitor,
+  CompetitorMetrics,
+  CompetitorAlert,
+  Smartlink,
+  SmartlinkAnalytics,
+  Approval,
+} from './types-phase2'
+
+// Social Accounts
+export const mockSocialAccounts: SocialAccount[] = [
+  {
+    id: 'sa-1',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    network: 'instagram',
+    username: '@bosquesliving',
+    profileUrl: 'https://instagram.com/bosquesliving',
+    followers: 45200,
+    following: 890,
+    posts: 342,
+    engagement: 3420,
+    engagementRate: 4.2,
+    connected: true,
+    lastSync: '2024-01-15T10:30:00Z'
+  },
+  {
+    id: 'sa-2',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    network: 'facebook',
+    username: 'Bosques Living',
+    profileUrl: 'https://facebook.com/bosquesliving',
+    followers: 32100,
+    following: 0,
+    posts: 456,
+    engagement: 2100,
+    engagementRate: 2.8,
+    connected: true,
+    lastSync: '2024-01-15T10:30:00Z'
+  },
+  {
+    id: 'sa-3',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    network: 'tiktok',
+    username: '@bosquesliving',
+    profileUrl: 'https://tiktok.com/@bosquesliving',
+    followers: 18500,
+    following: 120,
+    posts: 89,
+    engagement: 12400,
+    engagementRate: 8.5,
+    connected: true,
+    lastSync: '2024-01-15T10:30:00Z'
+  },
+  {
+    id: 'sa-4',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    network: 'linkedin',
+    username: 'Bosques Living Desarrollos',
+    profileUrl: 'https://linkedin.com/company/bosquesliving',
+    followers: 8900,
+    following: 0,
+    posts: 156,
+    engagement: 890,
+    engagementRate: 3.1,
+    connected: true,
+    lastSync: '2024-01-15T10:30:00Z'
+  },
+  {
+    id: 'sa-5',
+    clientId: 'client-1',
+    brandId: 'brand-2',
+    network: 'instagram',
+    username: '@altavistaplaza',
+    profileUrl: 'https://instagram.com/altavistaplaza',
+    followers: 28700,
+    following: 450,
+    posts: 234,
+    engagement: 2150,
+    engagementRate: 3.8,
+    connected: true,
+    lastSync: '2024-01-15T10:30:00Z'
+  },
+  {
+    id: 'sa-6',
+    clientId: 'client-2',
+    brandId: 'brand-3',
+    network: 'instagram',
+    username: '@urbaniahomes',
+    profileUrl: 'https://instagram.com/urbaniahomes',
+    followers: 52400,
+    following: 670,
+    posts: 567,
+    engagement: 4200,
+    engagementRate: 4.5,
+    connected: true,
+    lastSync: '2024-01-15T10:30:00Z'
+  },
+]
+
+// Mock Social Posts
+export const mockSocialPosts: SocialPost[] = [
+  {
+    id: 'post-1',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-1',
+    brandName: 'Bosques Living',
+    networks: ['instagram', 'facebook'],
+    format: 'reel',
+    status: 'publicado',
+    copy: 'Descubre las amenidades que harán de tu hogar un verdadero oasis urbano',
+    caption: 'Vive la experiencia Bosques Living. Amenidades de clase mundial: alberca infinity, gimnasio equipado, área de coworking, roof garden con vista panorámica y más. \n\nAgenda tu visita hoy. Link en bio.',
+    hashtags: ['#BosquesLiving', '#DepartamentosEnVenta', '#CDMX', '#VidaUrbana', '#Amenidades'],
+    cta: 'Agenda tu visita',
+    link: 'https://bosquesliving.com/amenidades',
+    mediaUrl: '/images/posts/amenidades-reel.mp4',
+    mediaType: 'video',
+    scheduledDate: '2024-01-10',
+    scheduledTime: '18:00',
+    publishedDate: '2024-01-10T18:00:00Z',
+    copyResponsible: 'María García',
+    designResponsible: 'Carlos López',
+    approvalResponsible: 'Ana Martínez',
+    internalComments: [],
+    clientComments: [],
+    reach: 45200,
+    impressions: 68400,
+    engagement: 3420,
+    engagementRate: 5.0,
+    likes: 2890,
+    comments: 145,
+    shares: 234,
+    saves: 151,
+    clicks: 892,
+    views: 52300,
+    sentiment: 'positivo',
+    history: [
+      { id: 'h1', action: 'Creado', userId: 'u1', userName: 'María García', timestamp: '2024-01-05T10:00:00Z' },
+      { id: 'h2', action: 'Diseño completado', userId: 'u2', userName: 'Carlos López', timestamp: '2024-01-07T14:00:00Z' },
+      { id: 'h3', action: 'Aprobado', userId: 'u3', userName: 'Ana Martínez', timestamp: '2024-01-08T11:00:00Z' },
+      { id: 'h4', action: 'Publicado', userId: 'system', userName: 'Sistema', timestamp: '2024-01-10T18:00:00Z' },
+    ],
+    createdAt: '2024-01-05T10:00:00Z',
+    updatedAt: '2024-01-10T18:00:00Z'
+  },
+  {
+    id: 'post-2',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-1',
+    brandName: 'Bosques Living',
+    networks: ['instagram'],
+    format: 'carrusel',
+    status: 'publicado',
+    copy: 'La ubicación perfecta para tu nuevo hogar',
+    caption: 'Ubicación privilegiada en el corazón de Santa Fe. A minutos de:\n\n📍 Centro comercial Santa Fe\n📍 Corporativos AAA\n📍 Hospitales de primer nivel\n📍 Escuelas internacionales\n\nConectividad excepcional con las principales vías de la ciudad.',
+    hashtags: ['#BosquesLiving', '#SantaFe', '#Ubicación', '#CDMX', '#NuevoHogar'],
+    cta: 'Conoce más',
+    link: 'https://bosquesliving.com/ubicacion',
+    mediaUrl: '/images/posts/ubicacion-carrusel.jpg',
+    mediaType: 'image',
+    scheduledDate: '2024-01-12',
+    scheduledTime: '12:00',
+    publishedDate: '2024-01-12T12:00:00Z',
+    copyResponsible: 'María García',
+    designResponsible: 'Carlos López',
+    approvalResponsible: 'Ana Martínez',
+    internalComments: [],
+    clientComments: [],
+    reach: 32100,
+    impressions: 48200,
+    engagement: 2450,
+    engagementRate: 5.1,
+    likes: 2100,
+    comments: 89,
+    shares: 156,
+    saves: 105,
+    clicks: 567,
+    sentiment: 'positivo',
+    history: [],
+    createdAt: '2024-01-08T10:00:00Z',
+    updatedAt: '2024-01-12T12:00:00Z'
+  },
+  {
+    id: 'post-3',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-1',
+    brandName: 'Bosques Living',
+    networks: ['instagram', 'tiktok'],
+    format: 'video',
+    status: 'aprobado',
+    copy: 'Recorrido virtual por departamento modelo',
+    caption: 'Te invitamos a conocer nuestro departamento modelo de 2 recámaras.\n\nEspacios amplios, acabados de lujo y una vista espectacular.\n\n¿Te gustaría conocerlo en persona? Agenda tu visita.',
+    hashtags: ['#BosquesLiving', '#TourVirtual', '#Departamento', '#CDMX'],
+    cta: 'Agenda visita',
+    link: 'https://bosquesliving.com/departamentos',
+    mediaUrl: '/images/posts/recorrido-depto.mp4',
+    mediaType: 'video',
+    scheduledDate: '2024-01-18',
+    scheduledTime: '17:00',
+    copyResponsible: 'María García',
+    designResponsible: 'Carlos López',
+    approvalResponsible: 'Ana Martínez',
+    internalComments: [
+      { id: 'c1', authorId: 'u1', authorName: 'María García', authorAvatar: '/avatars/maria.jpg', text: 'Video listo para aprobación', createdAt: '2024-01-15T10:00:00Z', isClient: false }
+    ],
+    clientComments: [
+      { id: 'c2', authorId: 'u4', authorName: 'Roberto Sánchez', authorAvatar: '/avatars/roberto.jpg', text: 'Aprobado, excelente trabajo', createdAt: '2024-01-16T14:00:00Z', isClient: true }
+    ],
+    history: [],
+    createdAt: '2024-01-10T10:00:00Z',
+    updatedAt: '2024-01-16T14:00:00Z'
+  },
+  {
+    id: 'post-4',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-1',
+    brandName: 'Bosques Living',
+    networks: ['instagram', 'facebook'],
+    format: 'imagen',
+    status: 'en_revision',
+    copy: 'Testimonio de compradores satisfechos',
+    caption: '"La mejor decisión que hemos tomado. El proceso de compra fue transparente y el equipo nos acompañó en cada paso." - Familia Rodríguez\n\nÚnete a las familias que ya viven el sueño Bosques Living.',
+    hashtags: ['#BosquesLiving', '#Testimonios', '#ClientesFelices'],
+    cta: 'Conoce más historias',
+    link: 'https://bosquesliving.com/testimonios',
+    mediaUrl: '/images/posts/testimonio-familia.jpg',
+    mediaType: 'image',
+    scheduledDate: '2024-01-20',
+    scheduledTime: '10:00',
+    copyResponsible: 'María García',
+    designResponsible: 'Carlos López',
+    approvalResponsible: 'Ana Martínez',
+    internalComments: [
+      { id: 'c3', authorId: 'u2', authorName: 'Carlos López', authorAvatar: '/avatars/carlos.jpg', text: 'Diseño actualizado con la foto de mejor resolución', createdAt: '2024-01-17T09:00:00Z', isClient: false }
+    ],
+    clientComments: [],
+    history: [],
+    createdAt: '2024-01-14T10:00:00Z',
+    updatedAt: '2024-01-17T09:00:00Z'
+  },
+  {
+    id: 'post-5',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-1',
+    brandName: 'Bosques Living',
+    networks: ['instagram', 'facebook', 'linkedin'],
+    format: 'imagen',
+    status: 'programado',
+    copy: 'Últimas unidades en preventa',
+    caption: '¡Últimas 5 unidades disponibles en preventa! 🏠\n\nAprovecha precios especiales y planes de financiamiento exclusivos.\n\nNo dejes pasar esta oportunidad única de invertir en tu futuro.\n\nContáctanos hoy.',
+    hashtags: ['#BosquesLiving', '#Preventa', '#ÚltimasUnidades', '#Inversión'],
+    cta: 'Contáctanos',
+    link: 'https://bosquesliving.com/preventa',
+    mediaUrl: '/images/posts/ultimas-unidades.jpg',
+    mediaType: 'image',
+    scheduledDate: '2024-01-22',
+    scheduledTime: '11:00',
+    copyResponsible: 'María García',
+    designResponsible: 'Carlos López',
+    approvalResponsible: 'Ana Martínez',
+    internalComments: [],
+    clientComments: [],
+    history: [],
+    createdAt: '2024-01-15T10:00:00Z',
+    updatedAt: '2024-01-18T14:00:00Z'
+  },
+  {
+    id: 'post-6',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-1',
+    brandName: 'Bosques Living',
+    networks: ['instagram'],
+    format: 'reel',
+    status: 'en_diseno',
+    copy: 'Blog: Inversión inmobiliaria en México',
+    caption: '¿Sabías que la inversión inmobiliaria es una de las más seguras en México?\n\nEn nuestro blog te compartimos todo lo que necesitas saber para tomar la mejor decisión.\n\nLink en bio.',
+    hashtags: ['#InversiónInmobiliaria', '#México', '#BosquesLiving', '#Blog'],
+    cta: 'Lee el artículo',
+    link: 'https://bosquesliving.com/blog/inversion-inmobiliaria',
+    mediaUrl: '',
+    mediaType: 'video',
+    scheduledDate: '2024-01-25',
+    scheduledTime: '14:00',
+    copyResponsible: 'María García',
+    designResponsible: 'Carlos López',
+    approvalResponsible: 'Ana Martínez',
+    internalComments: [],
+    clientComments: [],
+    history: [],
+    createdAt: '2024-01-16T10:00:00Z',
+    updatedAt: '2024-01-16T10:00:00Z'
+  },
+  {
+    id: 'post-7',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-2',
+    brandName: 'Altavista Plaza',
+    networks: ['instagram', 'facebook'],
+    format: 'carrusel',
+    status: 'idea',
+    copy: 'Anuncio de nuevas amenidades',
+    caption: '',
+    hashtags: [],
+    cta: '',
+    link: '',
+    mediaUrl: '',
+    mediaType: 'image',
+    scheduledDate: '2024-01-28',
+    scheduledTime: '12:00',
+    copyResponsible: 'María García',
+    designResponsible: '',
+    approvalResponsible: 'Ana Martínez',
+    internalComments: [],
+    clientComments: [],
+    history: [],
+    createdAt: '2024-01-17T10:00:00Z',
+    updatedAt: '2024-01-17T10:00:00Z'
+  },
+]
+
+// Mock Approvals
+export const mockApprovals: Approval[] = [
+  {
+    id: 'approval-1',
+    postId: 'post-4',
+    post: mockSocialPosts.find(p => p.id === 'post-4')!,
+    status: 'pendiente',
+    priority: 'alta',
+    requestedBy: 'María García',
+    requestedAt: '2024-01-17T09:00:00Z',
+    comments: [],
+    currentVersion: mockSocialPosts.find(p => p.id === 'post-4')!,
+  },
+  {
+    id: 'approval-2',
+    postId: 'post-3',
+    post: mockSocialPosts.find(p => p.id === 'post-3')!,
+    status: 'aprobado',
+    priority: 'media',
+    requestedBy: 'María García',
+    requestedAt: '2024-01-15T10:00:00Z',
+    reviewedBy: 'Roberto Sánchez',
+    reviewedAt: '2024-01-16T14:00:00Z',
+    comments: [
+      { id: 'ac1', authorId: 'u4', authorName: 'Roberto Sánchez', authorAvatar: '/avatars/roberto.jpg', text: 'Excelente trabajo, aprobado', createdAt: '2024-01-16T14:00:00Z', isClient: true }
+    ],
+    currentVersion: mockSocialPosts.find(p => p.id === 'post-3')!,
+  },
+]
+
+// Mock Conversations (Inbox)
+export const mockConversations: Conversation[] = [
+  {
+    id: 'conv-1',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    network: 'instagram',
+    type: 'mensaje',
+    userId: 'user-ext-1',
+    userName: 'Laura Méndez',
+    userAvatar: '/avatars/laura.jpg',
+    userHandle: '@lauramendez',
+    status: 'nuevo',
+    sentiment: 'positivo',
+    tags: ['lead', 'informacion'],
+    messages: [
+      {
+        id: 'msg-1',
+        conversationId: 'conv-1',
+        senderId: 'user-ext-1',
+        senderName: 'Laura Méndez',
+        senderAvatar: '/avatars/laura.jpg',
+        content: 'Hola! Me interesa conocer más sobre los departamentos disponibles. ¿Cuál es el precio de los de 2 recámaras?',
+        timestamp: '2024-01-17T14:30:00Z',
+        isFromBrand: false,
+        read: false
+      }
+    ],
+    createdAt: '2024-01-17T14:30:00Z',
+    updatedAt: '2024-01-17T14:30:00Z',
+    isLead: true
+  },
+  {
+    id: 'conv-2',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    network: 'facebook',
+    type: 'comentario',
+    userId: 'user-ext-2',
+    userName: 'Pedro Gómez',
+    userAvatar: '/avatars/pedro.jpg',
+    userHandle: 'Pedro Gómez',
+    status: 'en_proceso',
+    sentiment: 'neutral',
+    tags: ['informacion'],
+    assignedTo: 'u1',
+    assignedToName: 'María García',
+    postId: 'post-1',
+    postContent: 'Descubre las amenidades que harán de tu hogar un verdadero oasis urbano',
+    messages: [
+      {
+        id: 'msg-2',
+        conversationId: 'conv-2',
+        senderId: 'user-ext-2',
+        senderName: 'Pedro Gómez',
+        senderAvatar: '/avatars/pedro.jpg',
+        content: '¿Tienen financiamiento directo?',
+        timestamp: '2024-01-16T18:00:00Z',
+        isFromBrand: false,
+        read: true
+      },
+      {
+        id: 'msg-3',
+        conversationId: 'conv-2',
+        senderId: 'u1',
+        senderName: 'Bosques Living',
+        senderAvatar: '/avatars/bosques.jpg',
+        content: '¡Hola Pedro! Sí, contamos con opciones de financiamiento. Te enviamos un DM con más información.',
+        timestamp: '2024-01-16T18:30:00Z',
+        isFromBrand: true,
+        read: true
+      }
+    ],
+    createdAt: '2024-01-16T18:00:00Z',
+    updatedAt: '2024-01-16T18:30:00Z',
+    isLead: false
+  },
+  {
+    id: 'conv-3',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    network: 'instagram',
+    type: 'comentario',
+    userId: 'user-ext-3',
+    userName: 'Ana Torres',
+    userAvatar: '/avatars/ana.jpg',
+    userHandle: '@anatorres_',
+    status: 'nuevo',
+    sentiment: 'negativo',
+    tags: ['queja', 'urgente'],
+    postId: 'post-2',
+    postContent: 'La ubicación perfecta para tu nuevo hogar',
+    messages: [
+      {
+        id: 'msg-4',
+        conversationId: 'conv-3',
+        senderId: 'user-ext-3',
+        senderName: 'Ana Torres',
+        senderAvatar: '/avatars/ana.jpg',
+        content: 'Llevo esperando 3 días y nadie me ha contactado. Muy mal servicio.',
+        timestamp: '2024-01-17T10:00:00Z',
+        isFromBrand: false,
+        read: false
+      }
+    ],
+    createdAt: '2024-01-17T10:00:00Z',
+    updatedAt: '2024-01-17T10:00:00Z',
+    isLead: false
+  },
+  {
+    id: 'conv-4',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    network: 'tiktok',
+    type: 'comentario',
+    userId: 'user-ext-4',
+    userName: 'Carlos Ruiz',
+    userAvatar: '/avatars/carlosr.jpg',
+    userHandle: '@carlosruiz',
+    status: 'respondido',
+    sentiment: 'positivo',
+    tags: ['positivo'],
+    postId: 'post-1',
+    messages: [
+      {
+        id: 'msg-5',
+        conversationId: 'conv-4',
+        senderId: 'user-ext-4',
+        senderName: 'Carlos Ruiz',
+        senderAvatar: '/avatars/carlosr.jpg',
+        content: '¡Increíble proyecto! Me encantaron las amenidades 🔥',
+        timestamp: '2024-01-15T20:00:00Z',
+        isFromBrand: false,
+        read: true
+      },
+      {
+        id: 'msg-6',
+        conversationId: 'conv-4',
+        senderId: 'u1',
+        senderName: 'Bosques Living',
+        senderAvatar: '/avatars/bosques.jpg',
+        content: '¡Gracias Carlos! Te esperamos para conocerlo en persona 🏠',
+        timestamp: '2024-01-15T20:30:00Z',
+        isFromBrand: true,
+        read: true
+      }
+    ],
+    createdAt: '2024-01-15T20:00:00Z',
+    updatedAt: '2024-01-15T20:30:00Z',
+    isLead: false
+  },
+]
+
+// Quick Replies
+export const mockQuickReplies: QuickReply[] = [
+  { id: 'qr-1', title: 'Saludo inicial', content: '¡Hola! Gracias por contactarnos. ¿En qué podemos ayudarte?', category: 'general' },
+  { id: 'qr-2', title: 'Solicitar información', content: 'Te enviaremos más información por mensaje directo. ¿Podrías compartirnos tu número de WhatsApp?', category: 'lead' },
+  { id: 'qr-3', title: 'Agendar visita', content: '¡Excelente! Para agendar tu visita, contáctanos al (55) 1234-5678 o visita nuestro sitio web.', category: 'lead' },
+  { id: 'qr-4', title: 'Agradecimiento', content: '¡Muchas gracias por tu comentario! Nos encanta saber que te gusta nuestro contenido.', category: 'general' },
+  { id: 'qr-5', title: 'Disculpa por demora', content: 'Disculpa la demora en nuestra respuesta. Un asesor te contactará en las próximas horas.', category: 'servicio' },
+]
+
+// SEO Keywords
+export const mockKeywords: Keyword[] = [
+  { id: 'kw-1', clientId: 'client-1', keyword: 'departamentos en venta cdmx', url: 'https://bosquesliving.com', currentPosition: 3, previousPosition: 5, change: 2, clicks: 1250, impressions: 15000, ctr: 8.3, difficulty: 75, intent: 'transaccional', status: 'ganada', lastUpdated: '2024-01-17' },
+  { id: 'kw-2', clientId: 'client-1', keyword: 'preventa departamentos monterrey', url: 'https://bosquesliving.com/preventa', currentPosition: 8, previousPosition: 6, change: -2, clicks: 420, impressions: 8500, ctr: 4.9, difficulty: 68, intent: 'transaccional', status: 'perdida', lastUpdated: '2024-01-17' },
+  { id: 'kw-3', clientId: 'client-1', keyword: 'inversión inmobiliaria méxico', url: 'https://bosquesliving.com/blog/inversion', currentPosition: 12, previousPosition: 15, change: 3, clicks: 380, impressions: 12000, ctr: 3.2, difficulty: 82, intent: 'informacional', status: 'ganada', lastUpdated: '2024-01-17' },
+  { id: 'kw-4', clientId: 'client-1', keyword: 'departamentos con amenidades', url: 'https://bosquesliving.com/amenidades', currentPosition: 5, previousPosition: 5, change: 0, clicks: 890, impressions: 11000, ctr: 8.1, difficulty: 55, intent: 'comercial', status: 'estable', lastUpdated: '2024-01-17' },
+  { id: 'kw-5', clientId: 'client-1', keyword: 'comprar departamento para rentar', url: 'https://bosquesliving.com/inversion', currentPosition: 18, previousPosition: 22, change: 4, clicks: 210, impressions: 6500, ctr: 3.2, difficulty: 70, intent: 'transaccional', status: 'ganada', lastUpdated: '2024-01-17' },
+  { id: 'kw-6', clientId: 'client-1', keyword: 'departamentos santa fe', url: 'https://bosquesliving.com', currentPosition: 2, previousPosition: 3, change: 1, clicks: 2100, impressions: 18000, ctr: 11.7, difficulty: 65, intent: 'transaccional', status: 'ganada', lastUpdated: '2024-01-17' },
+  { id: 'kw-7', clientId: 'client-1', keyword: 'mejores desarrollos inmobiliarios cdmx', url: 'https://bosquesliving.com', currentPosition: 7, previousPosition: 9, change: 2, clicks: 560, impressions: 9200, ctr: 6.1, difficulty: 78, intent: 'comercial', status: 'ganada', lastUpdated: '2024-01-17' },
+]
+
+// SEO Pages
+export const mockSeoPages: SeoPage[] = [
+  { id: 'page-1', clientId: 'client-1', url: 'https://bosquesliving.com', title: 'Bosques Living - Departamentos en Venta', type: 'home', clicks: 4500, impressions: 45000, ctr: 10.0, avgPosition: 4.2, conversions: 120, status: 'activa', lastUpdated: '2024-01-17' },
+  { id: 'page-2', clientId: 'client-1', url: 'https://bosquesliving.com/departamentos', title: 'Departamentos Disponibles', type: 'landing', clicks: 2800, impressions: 28000, ctr: 10.0, avgPosition: 5.5, conversions: 85, status: 'activa', lastUpdated: '2024-01-17' },
+  { id: 'page-3', clientId: 'client-1', url: 'https://bosquesliving.com/amenidades', title: 'Amenidades de Clase Mundial', type: 'landing', clicks: 1200, impressions: 15000, ctr: 8.0, avgPosition: 6.8, conversions: 45, status: 'activa', lastUpdated: '2024-01-17' },
+  { id: 'page-4', clientId: 'client-1', url: 'https://bosquesliving.com/blog/inversion-inmobiliaria', title: 'Guía de Inversión Inmobiliaria 2024', type: 'blog', clicks: 950, impressions: 22000, ctr: 4.3, avgPosition: 12.5, conversions: 15, status: 'optimizar', recommendation: 'Mejorar meta description y agregar enlaces internos', lastUpdated: '2024-01-17' },
+  { id: 'page-5', clientId: 'client-1', url: 'https://bosquesliving.com/blog/financiamiento', title: 'Opciones de Financiamiento', type: 'blog', clicks: 680, impressions: 18000, ctr: 3.8, avgPosition: 15.2, conversions: 8, status: 'revisar', recommendation: 'Actualizar contenido y optimizar para intención transaccional', lastUpdated: '2024-01-17' },
+]
+
+// SEO Health
+export const mockSeoHealth: SeoHealth = {
+  score: 78,
+  issues: { critical: 2, warning: 8, info: 15 },
+  coreWebVitals: { lcp: 2.1, fid: 85, cls: 0.08, status: 'bueno' },
+  technicalIssues: [
+    { id: 'ti-1', type: 'meta', severity: 'critical', description: '3 páginas sin meta description', recommendation: 'Agregar meta descriptions únicas' },
+    { id: 'ti-2', type: 'images', severity: 'critical', description: '12 imágenes sin atributo alt', recommendation: 'Agregar texto alternativo descriptivo' },
+    { id: 'ti-3', type: 'links', severity: 'warning', description: '5 enlaces rotos detectados', url: '/enlaces-rotos', recommendation: 'Corregir o eliminar enlaces rotos' },
+    { id: 'ti-4', type: 'speed', severity: 'warning', description: 'Tiempo de carga superior a 3s en móvil', recommendation: 'Optimizar imágenes y reducir JavaScript' },
+  ]
+}
+
+// SEO Recommendations
+export const mockSeoRecommendations: SeoRecommendation[] = [
+  { id: 'rec-1', clientId: 'client-1', type: 'title', priority: 'alta', title: 'Optimizar título de página de preventa', description: 'El título actual es muy genérico. Incluir keywords principales.', url: '/preventa', status: 'pendiente', createdAt: '2024-01-15' },
+  { id: 'rec-2', clientId: 'client-1', type: 'meta', priority: 'alta', title: 'Agregar meta description a blog', description: 'La página de blog no tiene meta description definida.', url: '/blog', status: 'en_progreso', createdAt: '2024-01-14' },
+  { id: 'rec-3', clientId: 'client-1', type: 'enlaces', priority: 'media', title: 'Crear enlaces internos en artículos', description: 'Los artículos del blog necesitan más enlaces internos hacia páginas de producto.', status: 'pendiente', createdAt: '2024-01-13' },
+  { id: 'rec-4', clientId: 'client-1', type: 'contenido', priority: 'media', title: 'Actualizar blog de inversión', description: 'El artículo tiene más de 6 meses. Actualizar con datos 2024.', url: '/blog/inversion-inmobiliaria', status: 'pendiente', createdAt: '2024-01-12' },
+  { id: 'rec-5', clientId: 'client-1', type: 'velocidad', priority: 'alta', title: 'Optimizar imágenes de galería', description: 'Las imágenes de la galería no están comprimidas correctamente.', url: '/galeria', status: 'pendiente', createdAt: '2024-01-11' },
+]
+
+// Competitors
+export const mockCompetitors: Competitor[] = [
+  {
+    id: 'comp-1',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    name: 'Desarrolladora Horizonte',
+    website: 'https://desarrolladorahorizonte.com',
+    country: 'México',
+    city: 'Ciudad de México',
+    geoArea: 'Santa Fe',
+    industry: 'Inmobiliario',
+    socialAccounts: [
+      { network: 'instagram', username: '@horizonte_mx', url: 'https://instagram.com/horizonte_mx', followers: 62000 },
+      { network: 'facebook', username: 'Desarrolladora Horizonte', url: 'https://facebook.com/horizontemx', followers: 48000 },
+    ],
+    notes: 'Competidor directo en zona Santa Fe. Enfoque en segmento premium.',
+    status: 'activo',
+    createdAt: '2024-01-01'
+  },
+  {
+    id: 'comp-2',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    name: 'Capital Living',
+    website: 'https://capitalliving.mx',
+    country: 'México',
+    city: 'Ciudad de México',
+    geoArea: 'Polanco',
+    industry: 'Inmobiliario',
+    socialAccounts: [
+      { network: 'instagram', username: '@capitalliving', url: 'https://instagram.com/capitalliving', followers: 85000 },
+      { network: 'tiktok', username: '@capitalliving', url: 'https://tiktok.com/@capitalliving', followers: 45000 },
+    ],
+    notes: 'Muy activos en TikTok. Buenos resultados en contenido de estilo de vida.',
+    status: 'activo',
+    createdAt: '2024-01-01'
+  },
+  {
+    id: 'comp-3',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    name: 'Urban Towers',
+    website: 'https://urbantowers.com.mx',
+    country: 'México',
+    city: 'Ciudad de México',
+    geoArea: 'Roma Norte',
+    industry: 'Inmobiliario',
+    socialAccounts: [
+      { network: 'instagram', username: '@urbantowers_mx', url: 'https://instagram.com/urbantowers_mx', followers: 38000 },
+      { network: 'linkedin', username: 'Urban Towers', url: 'https://linkedin.com/company/urbantowers', followers: 12000 },
+    ],
+    notes: 'Fuerte presencia en LinkedIn. Enfoque en inversionistas.',
+    status: 'activo',
+    createdAt: '2024-01-01'
+  },
+  {
+    id: 'comp-4',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    name: 'Grupo Inmobiliario Norte',
+    website: 'https://ginorte.com',
+    country: 'México',
+    city: 'Monterrey',
+    geoArea: 'San Pedro',
+    industry: 'Inmobiliario',
+    socialAccounts: [
+      { network: 'instagram', username: '@ginorte', url: 'https://instagram.com/ginorte', followers: 52000 },
+      { network: 'facebook', username: 'Grupo Inmobiliario Norte', url: 'https://facebook.com/ginorte', followers: 41000 },
+    ],
+    notes: 'Líder en mercado Monterrey. Expandiéndose a CDMX.',
+    status: 'activo',
+    createdAt: '2024-01-01'
+  },
+  {
+    id: 'comp-5',
+    clientId: 'client-1',
+    brandId: 'brand-1',
+    name: 'Residencial Premium MX',
+    website: 'https://residencialpremium.mx',
+    country: 'México',
+    city: 'Ciudad de México',
+    geoArea: 'Interlomas',
+    industry: 'Inmobiliario',
+    socialAccounts: [
+      { network: 'instagram', username: '@residencialpremium', url: 'https://instagram.com/residencialpremium', followers: 28000 },
+    ],
+    notes: 'Nuevo competidor. Crecimiento agresivo en redes.',
+    status: 'activo',
+    createdAt: '2024-01-05'
+  },
+]
+
+// Competitor Metrics
+export const mockCompetitorMetrics: CompetitorMetrics[] = [
+  { id: 'cm-1', competitorId: 'comp-1', date: '2024-01-17', followers: 62000, followersGrowth: 2.3, engagementRate: 3.8, postsPerWeek: 5, avgLikes: 1850, avgComments: 45, topHashtags: ['#Horizonte', '#LuxuryLiving', '#CDMX'], topFormats: ['reel', 'carrusel'], activeAds: 3 },
+  { id: 'cm-2', competitorId: 'comp-2', date: '2024-01-17', followers: 85000, followersGrowth: 4.5, engagementRate: 5.2, postsPerWeek: 8, avgLikes: 3200, avgComments: 120, topHashtags: ['#CapitalLiving', '#LivingInStyle', '#Departamentos'], topFormats: ['reel', 'video'], activeAds: 5 },
+  { id: 'cm-3', competitorId: 'comp-3', date: '2024-01-17', followers: 38000, followersGrowth: 1.8, engagementRate: 2.9, postsPerWeek: 4, avgLikes: 890, avgComments: 28, topHashtags: ['#UrbanTowers', '#Inversión', '#RealEstate'], topFormats: ['imagen', 'carrusel'], activeAds: 2 },
+  { id: 'cm-4', competitorId: 'comp-4', date: '2024-01-17', followers: 52000, followersGrowth: 3.1, engagementRate: 4.1, postsPerWeek: 6, avgLikes: 1650, avgComments: 55, topHashtags: ['#GINorte', '#Monterrey', '#ViveEnGrande'], topFormats: ['video', 'reel'], activeAds: 4 },
+  { id: 'cm-5', competitorId: 'comp-5', date: '2024-01-17', followers: 28000, followersGrowth: 8.2, engagementRate: 6.5, postsPerWeek: 10, avgLikes: 1420, avgComments: 85, topHashtags: ['#ResidencialPremium', '#NuevoHogar', '#Interlomas'], topFormats: ['reel', 'story'], activeAds: 6 },
+]
+
+// Competitor Alerts
+export const mockCompetitorAlerts: CompetitorAlert[] = [
+  { id: 'ca-1', competitorId: 'comp-5', competitorName: 'Residencial Premium MX', type: 'crecimiento', title: 'Crecimiento acelerado', description: 'Residencial Premium MX creció 8.2% en seguidores esta semana', severity: 'alta', createdAt: '2024-01-17T08:00:00Z', read: false },
+  { id: 'ca-2', competitorId: 'comp-2', competitorName: 'Capital Living', type: 'campana', title: 'Nueva campaña publicitaria', description: 'Capital Living lanzó 2 nuevos anuncios en Meta Ads', severity: 'media', createdAt: '2024-01-16T14:00:00Z', read: false },
+  { id: 'ca-3', competitorId: 'comp-2', competitorName: 'Capital Living', type: 'viral', title: 'Post viral detectado', description: 'Un reel de Capital Living superó 500K reproducciones', severity: 'alta', createdAt: '2024-01-15T10:00:00Z', read: true },
+]
+
+// Smartlinks
+export const mockSmartlinks: Smartlink[] = [
+  {
+    id: 'sl-1',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-1',
+    brandName: 'Bosques Living',
+    name: 'Link in Bio Bosques Living',
+    slug: 'bosquesliving',
+    url: 'https://link.orbit.mx/bosquesliving',
+    logo: '/logos/bosques-living.png',
+    backgroundColor: '#1a1a2e',
+    textColor: '#ffffff',
+    buttonColor: '#c9a962',
+    buttonTextColor: '#1a1a2e',
+    buttons: [
+      { id: 'btn-1', label: 'Ver Departamentos', url: 'https://bosquesliving.com/departamentos', order: 1, active: true, clicks: 1250, conversions: 45 },
+      { id: 'btn-2', label: 'Agendar Visita', url: 'https://bosquesliving.com/agendar', order: 2, active: true, clicks: 890, conversions: 120 },
+      { id: 'btn-3', label: 'WhatsApp', url: 'https://wa.me/5215512345678', order: 3, active: true, clicks: 2100, conversions: 85 },
+      { id: 'btn-4', label: 'Ubicación', url: 'https://maps.google.com/bosquesliving', order: 4, active: true, clicks: 450, conversions: 0 },
+      { id: 'btn-5', label: 'Brochure Digital', url: 'https://bosquesliving.com/brochure.pdf', order: 5, active: true, clicks: 680, conversions: 0 },
+    ],
+    totalClicks: 5370,
+    conversions: 250,
+    status: 'activo',
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-17'
+  },
+  {
+    id: 'sl-2',
+    clientId: 'client-1',
+    clientName: 'Grupo Inmobiliario Premium',
+    brandId: 'brand-2',
+    brandName: 'Altavista Plaza',
+    name: 'Landing Altavista Plaza',
+    slug: 'altavistaplaza',
+    url: 'https://link.orbit.mx/altavistaplaza',
+    logo: '/logos/altavista.png',
+    backgroundColor: '#0d1b2a',
+    textColor: '#ffffff',
+    buttonColor: '#3d5a80',
+    buttonTextColor: '#ffffff',
+    buttons: [
+      { id: 'btn-6', label: 'Conoce el Proyecto', url: 'https://altavistaplaza.com', order: 1, active: true, clicks: 780, conversions: 25 },
+      { id: 'btn-7', label: 'Contactar Asesor', url: 'https://wa.me/5215587654321', order: 2, active: true, clicks: 1450, conversions: 68 },
+      { id: 'btn-8', label: 'Galería', url: 'https://altavistaplaza.com/galeria', order: 3, active: true, clicks: 320, conversions: 0 },
+    ],
+    totalClicks: 2550,
+    conversions: 93,
+    status: 'activo',
+    createdAt: '2024-01-05',
+    updatedAt: '2024-01-16'
+  },
+  {
+    id: 'sl-3',
+    clientId: 'client-2',
+    clientName: 'Urbania Desarrollos',
+    brandId: 'brand-3',
+    brandName: 'Urbania Homes',
+    campaignId: 'camp-1',
+    campaignName: 'Preventa Q1 2024',
+    name: 'Menú de Inversión Urbania',
+    slug: 'urbania-inversion',
+    url: 'https://link.orbit.mx/urbania-inversion',
+    logo: '/logos/urbania.png',
+    backgroundColor: '#2d3436',
+    textColor: '#ffffff',
+    buttonColor: '#00b894',
+    buttonTextColor: '#ffffff',
+    buttons: [
+      { id: 'btn-9', label: 'Calculadora de Inversión', url: 'https://urbaniahomes.com/calculadora', order: 1, active: true, clicks: 920, conversions: 35 },
+      { id: 'btn-10', label: 'Planes de Financiamiento', url: 'https://urbaniahomes.com/financiamiento', order: 2, active: true, clicks: 1100, conversions: 42 },
+      { id: 'btn-11', label: 'Hablar con Asesor', url: 'https://wa.me/5215599887766', order: 3, active: true, clicks: 1650, conversions: 98 },
+    ],
+    totalClicks: 3670,
+    conversions: 175,
+    status: 'activo',
+    createdAt: '2024-01-10',
+    updatedAt: '2024-01-17'
+  },
+]
+
+// Smartlink Analytics
+export const mockSmartlinkAnalytics: SmartlinkAnalytics[] = [
+  {
+    id: 'sla-1',
+    smartlinkId: 'sl-1',
+    date: '2024-01-17',
+    clicks: 245,
+    uniqueVisitors: 198,
+    conversions: 12,
+    clicksByButton: [
+      { buttonId: 'btn-1', clicks: 58 },
+      { buttonId: 'btn-2', clicks: 42 },
+      { buttonId: 'btn-3', clicks: 95 },
+      { buttonId: 'btn-4', clicks: 22 },
+      { buttonId: 'btn-5', clicks: 28 },
+    ],
+    trafficSources: [
+      { source: 'Instagram', visits: 145 },
+      { source: 'Facebook', visits: 52 },
+      { source: 'TikTok', visits: 38 },
+      { source: 'Directo', visits: 10 },
+    ],
+    devices: [
+      { device: 'Móvil', visits: 212 },
+      { device: 'Desktop', visits: 28 },
+      { device: 'Tablet', visits: 5 },
+    ],
+    countries: [
+      { country: 'México', visits: 235 },
+      { country: 'Estados Unidos', visits: 8 },
+      { country: 'Colombia', visits: 2 },
+    ],
+    cities: [
+      { city: 'Ciudad de México', visits: 156 },
+      { city: 'Monterrey', visits: 42 },
+      { city: 'Guadalajara', visits: 28 },
+      { city: 'Puebla', visits: 9 },
+    ]
+  },
+]
+
+// Organic Metrics Timeline
+export const mockOrganicMetricsTimeline: OrganicMetrics[] = [
+  { id: 'om-1', accountId: 'sa-1', date: '2024-01-01', followers: 42800, followersGrowth: 180, reach: 125000, impressions: 185000, engagement: 8500, engagementRate: 4.1, likes: 7200, comments: 450, shares: 520, saves: 330, views: 95000, watchTime: 4500, profileClicks: 1200, websiteClicks: 450 },
+  { id: 'om-2', accountId: 'sa-1', date: '2024-01-08', followers: 43500, followersGrowth: 700, reach: 142000, impressions: 210000, engagement: 9800, engagementRate: 4.3, likes: 8300, comments: 520, shares: 610, saves: 370, views: 115000, watchTime: 5200, profileClicks: 1450, websiteClicks: 520 },
+  { id: 'om-3', accountId: 'sa-1', date: '2024-01-15', followers: 45200, followersGrowth: 1700, reach: 168000, impressions: 248000, engagement: 11200, engagementRate: 4.5, likes: 9500, comments: 580, shares: 720, saves: 400, views: 142000, watchTime: 6100, profileClicks: 1680, websiteClicks: 610 },
+]
+
+// Best posting times (simulated)
+export const mockBestPostingTimes = {
+  instagram: [
+    { day: 'Lunes', times: ['12:00', '18:00', '21:00'] },
+    { day: 'Martes', times: ['11:00', '17:00', '20:00'] },
+    { day: 'Miércoles', times: ['12:00', '18:00', '21:00'] },
+    { day: 'Jueves', times: ['11:00', '17:00', '20:00'] },
+    { day: 'Viernes', times: ['12:00', '15:00', '19:00'] },
+    { day: 'Sábado', times: ['10:00', '14:00', '18:00'] },
+    { day: 'Domingo', times: ['11:00', '15:00', '19:00'] },
+  ],
+  facebook: [
+    { day: 'Lunes', times: ['09:00', '13:00', '16:00'] },
+    { day: 'Martes', times: ['09:00', '12:00', '15:00'] },
+    { day: 'Miércoles', times: ['09:00', '13:00', '16:00'] },
+    { day: 'Jueves', times: ['09:00', '12:00', '15:00'] },
+    { day: 'Viernes', times: ['09:00', '11:00', '14:00'] },
+    { day: 'Sábado', times: ['10:00', '12:00', '14:00'] },
+    { day: 'Domingo', times: ['10:00', '13:00', '15:00'] },
+  ],
+  tiktok: [
+    { day: 'Lunes', times: ['19:00', '21:00', '23:00'] },
+    { day: 'Martes', times: ['18:00', '20:00', '22:00'] },
+    { day: 'Miércoles', times: ['19:00', '21:00', '23:00'] },
+    { day: 'Jueves', times: ['18:00', '20:00', '22:00'] },
+    { day: 'Viernes', times: ['17:00', '19:00', '21:00'] },
+    { day: 'Sábado', times: ['12:00', '15:00', '20:00'] },
+    { day: 'Domingo', times: ['12:00', '16:00', '20:00'] },
+  ],
+}
