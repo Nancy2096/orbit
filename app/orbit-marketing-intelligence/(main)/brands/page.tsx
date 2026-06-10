@@ -29,7 +29,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { toast } from "sonner"
 import { 
   Search, 
   Plus, 
@@ -63,6 +73,21 @@ export default function BrandsPage() {
   const [statusFilter, setStatusFilter] = useState<BrandStatus | "all">("all")
   const [typeFilter, setTypeFilter] = useState<ProjectType | "all">("all")
   const [view, setView] = useState<"table" | "cards">("cards")
+  const [brandToDelete, setBrandToDelete] = useState<{ id: string; name: string } | null>(null)
+
+  const handleDuplicate = (name: string) => {
+    toast.success("Marca duplicada", {
+      description: `Se creó una copia de "${name}" como borrador.`,
+    })
+  }
+
+  const handleDelete = () => {
+    if (!brandToDelete) return
+    toast.success("Marca eliminada", {
+      description: `"${brandToDelete.name}" fue eliminada.`,
+    })
+    setBrandToDelete(null)
+  }
 
   const filteredBrands = useMemo(() => {
     return mockBrands.filter(brand => {
@@ -296,12 +321,15 @@ export default function BrandsPage() {
                             Editar Perfil
                           </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => handleDuplicate(brand.name)}>
                           <Copy className="h-4 w-4 mr-2" />
                           Duplicar
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive">
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onSelect={() => setBrandToDelete({ id: brand.id, name: brand.name })}
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Eliminar
                         </DropdownMenuItem>
@@ -461,7 +489,10 @@ export default function BrandsPage() {
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-destructive">
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onSelect={() => setBrandToDelete({ id: brand.id, name: brand.name })}
+                          >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Eliminar
                           </DropdownMenuItem>
@@ -493,6 +524,27 @@ export default function BrandsPage() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={!!brandToDelete} onOpenChange={(open) => !open && setBrandToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta marca?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará permanentemente
+              {brandToDelete ? ` "${brandToDelete.name}"` : ""} y toda su configuración asociada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
