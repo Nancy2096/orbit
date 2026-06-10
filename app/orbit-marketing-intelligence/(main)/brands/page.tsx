@@ -113,8 +113,8 @@ export default function BrandsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Marcas</h1>
-          <p className="text-muted-foreground">Centro de inteligencia estratégica para tus marcas y proyectos</p>
+          <h1 className="text-2xl font-bold">Marcas y Proyectos</h1>
+          <p className="text-muted-foreground">Tus clientes son empresas y dueños de marcas; aquí gestionas cada marca o proyecto</p>
         </div>
         <Button asChild>
           <Link href="/orbit-marketing-intelligence/brands/new">

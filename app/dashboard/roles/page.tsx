@@ -413,7 +413,7 @@ export default function RolesPage() {
     import_export: "Importar/Exportar",
     
     // Operaciones
-    clients: "Clientes",
+    clients: "Clientes y Marcas",
     accounts: "Cuentas",
     projects: "Proyectos",
     
@@ -500,7 +500,7 @@ export default function RolesPage() {
     manage_agencies: "Gestionar Agencias",
     manage_permissions: "Gestionar Permisos",
     manage_contacts: "Gestionar Contactos",
-    manage_brands: "Gestionar Marcas",
+    manage_brands: "Gestionar Marcas y Proyectos",
     manage_tasks: "Gestionar Tareas",
     manage_team: "Gestionar Equipo",
     manage_budget: "Gestionar Presupuesto",

@@ -46,7 +46,6 @@ interface Staff {
   position: string
   department: string
   agency_id: string
-  reports_to: string | null
 }
 
 interface LeaveType {
@@ -189,13 +188,17 @@ export default function VacationsPage() {
   }
 
   const fetchStaff = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, position, department, agency_id, reports_to")
+      .select("id, first_name, last_name, position, department, agency_id")
       .eq("agency_id", selectedAgency)
-      .eq("status", "active")
+      .eq("is_active", true)
       .order("first_name")
-    if (data) setStaff(data)
+    if (error) {
+      console.error("[v0] Error fetching staff:", error.message)
+      return
+    }
+    setStaff(data ?? [])
   }
 
   const fetchLeaveTypes = async () => {
