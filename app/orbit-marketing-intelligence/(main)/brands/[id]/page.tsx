@@ -59,8 +59,9 @@ import {
   Palette,
   Wand2,
   Bot,
-  Share2,
+  Search,
   LayoutGrid,
+  Share2,
 } from "lucide-react"
 
 export default function BrandDashboardPage() {
@@ -686,6 +687,20 @@ export default function BrandDashboardPage() {
               <div className="flex-1">
                 <p className="font-medium text-sm group-hover:text-primary transition-colors">Reportes</p>
                 <p className="text-xs text-muted-foreground">Ejecutivos mensuales</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
+            </Link>
+            
+            <Link 
+              href={`/orbit-marketing-intelligence/brands/${brandId}/seo`}
+              className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors group"
+            >
+              <div className="p-2 rounded-lg bg-orange-50">
+                <Search className="h-5 w-5 text-orange-600" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-sm group-hover:text-primary transition-colors">SEO</p>
+                <p className="text-xs text-muted-foreground">Keywords, meta tags y auditoría</p>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
             </Link>
