@@ -60,6 +60,8 @@ import {
   Wand2,
   Bot,
   Search,
+  LayoutGrid,
+  Share2,
 } from "lucide-react"
 
 export default function BrandDashboardPage() {
