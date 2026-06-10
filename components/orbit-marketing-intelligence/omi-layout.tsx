@@ -81,7 +81,6 @@ const mainNavItems = [
   { title: "Calendario", href: "/orbit-marketing-intelligence/calendario", icon: Calendar, phase: 2 },
   { title: "Inbox Unificado", href: "/orbit-marketing-intelligence/inbox", icon: Inbox, phase: 2 },
   { title: "Leads y CRM", href: "/orbit-marketing-intelligence/leads", icon: Users, phase: 1 },
-  { title: "SEO", href: "/orbit-marketing-intelligence/seo", icon: Search, phase: 2 },
   { title: "Competidores", href: "/orbit-marketing-intelligence/competitors", icon: Trophy, phase: 2 },
   { title: "Smartlinks", href: "/orbit-marketing-intelligence/smartlinks", icon: Link2, phase: 2 },
 ]
