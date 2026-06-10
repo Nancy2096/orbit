@@ -391,7 +391,8 @@ export default function BrandCalendarPage() {
                         )}
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </TooltipProvider>
               </div>
             </CardContent>
