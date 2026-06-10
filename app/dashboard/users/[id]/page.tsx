@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Save, Shield, Building2, Globe, Check } from "lucide-react"
+import { ArrowLeft, Save, Shield, Building2, Globe, Check, KeyRound, Mail } from "lucide-react"
+import { toast } from "sonner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
@@ -53,6 +54,9 @@ export default function EditUserPage() {
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgencies, setSelectedAgencies] = useState<string[]>([])
   const [canManageRoles, setCanManageRoles] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [credentials, setCredentials] = useState({ email: "", password: "", confirmPassword: "" })
+  const [savingCredentials, setSavingCredentials] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -108,6 +112,7 @@ export default function EditUserPage() {
       is_active: data.is_active ?? true,
       is_global_access: data.is_global_access ?? false,
     })
+    setCredentials((prev) => ({ ...prev, email: data.email || "" }))
     await fetchUserAgencies()
     setLoading(false)
   }
@@ -116,15 +121,17 @@ export default function EditUserPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: staffData } = await supabase
-      .from("staff")
-      .select("role_id, roles:role_id(name, level)")
-      .eq("user_id", user.id)
+    // El rol del usuario vive en la tabla users -> roles
+    const { data: profile } = await supabase
+      .from("users")
+      .select("role:roles(name, level)")
+      .eq("id", user.id)
       .single()
 
-    if (staffData?.roles) {
-      const roleLevel = (staffData.roles as { name: string; level: number }).level
-      setCanManageRoles(roleLevel <= 2)
+    const role = profile?.role as { name: string; level: number } | null
+    if (role) {
+      setCanManageRoles(role.level <= 2)
+      setIsSuperAdmin(role.name === "superadmin")
     } else {
       setCanManageRoles(true)
     }
@@ -178,6 +185,74 @@ export default function EditUserPage() {
       .eq("user_id", userId)
 
     router.push("/dashboard/users")
+  }
+
+  async function handleUpdateCredentials() {
+    const emailChanged = credentials.email.trim() !== (user?.email || "")
+    const wantsPasswordChange = credentials.password.length > 0
+
+    if (!emailChanged && !wantsPasswordChange) {
+      toast.error("No hay cambios", {
+        description: "Modifica el correo o ingresa una nueva contraseña.",
+      })
+      return
+    }
+
+    if (wantsPasswordChange) {
+      if (credentials.password.length < 8) {
+        toast.error("Contraseña muy corta", {
+          description: "Debe tener al menos 8 caracteres.",
+        })
+        return
+      }
+      if (credentials.password !== credentials.confirmPassword) {
+        toast.error("Las contraseñas no coinciden")
+        return
+      }
+    }
+
+    setSavingCredentials(true)
+
+    const payload: { email?: string; password?: string } = {}
+    if (emailChanged) payload.email = credentials.email.trim()
+    if (wantsPasswordChange) payload.password = credentials.password
+
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/credentials`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const result = await res.json()
+
+      if (!res.ok) {
+        toast.error("Error al actualizar credenciales", {
+          description: result.error || "Intenta nuevamente.",
+        })
+        return
+      }
+
+      toast.success("Credenciales actualizadas", {
+        description: emailChanged && wantsPasswordChange
+          ? "Se actualizaron el correo y la contraseña."
+          : emailChanged
+            ? "Se actualizó el correo de acceso."
+            : "Se actualizó la contraseña.",
+      })
+
+      // Refrescar estado local y limpiar campos de contraseña
+      if (emailChanged) {
+        setUser((prev) => (prev ? { ...prev, email: payload.email! } : prev))
+        setFormData((prev) => ({ ...prev, email: payload.email! }))
+      }
+      setCredentials((prev) => ({ ...prev, password: "", confirmPassword: "" }))
+    } catch {
+      toast.error("Error de conexión", {
+        description: "No se pudo contactar al servidor.",
+      })
+    } finally {
+      setSavingCredentials(false)
+    }
   }
 
   function toggleAgency(agencyId: string) {
@@ -266,7 +341,9 @@ export default function EditUserPage() {
                     className="bg-muted"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    El correo electronico no puede ser modificado
+                    {isSuperAdmin
+                      ? "Puedes cambiar el correo de acceso en la sección Credenciales de Acceso."
+                      : "El correo electronico no puede ser modificado"}
                   </p>
                 </Field>
 
@@ -445,6 +522,82 @@ export default function EditUserPage() {
           </div>
         </div>
       </form>
+
+      {isSuperAdmin && (
+        <Card className="border-amber-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-amber-600" />
+              Credenciales de Acceso
+            </CardTitle>
+            <CardDescription>
+              Como super administrador puedes cambiar el correo de acceso y la contraseña de este usuario.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="cred_email">Correo de acceso</FieldLabel>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="cred_email"
+                    type="email"
+                    className="pl-9"
+                    value={credentials.email}
+                    onChange={(e) => setCredentials({ ...credentials, email: e.target.value })}
+                    placeholder="correo@ejemplo.com"
+                  />
+                </div>
+              </Field>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-4">
+                <Field>
+                  <FieldLabel htmlFor="cred_password">Nueva contraseña</FieldLabel>
+                  <Input
+                    id="cred_password"
+                    type="password"
+                    value={credentials.password}
+                    onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
+                    placeholder="Mínimo 8 caracteres"
+                    autoComplete="new-password"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="cred_confirm">Confirmar contraseña</FieldLabel>
+                  <Input
+                    id="cred_confirm"
+                    type="password"
+                    value={credentials.confirmPassword}
+                    onChange={(e) => setCredentials({ ...credentials, confirmPassword: e.target.value })}
+                    placeholder="Repite la contraseña"
+                    autoComplete="new-password"
+                  />
+                </Field>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Deja los campos de contraseña vacíos si solo quieres cambiar el correo. El usuario usará estas nuevas credenciales en su próximo inicio de sesión.
+              </p>
+
+              <div className="flex justify-end">
+                <Button type="button" onClick={handleUpdateCredentials} disabled={savingCredentials}>
+                  {savingCredentials ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Actualizando...
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="mr-2 h-4 w-4" />
+                      Actualizar Credenciales
+                    </>
+                  )}
+                </Button>
+              </div>
+            </FieldGroup>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
