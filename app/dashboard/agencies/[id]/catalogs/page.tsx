@@ -193,7 +193,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
         </Button>
         <div>
           <h1 className="text-2xl font-bold">Catálogos de {agency?.name}</h1>
-          <p className="text-muted-foreground">Administra los tipos de clientes y fuentes de referencia</p>
+          <p className="text-muted-foreground">Administra los tipos de cliente y fuentes de referencia</p>
         </div>
       </div>
 
@@ -201,7 +201,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
         <TabsList>
           <TabsTrigger value="industries" className="gap-2">
             <Factory className="h-4 w-4" />
-            Tipo de clientes
+            Tipo de Cliente
           </TabsTrigger>
           <TabsTrigger value="sources" className="gap-2">
             <Megaphone className="h-4 w-4" />
@@ -214,22 +214,22 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle>Tipo de clientes</CardTitle>
+                <CardTitle>Tipo de Cliente</CardTitle>
                 <CardDescription>
-                  Define los tipos de clientes disponibles para clasificar clientes
+                  Define los tipos de cliente disponibles para clasificar clientes
                 </CardDescription>
               </div>
               <Dialog open={industryDialogOpen} onOpenChange={setIndustryDialogOpen}>
                 <DialogTrigger asChild>
                   <Button onClick={openNewIndustry}>
                     <Plus className="mr-2 h-4 w-4" />
-                    Nuevo Tipo de cliente
+                    Nuevo Tipo de Cliente
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>
-                      {editingIndustry ? "Editar Tipo de cliente" : "Nuevo Tipo de cliente"}
+                      {editingIndustry ? "Editar Tipo de Cliente" : "Nuevo Tipo de Cliente"}
                     </DialogTitle>
                     <DialogDescription>
                       {editingIndustry ? "Modifica los datos del tipo de cliente" : "Agrega un nuevo tipo de cliente al catálogo"}
@@ -278,7 +278,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
             <CardContent>
               {industries.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  No hay tipos de clientes definidos. Agrega uno para comenzar.
+                  No hay tipos de cliente definidos. Agrega uno para comenzar.
                 </div>
               ) : (
                 <Table>
