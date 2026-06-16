@@ -1069,9 +1069,9 @@ export default function ImportExportPage() {
       referral_sources: "*, agency:agencies(name)",
       
       // Operaciones
-      projects: "*, account:accounts(name), agency:agencies(name), currency:currencies(code)",
+      projects: "*, account:accounts(account_name), agency:agencies(name), currency:currencies(code)",
       services: "*, agency:agencies(name), department:departments(name)",
-      account_services: "*, account:accounts(name), service:services(name)",
+      account_services: "*, account:accounts(account_name), service:services(name)",
       project_services: "*, project:projects(name), service:services(name)",
       
       // RRHH
@@ -1102,9 +1102,9 @@ export default function ImportExportPage() {
       quotations: "*, agency:agencies(name), prospect:crm_prospects(contact_name, company_name), staff:staff(first_name, last_name, email), currency:currencies(code)",
       
       // Finanzas
-      invoices: "*, client:clients(company_name), account:accounts(name), project:projects(name), agency:agencies(name), currency:currencies(code)",
+      invoices: "*, client:clients(company_name), account:accounts(account_name), project:projects(name), agency:agencies(name), currency:currencies(code)",
       invoice_items: "*, invoice:invoices(invoice_number), service:services(name)",
-      payments: "*, invoice:invoices(invoice_number), client:clients(company_name), account:accounts(name), agency:agencies(name), currency:currencies(code), bank_account:bank_accounts(account_name)",
+      payments: "*, invoice:invoices(invoice_number), client:clients(company_name), account:accounts(account_name), agency:agencies(name), currency:currencies(code), bank_account:bank_accounts(account_name)",
       expenses: "*, category:expense_categories(name), project:projects(name), agency:agencies(name), currency:currencies(code), bank_account:bank_accounts(account_name), vendor:vendors(name)",
       expense_categories: "*, agency:agencies(name)",
       vendors: "*, agency:agencies(name), currency:currencies(code), vendor_type:vendor_types(name)",
@@ -1932,9 +1932,9 @@ if (isTemplateFormat) {
           continue
         }
 
-        // Map account_name to name for accounts table
+        // La columna real de la tabla accounts es account_name (no existe "name")
         if (key === "account_name" && value) {
-          resolved["name"] = value
+          resolved["account_name"] = value
           continue
         }
 
