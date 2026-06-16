@@ -103,6 +103,7 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
     legal_name: "",
     tax_id: "",
     industry_id: "",
+    products: "",
     referral_source_id: "",
     website: "",
     street: "",
@@ -248,6 +249,7 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
         legal_name: clientData.legal_name || "",
         tax_id: clientData.tax_id || "",
         industry_id: clientData.industry_id || "",
+        products: clientData.products || "",
         referral_source_id: clientData.referral_source_id || "",
         website: clientData.website || "",
         street: clientData.street || "",
@@ -370,6 +372,7 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
         legal_name: formData.legal_name || null,
         tax_id: formData.tax_id || null,
         industry_id: formData.industry_id || null,
+        products: formData.products || null,
         referral_source_id: formData.referral_source_id || null,
         website: formData.website || null,
         street: formData.street || null,
@@ -522,14 +525,14 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
 
                 <div className="grid grid-cols-2 gap-4">
                   <Field>
-                    <FieldLabel htmlFor="industry_id">Industria</FieldLabel>
+                    <FieldLabel htmlFor="industry_id">Tipo de Cliente</FieldLabel>
                     <Select
                       value={formData.industry_id}
                       onValueChange={(value) => setFormData({ ...formData, industry_id: value })}
                       disabled={!formData.agency_id}
                     >
                       <SelectTrigger id="industry_id">
-                        <SelectValue placeholder={formData.agency_id ? "Selecciona industria" : "Selecciona agencia primero"} />
+                        <SelectValue placeholder={formData.agency_id ? "Selecciona tipo de cliente" : "Selecciona agencia primero"} />
                       </SelectTrigger>
                       <SelectContent>
                         {industries.map((ind) => (
@@ -541,16 +544,27 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
                     </Select>
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="website">Sitio web</FieldLabel>
-                    <Input
-                      id="website"
-                      type="url"
-                      value={formData.website || ""}
-                      onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                      placeholder="https://example.com"
+                    <FieldLabel htmlFor="products">Productos</FieldLabel>
+                    <Textarea
+                      id="products"
+                      value={formData.products || ""}
+                      onChange={(e) => setFormData({ ...formData, products: e.target.value })}
+                      placeholder="Detalla los productos o servicios del cliente"
+                      rows={2}
                     />
                   </Field>
                 </div>
+
+                <Field>
+                  <FieldLabel htmlFor="website">Sitio web</FieldLabel>
+                  <Input
+                    id="website"
+                    type="url"
+                    value={formData.website || ""}
+                    onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                    placeholder="https://example.com"
+                  />
+                </Field>
 
                 <div className="grid grid-cols-2 gap-4">
                   <Field>
