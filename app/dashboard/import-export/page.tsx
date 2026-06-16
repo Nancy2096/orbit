@@ -12,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { toast } from "sonner"
 import { 
   FileDown,
@@ -793,7 +795,27 @@ export default function ImportExportPage() {
   const [expandedImportCategories, setExpandedImportCategories] = useState<string[]>(["administracion"])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const categoryFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const [showImportModeDialog, setShowImportModeDialog] = useState(false)
+  const [pendingImport, setPendingImport] = useState<Record<string, unknown[]> | null>(null)
+  const [importMode, setImportMode] = useState<"update" | "replace">("update")
   const supabase = createClient()
+
+  // Abre el diálogo para elegir el modo de importación antes de procesar
+  const requestImport = (importData: Record<string, unknown[]>) => {
+    setPendingImport(importData)
+    setImportMode("update")
+    setShowImportModeDialog(true)
+  }
+
+  const confirmImport = async () => {
+    const data = pendingImport
+    const mode = importMode
+    setShowImportModeDialog(false)
+    setPendingImport(null)
+    if (data) {
+      await processImport(data, mode)
+    }
+  }
 
   const toggleImportCategory = (category: string) => {
     setExpandedImportCategories(prev => 
@@ -974,7 +996,7 @@ export default function ImportExportPage() {
           return
         }
 
-        await processImport({ [table.name]: jsonData })
+        requestImport({ [table.name]: jsonData })
       } catch (error) {
         console.error("Import error:", error)
         toast.error("Error al procesar el archivo")
@@ -1460,7 +1482,7 @@ if (isTemplateFormat) {
             return
           }
           
-          await processImport(importData)
+          requestImport(importData)
         } else if (fileExtension === "csv") {
           // Parse CSV file - use filename (without extension) as table name
           const workbook = XLSX.read(data, { type: "array" })
@@ -1509,7 +1531,7 @@ if (isTemplateFormat) {
             return
           }
           
-          await processImport({ [tableName]: jsonData })
+          requestImport({ [tableName]: jsonData })
         } else {
           toast.error("Formato no soportado. Usa archivos .xlsx, .xls o .csv")
         }
@@ -2236,7 +2258,7 @@ if (isTemplateFormat) {
     return mapping[templateName] || templateName
   }
 
-  const processImport = async (importData: Record<string, unknown[]>) => {
+  const processImport = async (importData: Record<string, unknown[]>, mode: "update" | "replace" = "update") => {
     setImporting(true)
     setImportProgress(0)
     setImportResults([])
@@ -2287,9 +2309,10 @@ if (isTemplateFormat) {
           staff: "email",
           candidates: "email",
           
-          // Clientes y cuentas
-          clients: ["agency_id", "tax_id"],
-          accounts: ["client_id", "agency_id", "name"],
+          // Clientes y cuentas (deduplicar SIEMPRE por nombre, nunca por RFC/tax_id)
+          clients: ["agency_id", "company_name"],
+          accounts: ["client_id", "agency_id", "account_name"],
+          projects: ["account_id", "name"],
           
           // CRM
           crm_prospects: "contact_email",
@@ -2319,6 +2342,18 @@ if (isTemplateFormat) {
       }
       
       const uniqueField = getUniqueField(tableName)
+
+      // Modo "replace": borrar TODOS los registros previos de la tabla antes de importar
+      if (mode === "replace") {
+        const { error: deleteError } = await supabase
+          .from(tableName)
+          .delete()
+          .not("id", "is", null)
+        if (deleteError) {
+          console.error(`Error eliminando registros previos de ${tableName}:`, deleteError)
+          errorMessages.push(`No se pudieron borrar los registros previos: ${deleteError.message}`)
+        }
+      }
       
       // Deduplicate rows within the import file to avoid "cannot affect row a second time" error
       let deduplicatedRows = resolvedRows
@@ -2772,6 +2807,57 @@ if (isTemplateFormat) {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Diálogo: modo de importación */}
+      <Dialog open={showImportModeDialog} onOpenChange={setShowImportModeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Cómo quieres importar?</DialogTitle>
+            <DialogDescription>
+              Los registros nunca se duplican: se identifican por su nombre (o correo, en el caso de personas). Elige qué hacer con la información existente.
+            </DialogDescription>
+          </DialogHeader>
+
+          <RadioGroup value={importMode} onValueChange={(v) => setImportMode(v as "update" | "replace")} className="gap-3 py-2">
+            <Label
+              htmlFor="mode-update"
+              className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5"
+            >
+              <RadioGroupItem value="update" id="mode-update" className="mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium">Solo actualizar los actuales</p>
+                <p className="text-sm text-muted-foreground">
+                  Actualiza los registros que coincidan por nombre y agrega los nuevos. No se borra nada de lo que ya existe.
+                </p>
+              </div>
+            </Label>
+            <Label
+              htmlFor="mode-replace"
+              className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/50 has-[:checked]:border-destructive has-[:checked]:bg-destructive/5"
+            >
+              <RadioGroupItem value="replace" id="mode-replace" className="mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-destructive">Actualizar y borrar registros anteriores</p>
+                <p className="text-sm text-muted-foreground">
+                  Elimina todos los registros existentes de las tablas seleccionadas y los reemplaza por los del archivo. Esta acción no se puede deshacer.
+                </p>
+              </div>
+            </Label>
+          </RadioGroup>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowImportModeDialog(false); setPendingImport(null) }}>
+              Cancelar
+            </Button>
+            <Button
+              variant={importMode === "replace" ? "destructive" : "default"}
+              onClick={confirmImport}
+            >
+              {importMode === "replace" ? "Borrar e importar" : "Importar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
