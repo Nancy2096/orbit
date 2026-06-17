@@ -13,6 +13,7 @@ import { StaffAvatar } from "@/components/staff-avatar"
 import {
   Network,
   Building2,
+  Globe,
   Users,
   ChevronDown,
   ChevronRight,
@@ -92,6 +93,7 @@ export default function OrganigramaPage() {
 
   useEffect(() => {
     if (selectedAgency) {
+      setSelectedDepartment("all")
       fetchAgencyData()
     }
   }, [selectedAgency])
@@ -113,22 +115,30 @@ export default function OrganigramaPage() {
   async function fetchAgencyData() {
     setLoading(true)
 
-    // Obtener staff de la agencia seleccionada Y miembros globales
+    const isGlobalView = selectedAgency === "global"
+
+    // En la vista Global solo se muestran los miembros globales.
+    // En la vista de agencia se incluyen el staff de la agencia + los globales,
+    // para que las líneas de mando hacia personas globales se rendericen correctamente.
     const [deptRes, staffAgencyRes, staffGlobalRes, accountTeamRes, projectTeamRes] = await Promise.all([
-      supabase
-        .from("departments")
-        .select("id, name, agency_id")
-        .eq("agency_id", selectedAgency)
-        .eq("is_active", true)
-        .order("sort_order"),
-      // Staff de la agencia específica (por agency_id o agency_ids)
-      supabase
-        .from("staff")
-        .select("*, photo_url, is_global, agency_ids")
-        .eq("is_active", true)
-        .or(`agency_id.eq.${selectedAgency},agency_ids.cs.{${selectedAgency}}`)
-        .eq("is_global", false)
-        .order("first_name"),
+      isGlobalView
+        ? Promise.resolve({ data: [] as Department[] })
+        : supabase
+            .from("departments")
+            .select("id, name, agency_id")
+            .eq("agency_id", selectedAgency)
+            .eq("is_active", true)
+            .order("sort_order"),
+      // Staff de la agencia específica (por agency_id o agency_ids) - omitido en vista global
+      isGlobalView
+        ? Promise.resolve({ data: [] as StaffMember[] })
+        : supabase
+            .from("staff")
+            .select("*, photo_url, is_global, agency_ids")
+            .eq("is_active", true)
+            .or(`agency_id.eq.${selectedAgency},agency_ids.cs.{${selectedAgency}}`)
+            .eq("is_global", false)
+            .order("first_name"),
       // Staff global (is_global = true)
       supabase
         .from("staff")
@@ -136,35 +146,45 @@ export default function OrganigramaPage() {
         .eq("is_active", true)
         .eq("is_global", true)
         .order("first_name"),
-      supabase
-        .from("account_team_members")
-        .select(`
-          id,
-          manager_id,
-          coordinator_id,
-          accounts!inner (
-            id,
-            agency_id,
-            status
-          )
-        `)
-        .eq("accounts.agency_id", selectedAgency)
-        .eq("accounts.status", "active"),
-      supabase
-        .from("project_team_members")
-        .select(`
-          id,
-          manager_id,
-          coordinator_id,
-          projects!inner (
-            id,
-            account_id,
-            status,
-            accounts!inner (agency_id)
-          )
-        `)
-        .eq("projects.accounts.agency_id", selectedAgency)
-        .in("projects.status", ["active", "in_progress"]),
+      isGlobalView
+        ? supabase
+            .from("account_team_members")
+            .select(`id, manager_id, coordinator_id, accounts!inner (id, status)`)
+            .eq("accounts.status", "active")
+        : supabase
+            .from("account_team_members")
+            .select(`
+              id,
+              manager_id,
+              coordinator_id,
+              accounts!inner (
+                id,
+                agency_id,
+                status
+              )
+            `)
+            .eq("accounts.agency_id", selectedAgency)
+            .eq("accounts.status", "active"),
+      isGlobalView
+        ? supabase
+            .from("project_team_members")
+            .select(`id, manager_id, coordinator_id, projects!inner (id, status)`)
+            .in("projects.status", ["active", "in_progress"])
+        : supabase
+            .from("project_team_members")
+            .select(`
+              id,
+              manager_id,
+              coordinator_id,
+              projects!inner (
+                id,
+                account_id,
+                status,
+                accounts!inner (agency_id)
+              )
+            `)
+            .eq("projects.accounts.agency_id", selectedAgency)
+            .in("projects.status", ["active", "in_progress"]),
     ])
 
     if (deptRes.data) setDepartments(deptRes.data)
@@ -546,17 +566,29 @@ export default function OrganigramaPage() {
             Organigrama
           </h1>
           <p className="text-muted-foreground">
-            Visualiza la estructura organizacional del equipo
+            {selectedAgency === "global"
+              ? "Estructura organizacional global: personas que mantienen su puesto y nivel en todas las agencias"
+              : "Visualiza la estructura organizacional del equipo"}
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <Select value={selectedAgency} onValueChange={setSelectedAgency}>
-            <SelectTrigger className="w-[200px]">
-              <Building2 className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Seleccionar agencia" />
+            <SelectTrigger className="w-[220px]">
+              {selectedAgency === "global" ? (
+                <Globe className="h-4 w-4 mr-2" />
+              ) : (
+                <Building2 className="h-4 w-4 mr-2" />
+              )}
+              <SelectValue placeholder="Seleccionar organigrama" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="global">
+                <span className="flex items-center gap-2">
+                  <Globe className="h-4 w-4" />
+                  Organigrama Global
+                </span>
+              </SelectItem>
               {agencies.map((agency) => (
                 <SelectItem key={agency.id} value={agency.id}>
                   {agency.name}
@@ -565,20 +597,22 @@ export default function OrganigramaPage() {
             </SelectContent>
           </Select>
 
-          <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-            <SelectTrigger className="w-[200px]">
-              <Users className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Filtrar por área" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las áreas</SelectItem>
-              {departments.map((dept) => (
-                <SelectItem key={dept.id} value={dept.id}>
-                  {dept.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {selectedAgency !== "global" && (
+            <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+              <SelectTrigger className="w-[200px]">
+                <Users className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Filtrar por área" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las áreas</SelectItem>
+                {departments.map((dept) => (
+                  <SelectItem key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
       </div>
 
