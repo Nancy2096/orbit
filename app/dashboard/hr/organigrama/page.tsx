@@ -117,7 +117,7 @@ export default function OrganigramaPage() {
 
     const isGlobalView = selectedAgency === "global"
 
-    // En la vista Global solo se muestran los miembros globales.
+    // En la vista Global se muestra TODO el personal activo (de todas las agencias + globales).
     // En la vista de agencia se incluyen el staff de la agencia + los globales,
     // para que las líneas de mando hacia personas globales se rendericen correctamente.
     const [deptRes, staffAgencyRes, staffGlobalRes, accountTeamRes, projectTeamRes] = await Promise.all([
@@ -129,9 +129,13 @@ export default function OrganigramaPage() {
             .eq("agency_id", selectedAgency)
             .eq("is_active", true)
             .order("sort_order"),
-      // Staff de la agencia específica (por agency_id o agency_ids) - omitido en vista global
+      // Vista global: todo el personal activo. Vista de agencia: staff de la agencia (por agency_id o agency_ids).
       isGlobalView
-        ? Promise.resolve({ data: [] as StaffMember[] })
+        ? supabase
+            .from("staff")
+            .select("*, photo_url, is_global, agency_ids")
+            .eq("is_active", true)
+            .order("first_name")
         : supabase
             .from("staff")
             .select("*, photo_url, is_global, agency_ids")
