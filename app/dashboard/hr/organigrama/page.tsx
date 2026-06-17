@@ -416,32 +416,42 @@ export default function OrganigramaPage() {
           </div>
         </div>
 
-        {/* Linea vertical hacia abajo si tiene hijos */}
+        {/* Conectores de jerarquia hacia los hijos */}
         {node.children.length > 0 && (
           <>
-            <div className="w-1 h-6 bg-slate-400 dark:bg-slate-500 rounded-full" />
-            
-            {/* Linea horizontal que conecta a todos los hijos */}
-            {node.children.length > 1 && (
-              <div className="relative flex justify-center" style={{ width: `${(node.children.length - 1) * 160 + 144}px` }}>
-                <div 
-                  className="h-1 bg-slate-400 dark:bg-slate-500 rounded-full"
-                  style={{
-                    width: `${(node.children.length - 1) * 160}px`,
-                  }}
-                />
-              </div>
-            )}
-            
-            {/* Contenedor de hijos */}
-            <div className="flex gap-6">
-              {node.children.map((child) => (
-                <div key={child.id} className="flex flex-col items-center">
-                  {/* Linea vertical desde la linea horizontal hacia la tarjeta */}
-                  <div className="w-1 h-6 bg-slate-400 dark:bg-slate-500 rounded-full" />
-                  {renderOrgCard(child)}
-                </div>
-              ))}
+            {/* Linea vertical hacia abajo desde el padre */}
+            <div className="w-0.5 h-6 bg-slate-400 dark:bg-slate-500" />
+
+            {/* Contenedor de hijos: cada hijo dibuja sus propios conectores relativos */}
+            <div className="flex items-start">
+              {node.children.map((child, index) => {
+                const isFirst = index === 0
+                const isLast = index === node.children.length - 1
+                const isOnly = node.children.length === 1
+                return (
+                  <div key={child.id} className="relative flex flex-col items-center px-3 pt-6">
+                    {/* Mitad izquierda de la linea horizontal */}
+                    {!isOnly && (
+                      <div
+                        className={`absolute top-0 right-1/2 h-0.5 w-1/2 ${
+                          isFirst ? "bg-transparent" : "bg-slate-400 dark:bg-slate-500"
+                        }`}
+                      />
+                    )}
+                    {/* Mitad derecha de la linea horizontal */}
+                    {!isOnly && (
+                      <div
+                        className={`absolute top-0 left-1/2 h-0.5 w-1/2 ${
+                          isLast ? "bg-transparent" : "bg-slate-400 dark:bg-slate-500"
+                        }`}
+                      />
+                    )}
+                    {/* Linea vertical desde la horizontal hasta la tarjeta del hijo */}
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-6 bg-slate-400 dark:bg-slate-500" />
+                    {renderOrgCard(child)}
+                  </div>
+                )
+              })}
             </div>
           </>
         )}
