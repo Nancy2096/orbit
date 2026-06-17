@@ -16,6 +16,7 @@ import { ArrowLeft, Users, AlertCircle, Camera, MapPin, Phone, CreditCard, UserC
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StaffAvatar } from "@/components/staff-avatar"
 import { StaffDocuments, type StaffDocument } from "@/components/hr/staff-documents"
+import { EMPLOYMENT_STATUSES } from "@/app/dashboard/hr/staff/page"
 
 interface Agency {
   id: string
@@ -92,6 +93,7 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
     commission_type: "none",
     is_billable: true,
     is_active: true,
+    employment_status: "active",
     utilization_target: "75",
     skills: "",
     notes: "",
@@ -248,6 +250,7 @@ reports_to_id: s.reports_to_id || "",
         commission_type: s.commission_type || "none",
         is_billable: s.is_billable ?? true,
         is_active: s.is_active ?? true,
+        employment_status: s.employment_status || (s.is_active === false ? "inactive" : "active"),
         utilization_target: s.utilization_target?.toString() || "75",
         skills: Array.isArray(s.skills) ? s.skills.join(", ") : "",
         notes: s.notes || "",
@@ -441,7 +444,8 @@ hire_date: formData.hire_date || null,
       commission_percentage: (formData.contract_type === "commission" || formData.contract_type === "full_time_variable") ? (parseFloat(formData.commission_percentage) || 0) : 0,
       commission_type: (formData.contract_type === "commission" || formData.contract_type === "full_time_variable") ? formData.commission_type : "none",
   is_billable: formData.is_billable,
-  is_active: formData.is_active,
+  is_active: formData.employment_status === "active",
+  employment_status: formData.employment_status,
         skills: formData.skills ? formData.skills.split(",").map((s) => s.trim()) : [],
         notes: formData.notes || null,
         // Foto
@@ -916,18 +920,31 @@ hire_date: formData.hire_date || null,
                   />
                 </Field>
 
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="is_active"
-                    checked={formData.is_active}
-                    onCheckedChange={(checked) =>
-                      setFormData({ ...formData, is_active: checked as boolean })
+                <Field>
+                  <FieldLabel htmlFor="employment_status">Estado laboral</FieldLabel>
+                  <Select
+                    value={formData.employment_status}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, employment_status: value, is_active: value === "active" })
                     }
-                  />
-                  <label htmlFor="is_active" className="text-sm">
-                    Miembro activo
-                  </label>
-                </div>
+                  >
+                    <SelectTrigger id="employment_status">
+                      <SelectValue placeholder="Selecciona un estado" />
+                    </SelectTrigger>
+                    <SelectContent className="max-w-md">
+                      {EMPLOYMENT_STATUSES.map((st) => (
+                        <SelectItem key={st.value} value={st.value}>
+                          <div className="flex flex-col gap-0.5 py-0.5">
+                            <span className="font-medium">{st.label}</span>
+                            <span className="text-xs text-muted-foreground whitespace-normal">
+                              {st.description}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
               </FieldGroup>
             </CardContent>
           </Card>

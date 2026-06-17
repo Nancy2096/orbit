@@ -20,11 +20,16 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { StaffAvatar } from "@/components/staff-avatar"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Users, Shield } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Users, Shield, CircleDot } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   DropdownMenuSeparator,
@@ -45,6 +50,7 @@ interface Staff {
   hourly_cost: number
   is_billable: boolean
   is_active: boolean
+  employment_status: string
   role_id: string | null
   photo_url: string | null
   reports_to_id: string | null
@@ -75,6 +81,40 @@ const contractTypeLabels: Record<string, string> = {
   freelance: "Freelance",
   contractor: "Contratista",
   commission: "Comisionista",
+}
+
+export const EMPLOYMENT_STATUSES = [
+  {
+    value: "active",
+    label: "Activo",
+    description: "Se encuentra laborando al 100%.",
+    badgeVariant: "default" as const,
+  },
+  {
+    value: "terminated",
+    label: "Baja",
+    description:
+      "La relación laboral termina. Implica el fin del contrato, la liquidación o finiquito y la revocación de accesos a sistemas.",
+    badgeVariant: "destructive" as const,
+  },
+  {
+    value: "inactive",
+    label: "Inactivo",
+    description:
+      "Pausa temporal donde la relación laboral se mantiene pero el empleado no está prestando servicio. Aplica para años sabáticos, excedencias voluntarias o trabajos por temporada.",
+    badgeVariant: "secondary" as const,
+  },
+  {
+    value: "suspended",
+    label: "Suspendido",
+    description:
+      "Pausa temporal obligatoria (sin goce de sueldo en algunos casos) por ley, incapacidad médica, maternidad o sanción disciplinaria, pero el vínculo laboral sigue intacto.",
+    badgeVariant: "outline" as const,
+  },
+]
+
+export function getEmploymentStatus(value: string | null | undefined) {
+  return EMPLOYMENT_STATUSES.find((s) => s.value === value) ?? EMPLOYMENT_STATUSES[0]
 }
 
 interface Agency {
@@ -166,6 +206,7 @@ export default function StaffPage() {
         hourly_cost,
         is_billable,
         is_active,
+        employment_status,
         role_id,
         photo_url,
         reports_to_id,
@@ -260,6 +301,24 @@ export default function StaffPage() {
     const { error } = await supabase.from("staff").delete().eq("id", id)
     if (!error) {
       setStaff(staff.filter((s) => s.id !== id))
+    }
+  }
+
+  async function handleStatusChange(id: string, newStatus: string) {
+    const { error } = await supabase
+      .from("staff")
+      .update({ employment_status: newStatus, is_active: newStatus === "active" })
+      .eq("id", id)
+    if (!error) {
+      setStaff((prev) =>
+        prev.map((s) =>
+          s.id === id
+            ? { ...s, employment_status: newStatus, is_active: newStatus === "active" }
+            : s,
+        ),
+      )
+    } else {
+      console.error("[v0] Error updating employment_status:", error)
     }
   }
 
@@ -460,9 +519,10 @@ export default function StaffPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={member.is_active ? "default" : "secondary"}>
-                        {member.is_active ? "Activo" : "Inactivo"}
-                      </Badge>
+                      {(() => {
+                        const st = getEmploymentStatus(member.employment_status)
+                        return <Badge variant={st.badgeVariant}>{st.label}</Badge>
+                      })()}
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>
@@ -478,6 +538,36 @@ export default function StaffPage() {
                               Editar
                             </Link>
                           </DropdownMenuItem>
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                              <CircleDot className="mr-2 h-4 w-4" />
+                              Cambiar estado
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuPortal>
+                              <DropdownMenuSubContent className="max-w-xs">
+                                <DropdownMenuLabel>Estado del empleado</DropdownMenuLabel>
+                                {EMPLOYMENT_STATUSES.map((st) => (
+                                  <DropdownMenuItem
+                                    key={st.value}
+                                    onClick={() => handleStatusChange(member.id, st.value)}
+                                    className="flex-col items-start gap-0.5"
+                                  >
+                                    <span className="flex items-center gap-2 font-medium">
+                                      {st.label}
+                                      {member.employment_status === st.value && (
+                                        <Badge variant="outline" className="text-[10px] py-0">
+                                          Actual
+                                        </Badge>
+                                      )}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground whitespace-normal">
+                                      {st.description}
+                                    </span>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuPortal>
+                          </DropdownMenuSub>
                           {canManageRoles && (
                             <>
                               <DropdownMenuItem asChild>
