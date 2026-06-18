@@ -16,7 +16,7 @@ const supabaseAdmin = createClient(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { email, password, first_name, last_name, phone, role_id, agency_id } = body
+    const { email, password, first_name, last_name, phone, role_id, agency_id, is_global_access } = body
 
     if (!email || !password) {
       return NextResponse.json(
@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
         last_name,
         phone,
         role_id: role_id || null,
+        is_global_access: is_global_access === true,
       })
       .eq("id", authData.user.id)
 
@@ -67,8 +68,30 @@ export async function POST(request: NextRequest) {
       console.error("Profile update error:", profileError)
     }
 
-    // Associate user with agency if provided
-    if (agency_id) {
+    // Associate user with agencies
+    if (is_global_access === true) {
+      // Usuario global: asignar a todas las agencias activas
+      const { data: allAgencies } = await supabaseAdmin
+        .from("agencies")
+        .select("id")
+        .eq("is_active", true)
+        .order("name")
+
+      if (allAgencies && allAgencies.length > 0) {
+        const rows = allAgencies.map((a, index) => ({
+          user_id: authData.user.id,
+          agency_id: a.id,
+          is_primary: index === 0,
+        }))
+        const { error: agencyError } = await supabaseAdmin
+          .from("user_agencies")
+          .insert(rows)
+
+        if (agencyError) {
+          console.error("Agency association error (global):", agencyError)
+        }
+      }
+    } else if (agency_id) {
       const { error: agencyError } = await supabaseAdmin
         .from("user_agencies")
         .insert({

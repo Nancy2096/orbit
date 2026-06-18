@@ -17,9 +17,18 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
-import { ArrowLeft, Save, User, Building2, Phone, Mail, DollarSign, Calendar, Target, Plus, Trash2, Globe, Facebook, Instagram, Linkedin, Twitter, MapPin } from "lucide-react"
+import { ArrowLeft, Save, User, Building2, Phone, Mail, DollarSign, Calendar, Target, Plus, Trash2, Globe, Facebook, Instagram, Linkedin, Twitter, MapPin, Check, ChevronsUpDown } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
 
 interface Stage {
@@ -60,6 +69,18 @@ interface AdditionalContact {
   contact_position: string
 }
 
+interface Service {
+  id: string
+  name: string
+  description: string | null
+  base_price: number | null
+}
+
+interface SelectedService {
+  service_id: string
+  quantity: number
+}
+
 export default function NewProspectPage() {
   const router = useRouter()
   const { selectedAgencyId, selectedAgency, loading: agencyLoading } = useAgency()
@@ -71,6 +92,9 @@ export default function NewProspectPage() {
   const [clientTypes, setClientTypes] = useState<ClientType[]>([])
   const [salesReps, setSalesReps] = useState<SalesRep[]>([])
   const [additionalContacts, setAdditionalContacts] = useState<AdditionalContact[]>([])
+  const [services, setServices] = useState<Service[]>([])
+  const [selectedServices, setSelectedServices] = useState<SelectedService[]>([])
+  const [servicesPopoverOpen, setServicesPopoverOpen] = useState(false)
 
   const [formData, setFormData] = useState({
     assigned_to: "",
@@ -176,8 +200,42 @@ export default function NewProspectPage() {
       }
     }
 
+    // Fetch services available for this agency (Servicios de Interés)
+    const { data: servicesData } = await supabase
+      .from("services")
+      .select("id, name, description, base_price")
+      .eq("agency_id", selectedAgencyId)
+      .eq("is_active", true)
+      .order("name")
+
+    if (servicesData) setServices(servicesData)
+
     setLoading(false)
   }
+
+  // Servicios de Interés: helpers
+  const toggleService = (serviceId: string) => {
+    setSelectedServices(prev =>
+      prev.some(s => s.service_id === serviceId)
+        ? prev.filter(s => s.service_id !== serviceId)
+        : [...prev, { service_id: serviceId, quantity: 1 }]
+    )
+  }
+
+  const updateServiceQuantity = (serviceId: string, quantity: number) => {
+    setSelectedServices(prev =>
+      prev.map(s => (s.service_id === serviceId ? { ...s, quantity: Math.max(1, quantity) } : s))
+    )
+  }
+
+  const removeSelectedService = (serviceId: string) => {
+    setSelectedServices(prev => prev.filter(s => s.service_id !== serviceId))
+  }
+
+  const estimatedValueFromServices = selectedServices.reduce((total, sel) => {
+    const service = services.find(s => s.id === sel.service_id)
+    return total + (service?.base_price || 0) * sel.quantity
+  }, 0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -217,7 +275,7 @@ export default function NewProspectPage() {
       client_type_id: formData.client_type_id || null,
       stage_id: formData.stage_id,
       source_id: formData.source_id || null,
-      estimated_value: formData.estimated_value ? parseFloat(formData.estimated_value) : null,
+      estimated_value: estimatedValueFromServices > 0 ? estimatedValueFromServices : null,
       currency_id: formData.currency_id || null,
       probability: formData.probability,
       expected_close_date: formData.expected_close_date || null,
@@ -248,6 +306,22 @@ export default function NewProspectPage() {
       if (contactsToInsert.length > 0) {
         await supabase.from("crm_prospect_contacts").insert(contactsToInsert)
       }
+    }
+
+    // Insert selected services (Servicios de Interés)
+    if (prospect && selectedServices.length > 0) {
+      const servicesToInsert = selectedServices.map(sel => {
+        const service = services.find(s => s.id === sel.service_id)
+        const unitPrice = service?.base_price || 0
+        return {
+          prospect_id: prospect.id,
+          service_id: sel.service_id,
+          quantity: sel.quantity,
+          unit_price: unitPrice,
+          total_price: unitPrice * sel.quantity,
+        }
+      })
+      await supabase.from("crm_prospect_services").insert(servicesToInsert)
     }
 
     setSaving(false)
@@ -656,35 +730,132 @@ const getStageColor = (color: string | null) => {
               </CardContent>
             </Card>
 
-            {/* Deal Information */}
+            {/* Servicios de Interés */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <DollarSign className="h-5 w-5" />
-                  Información del Negocio
+                  Servicios de Interés
                 </CardTitle>
                 <CardDescription>
-                  Valor estimado y fechas de la oportunidad
+                  Selecciona los servicios que le interesan al prospecto. El valor estimado se calcula automáticamente.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="estimated_value">Valor Estimado</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="estimated_value"
-                        type="number"
-                        placeholder="100000"
-                        value={formData.estimated_value}
-                        onChange={(e) => setFormData({ ...formData, estimated_value: e.target.value })}
-                        className="flex-1"
-                      />
+                {services.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay servicios cargados para esta agencia. Crea servicios en la sección de Servicios.
+                  </p>
+                ) : (
+                  <>
+                    {/* Combo box multi-selección */}
+                    <Popover open={servicesPopoverOpen} onOpenChange={setServicesPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={servicesPopoverOpen}
+                          className="w-full justify-between font-normal"
+                        >
+                          {selectedServices.length > 0
+                            ? `${selectedServices.length} servicio(s) seleccionado(s)`
+                            : "Seleccionar servicios..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar servicio..." />
+                          <CommandList>
+                            <CommandEmpty>No se encontraron servicios.</CommandEmpty>
+                            <CommandGroup>
+                              {services.map((service) => {
+                                const isSelected = selectedServices.some(s => s.service_id === service.id)
+                                return (
+                                  <CommandItem
+                                    key={service.id}
+                                    value={service.name}
+                                    onSelect={() => toggleService(service.id)}
+                                  >
+                                    <Check
+                                      className={`mr-2 h-4 w-4 ${isSelected ? "opacity-100" : "opacity-0"}`}
+                                    />
+                                    <div className="flex flex-1 flex-col">
+                                      <span className="text-sm">{service.name}</span>
+                                      {service.base_price != null && (
+                                        <span className="text-xs text-muted-foreground">
+                                          ${service.base_price.toLocaleString("es-MX")} c/u
+                                        </span>
+                                      )}
+                                    </div>
+                                  </CommandItem>
+                                )
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+
+                    {/* Lista de servicios seleccionados con cantidad */}
+                    {selectedServices.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedServices.map((sel) => {
+                          const service = services.find(s => s.id === sel.service_id)
+                          if (!service) return null
+                          return (
+                            <div
+                              key={sel.service_id}
+                              className="flex items-center gap-3 rounded-lg border p-3"
+                            >
+                              <div className="flex-1 space-y-0.5">
+                                <p className="text-sm font-medium leading-none">{service.name}</p>
+                                {service.base_price != null && (
+                                  <p className="text-xs text-muted-foreground">
+                                    ${service.base_price.toLocaleString("es-MX")} c/u
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Label htmlFor={`qty-${service.id}`} className="sr-only">
+                                  Cantidad
+                                </Label>
+                                <Input
+                                  id={`qty-${service.id}`}
+                                  type="number"
+                                  min={1}
+                                  value={sel.quantity}
+                                  onChange={(e) => updateServiceQuantity(service.id, parseInt(e.target.value) || 1)}
+                                  className="w-16 h-8"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground"
+                                  onClick={() => removeSelectedService(service.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {selectedServices.length > 0 && (
+                  <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="services_currency" className="text-sm">Moneda</Label>
                       <Select
                         value={formData.currency_id}
                         onValueChange={(value) => setFormData({ ...formData, currency_id: value })}
                       >
-                        <SelectTrigger className="w-[100px]">
+                        <SelectTrigger id="services_currency" className="w-[100px] h-8">
                           <SelectValue placeholder="Moneda" />
                         </SelectTrigger>
                         <SelectContent>
@@ -696,7 +867,14 @@ const getStageColor = (color: string | null) => {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Valor estimado</p>
+                      <p className="text-xl font-bold">${estimatedValueFromServices.toLocaleString("es-MX")}</p>
+                    </div>
                   </div>
+                )}
+
+                <div className="grid gap-4 md:grid-cols-2 pt-2">
                   <div className="space-y-2">
                     <Label htmlFor="expected_close_date">
                       <div className="flex items-center gap-1">
