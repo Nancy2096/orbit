@@ -67,7 +67,8 @@ export default function NewUserPage() {
           last_name: formData.last_name,
           phone: formData.phone,
           role_id: formData.role_id || null,
-          agency_id: formData.agency_id || null,
+          agency_id: formData.agency_id === "__global__" ? null : formData.agency_id || null,
+          is_global_access: formData.agency_id === "__global__",
         }),
       })
 
@@ -228,6 +229,7 @@ export default function NewUserPage() {
                       <SelectValue placeholder="Seleccionar agencia" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="__global__">Global (todas las agencias)</SelectItem>
                       {agencies.length === 0 ? (
                         <div className="py-2 px-2 text-sm text-muted-foreground">
                           No hay agencias disponibles
@@ -241,6 +243,11 @@ export default function NewUserPage() {
                       )}
                     </SelectContent>
                   </Select>
+                  {formData.agency_id === "__global__" && (
+                    <p className="text-sm text-muted-foreground">
+                      El usuario tendrá acceso global y quedará asignado a todas las agencias cargadas.
+                    </p>
+                  )}
                 </Field>
               </FieldSet>
 
