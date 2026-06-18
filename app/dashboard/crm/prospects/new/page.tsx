@@ -17,9 +17,18 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
-import { ArrowLeft, Save, User, Building2, Phone, Mail, DollarSign, Calendar, Target, Plus, Trash2, Globe, Facebook, Instagram, Linkedin, Twitter, MapPin } from "lucide-react"
+import { ArrowLeft, Save, User, Building2, Phone, Mail, DollarSign, Calendar, Target, Plus, Trash2, Globe, Facebook, Instagram, Linkedin, Twitter, MapPin, Check, ChevronsUpDown } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
 
 interface Stage {
@@ -85,6 +94,7 @@ export default function NewProspectPage() {
   const [additionalContacts, setAdditionalContacts] = useState<AdditionalContact[]>([])
   const [services, setServices] = useState<Service[]>([])
   const [selectedServices, setSelectedServices] = useState<SelectedService[]>([])
+  const [servicesPopoverOpen, setServicesPopoverOpen] = useState(false)
 
   const [formData, setFormData] = useState({
     assigned_to: "",
@@ -737,70 +747,104 @@ const getStageColor = (color: string | null) => {
                     No hay servicios cargados para esta agencia. Crea servicios en la sección de Servicios.
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    {services.map((service) => {
-                      const selected = selectedServices.find(s => s.service_id === service.id)
-                      const isSelected = !!selected
-                      return (
-                        <div
-                          key={service.id}
-                          className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
-                            isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/50"
-                          }`}
+                  <>
+                    {/* Combo box multi-selección */}
+                    <Popover open={servicesPopoverOpen} onOpenChange={setServicesPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={servicesPopoverOpen}
+                          className="w-full justify-between font-normal"
                         >
-                          <button
-                            type="button"
-                            onClick={() => toggleService(service.id)}
-                            className="flex flex-1 items-start gap-3 text-left"
-                          >
-                            <span
-                              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
-                                isSelected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
-                              }`}
-                              aria-hidden="true"
+                          {selectedServices.length > 0
+                            ? `${selectedServices.length} servicio(s) seleccionado(s)`
+                            : "Seleccionar servicios..."}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar servicio..." />
+                          <CommandList>
+                            <CommandEmpty>No se encontraron servicios.</CommandEmpty>
+                            <CommandGroup>
+                              {services.map((service) => {
+                                const isSelected = selectedServices.some(s => s.service_id === service.id)
+                                return (
+                                  <CommandItem
+                                    key={service.id}
+                                    value={service.name}
+                                    onSelect={() => toggleService(service.id)}
+                                  >
+                                    <Check
+                                      className={`mr-2 h-4 w-4 ${isSelected ? "opacity-100" : "opacity-0"}`}
+                                    />
+                                    <div className="flex flex-1 flex-col">
+                                      <span className="text-sm">{service.name}</span>
+                                      {service.base_price != null && (
+                                        <span className="text-xs text-muted-foreground">
+                                          ${service.base_price.toLocaleString("es-MX")} c/u
+                                        </span>
+                                      )}
+                                    </div>
+                                  </CommandItem>
+                                )
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+
+                    {/* Lista de servicios seleccionados con cantidad */}
+                    {selectedServices.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedServices.map((sel) => {
+                          const service = services.find(s => s.id === sel.service_id)
+                          if (!service) return null
+                          return (
+                            <div
+                              key={sel.service_id}
+                              className="flex items-center gap-3 rounded-lg border p-3"
                             >
-                              {isSelected && <Plus className="h-3 w-3 rotate-45" />}
-                            </span>
-                            <span className="space-y-0.5">
-                              <span className="block text-sm font-medium leading-none">{service.name}</span>
-                              {service.description && (
-                                <span className="block text-xs text-muted-foreground">{service.description}</span>
-                              )}
-                              {service.base_price != null && (
-                                <span className="block text-xs text-muted-foreground">
-                                  ${service.base_price.toLocaleString("es-MX")} c/u
-                                </span>
-                              )}
-                            </span>
-                          </button>
-                          {isSelected && (
-                            <div className="flex items-center gap-1">
-                              <Label htmlFor={`qty-${service.id}`} className="sr-only">
-                                Cantidad
-                              </Label>
-                              <Input
-                                id={`qty-${service.id}`}
-                                type="number"
-                                min={1}
-                                value={selected!.quantity}
-                                onChange={(e) => updateServiceQuantity(service.id, parseInt(e.target.value) || 1)}
-                                className="w-16 h-8"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground"
-                                onClick={() => removeSelectedService(service.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              <div className="flex-1 space-y-0.5">
+                                <p className="text-sm font-medium leading-none">{service.name}</p>
+                                {service.base_price != null && (
+                                  <p className="text-xs text-muted-foreground">
+                                    ${service.base_price.toLocaleString("es-MX")} c/u
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Label htmlFor={`qty-${service.id}`} className="sr-only">
+                                  Cantidad
+                                </Label>
+                                <Input
+                                  id={`qty-${service.id}`}
+                                  type="number"
+                                  min={1}
+                                  value={sel.quantity}
+                                  onChange={(e) => updateServiceQuantity(service.id, parseInt(e.target.value) || 1)}
+                                  className="w-16 h-8"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground"
+                                  onClick={() => removeSelectedService(service.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {selectedServices.length > 0 && (
