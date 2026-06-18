@@ -48,11 +48,14 @@ interface DocumentType {
 }
 
 const DOCUMENT_TYPES: DocumentType[] = [
+  { id: "acta_nacimiento", label: "Acta de Nacimiento", description: "Acta de nacimiento del empleado", required: false },
   { id: "carta_interna", label: "Carta Interna", description: "Carta de presentación o recomendación interna", required: false },
   { id: "comprobante_domicilio", label: "Comprobante de Domicilio", description: "Recibo de luz, agua, teléfono o estado de cuenta bancario (no mayor a 3 meses)", required: false },
+  { id: "curp", label: "CURP", description: "Clave Única de Registro de Población", required: false },
   { id: "cv", label: "Curriculum Vitae", description: "CV actualizado del empleado", required: false },
   { id: "estado_cuenta", label: "Portada de Estado de Cuenta", description: "Portada del estado de cuenta bancario para validar datos de pago", required: false },
   { id: "identificacion_oficial", label: "Identificación Oficial", description: "INE, pasaporte o cédula profesional", required: false },
+  { id: "rfc", label: "RFC", description: "Constancia de Situación Fiscal (RFC)", required: false },
 ]
 
 interface StaffDocumentsProps {
