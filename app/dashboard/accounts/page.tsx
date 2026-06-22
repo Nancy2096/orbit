@@ -227,6 +227,7 @@ export default function AccountsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12 text-right">#</TableHead>
                   <TableHead>Cuenta</TableHead>
                   <TableHead>Cliente</TableHead>
                   <TableHead>Agencia</TableHead>
@@ -237,8 +238,11 @@ export default function AccountsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAccounts.map((account) => (
+                {filteredAccounts.map((account, index) => (
                   <TableRow key={account.id}>
+                    <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
+                      {index + 1}
+                    </TableCell>
                     <TableCell>
                       <div>
                         <div className="font-medium">{account.account_name}</div>
