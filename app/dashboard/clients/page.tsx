@@ -504,6 +504,7 @@ export default function ClientsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12 text-right">#</TableHead>
                     {visibleColumns.map((column) => (
                       <TableHead key={column.key}>{column.label}</TableHead>
                     ))}
@@ -511,8 +512,11 @@ export default function ClientsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredClients.map((client) => (
+                  {filteredClients.map((client, index) => (
                     <TableRow key={client.id}>
+                      <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
+                        {index + 1}
+                      </TableCell>
                       {visibleColumns.map((column) => (
                         <TableCell key={column.key}>
                           {column.key === "company_name" && (

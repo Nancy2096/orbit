@@ -207,6 +207,7 @@ export default function ProjectsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12 text-right">#</TableHead>
                   <TableHead>Proyecto</TableHead>
                   <TableHead>Cliente / Cuenta</TableHead>
                   <TableHead>Fechas</TableHead>
@@ -217,8 +218,11 @@ export default function ProjectsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProjects.map((project) => (
+                {filteredProjects.map((project, index) => (
                   <TableRow key={project.id}>
+                    <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
+                      {index + 1}
+                    </TableCell>
                     <TableCell>
                       <div>
                         <div className="font-medium">{project.name}</div>
