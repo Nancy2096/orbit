@@ -3880,7 +3880,7 @@ const handleCreateTemplate = () => {
 
       {/* Templates Library Dialog */}
       <Dialog open={showTemplatesDialog} onOpenChange={setShowTemplatesDialog}>
-        <DialogContent className="sm:max-w-[700px]">
+        <DialogContent className="top-0 left-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 sm:max-w-none overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Biblioteca de Plantillas</DialogTitle>
             <DialogDescription>
@@ -3910,7 +3910,7 @@ const handleCreateTemplate = () => {
               Permanencia
             </Button>
           </div>
-          <div className="grid gap-3 py-4 max-h-[400px] overflow-y-auto">
+          <div className="grid gap-3 py-4 mx-auto w-full max-w-4xl">
             {templatesList
               .filter(t => templateScopeFilter === "all" || t.scope === templateScopeFilter)
               .map((template) => {
@@ -3964,7 +3964,7 @@ const handleCreateTemplate = () => {
 
       {/* Template Preview Dialog */}
       <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
-        <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="top-0 left-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 sm:max-w-none overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selectedTemplate && categoryConfig[selectedTemplate.category] && (
@@ -4078,7 +4078,7 @@ const handleCreateTemplate = () => {
 
       {/* Create Template Dialog */}
       <Dialog open={showCreateTemplateDialog} onOpenChange={setShowCreateTemplateDialog}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="top-0 left-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 sm:max-w-none overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Crear Nueva Plantilla</DialogTitle>
             <DialogDescription>
@@ -4339,7 +4339,7 @@ const handleCreateTemplate = () => {
 
       {/* Edit Template Dialog */}
       <Dialog open={showEditTemplateDialog} onOpenChange={setShowEditTemplateDialog}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="top-0 left-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 sm:max-w-none overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Plantilla</DialogTitle>
             <DialogDescription>
