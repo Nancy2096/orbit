@@ -3793,14 +3793,14 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Nueva Evaluación */}
       <Dialog open={showNewEvaluationDialog} onOpenChange={setShowNewEvaluationDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="top-0 left-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 sm:max-w-none overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nueva Evaluación</DialogTitle>
             <DialogDescription>
               Crea una nueva evaluación para candidatos o colaboradores
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="grid gap-4 py-4 mx-auto w-full max-w-3xl">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Tipo de Evaluación</Label>
