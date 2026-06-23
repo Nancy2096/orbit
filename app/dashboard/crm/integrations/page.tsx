@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -233,6 +233,56 @@ interface ConnectedIntegration {
 export default function CRMIntegrationsPage() {
   const [activeTab, setActiveTab] = useState("telephony")
   const [searchQuery, setSearchQuery] = useState("")
+
+  // Integraciones de Google con conexión real por usuario (OAuth).
+  const GOOGLE_OAUTH_IDS = ["gmail", "google_calendar"]
+  const [googleConnection, setGoogleConnection] = useState<{
+    connected: boolean
+    configured: boolean
+    email: string | null
+    lastSync: string | null
+  }>({ connected: false, configured: true, email: null, lastSync: null })
+
+  const fetchGoogleStatus = async () => {
+    try {
+      const res = await fetch("/api/google/status")
+      if (res.ok) {
+        const data = await res.json()
+        setGoogleConnection({
+          connected: Boolean(data.connected),
+          configured: Boolean(data.configured),
+          email: data.email ?? null,
+          lastSync: data.lastSync ?? null,
+        })
+      }
+    } catch (err) {
+      console.log("[v0] Error obteniendo estado de Google:", err)
+    }
+  }
+
+  // Abre la categoría indicada por query param, gestiona el resultado del OAuth y carga el estado de Google.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const tab = params.get("tab")
+    if (tab && integrationCategories.some((c) => c.id === tab)) {
+      setActiveTab(tab)
+    }
+
+    const googleResult = params.get("google")
+    if (googleResult === "connected") {
+      toast.success("Cuenta de Google conectada exitosamente")
+    } else if (googleResult === "error") {
+      toast.error("No se pudo conectar la cuenta de Google")
+    } else if (googleResult === "not_configured") {
+      toast.error("Google no está configurado. Falta agregar las credenciales OAuth.")
+    }
+    if (googleResult) {
+      // Limpia el query param para evitar repetir el toast al recargar.
+      window.history.replaceState({}, "", window.location.pathname + (tab ? `?tab=${tab}` : ""))
+    }
+
+    fetchGoogleStatus()
+  }, [])
   const [configModalOpen, setConfigModalOpen] = useState(false)
   const [selectedIntegration, setSelectedIntegration] = useState<{
     category: typeof integrationCategories[0]
@@ -273,20 +323,48 @@ export default function CRMIntegrationsPage() {
   const [configFields, setConfigFields] = useState<Record<string, string>>({})
 
   const isConnected = (integrationId: string) => {
+    if (GOOGLE_OAUTH_IDS.includes(integrationId)) return googleConnection.connected
     return connectedIntegrations.some(ci => ci.integrationId === integrationId)
   }
 
-  const getConnectionStatus = (integrationId: string) => {
+  const getConnectionStatus = (integrationId: string): ConnectedIntegration | undefined => {
+    if (GOOGLE_OAUTH_IDS.includes(integrationId)) {
+      if (!googleConnection.connected) return undefined
+      return {
+        id: `google-${integrationId}`,
+        integrationId,
+        categoryId: integrationId === "gmail" ? "google_suite" : "calendar",
+        connectedAt: "",
+        status: "active",
+        config: googleConnection.email ? { email: googleConnection.email } : {},
+        lastSync: googleConnection.lastSync ?? undefined,
+      }
+    }
     return connectedIntegrations.find(ci => ci.integrationId === integrationId)
   }
 
   const handleConnect = (category: typeof integrationCategories[0], integration: typeof integrationCategories[0]['integrations'][0]) => {
+    // Las integraciones de Google usan el flujo OAuth real por usuario.
+    if (GOOGLE_OAUTH_IDS.includes(integration.id)) {
+      window.location.href = "/api/google/connect"
+      return
+    }
     setSelectedIntegration({ category, integration })
     setConfigFields({})
     setConfigModalOpen(true)
   }
 
-  const handleDisconnect = (integrationId: string) => {
+  const handleDisconnect = async (integrationId: string) => {
+    if (GOOGLE_OAUTH_IDS.includes(integrationId)) {
+      const res = await fetch("/api/google/disconnect", { method: "POST" })
+      if (res.ok) {
+        setGoogleConnection(prev => ({ ...prev, connected: false, email: null, lastSync: null }))
+        toast.success("Cuenta de Google desconectada")
+      } else {
+        toast.error("No se pudo desconectar la cuenta de Google")
+      }
+      return
+    }
     setConnectedIntegrations(prev => prev.filter(ci => ci.integrationId !== integrationId))
     toast.success("Integración desconectada")
   }
@@ -316,6 +394,12 @@ export default function CRMIntegrationsPage() {
   }
 
   const handleResync = async (integrationId: string) => {
+    if (GOOGLE_OAUTH_IDS.includes(integrationId)) {
+      toast.info("Actualizando estado...")
+      await fetchGoogleStatus()
+      toast.success("Estado actualizado")
+      return
+    }
     toast.info("Sincronizando...")
     await new Promise(resolve => setTimeout(resolve, 1000))
     setConnectedIntegrations(prev => prev.map(ci => 
@@ -599,6 +683,12 @@ export default function CRMIntegrationsPage() {
                         {integration.description}
                       </p>
                       
+                      {connected && connectionStatus?.config?.email && (
+                        <p className="text-xs font-medium text-foreground mb-1 truncate">
+                          {connectionStatus.config.email}
+                        </p>
+                      )}
+
                       {connected && connectionStatus?.lastSync && (
                         <p className="text-xs text-muted-foreground mb-3">
                           Última sync: {new Date(connectionStatus.lastSync).toLocaleString('es-ES')}

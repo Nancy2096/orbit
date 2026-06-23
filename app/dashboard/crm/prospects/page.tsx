@@ -31,7 +31,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { createClient } from "@/lib/supabase/client"
+import { toast } from "sonner"
 import { 
   UserPlus, 
   Search,
@@ -99,7 +110,31 @@ export default function ProspectsPage() {
   const [selectedStage, setSelectedStage] = useState<string>("all")
   const [selectedSource, setSelectedSource] = useState<string>("all")
   const [selectedSalesRep, setSelectedSalesRep] = useState<string>("all")
+  const [prospectToDelete, setProspectToDelete] = useState<Prospect | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const supabase = createClient()
+
+  const handleDelete = async () => {
+    if (!prospectToDelete) return
+    setDeleting(true)
+
+    const { error } = await supabase
+      .from("crm_prospects")
+      .delete()
+      .eq("id", prospectToDelete.id)
+
+    setDeleting(false)
+
+    if (error) {
+      console.log("[v0] Error deleting prospect:", error)
+      toast.error("No se pudo eliminar el prospecto")
+      return
+    }
+
+    setProspects((prev) => prev.filter((p) => p.id !== prospectToDelete.id))
+    toast.success("Prospecto eliminado correctamente")
+    setProspectToDelete(null)
+  }
 
   useEffect(() => {
     if (selectedAgencyId) {
@@ -611,6 +646,17 @@ export default function ProspectsPage() {
                               Editar
                             </Link>
                           </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={(e) => {
+                              e.preventDefault()
+                              setProspectToDelete(prospect)
+                            }}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Eliminar
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -621,6 +667,34 @@ export default function ProspectsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!prospectToDelete} onOpenChange={(open) => !open && setProspectToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar prospecto?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará permanentemente a{" "}
+              <span className="font-medium text-foreground">
+                {prospectToDelete?.contact_name}
+              </span>
+              {prospectToDelete?.company_name ? ` (${prospectToDelete.company_name})` : ""} y toda su información asociada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDelete()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

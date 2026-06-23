@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -752,10 +753,12 @@ export default function RolesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => openPermissionsDialog(role)}
+                              asChild
                               title="Gestionar permisos"
                             >
-                              <Shield className="h-4 w-4" />
+                              <Link href={`/dashboard/roles/${role.id}/permissions`}>
+                                <Shield className="h-4 w-4" />
+                              </Link>
                             </Button>
 <Button
                           variant="ghost"
