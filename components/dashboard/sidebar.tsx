@@ -133,6 +133,11 @@ const hrNavItems = [
     icon: UserCog,
   },
   {
+    title: "Onboarding",
+    url: "/dashboard/hr/onboarding",
+    icon: UserPlus,
+  },
+  {
     title: "Organigrama",
     url: "/dashboard/hr/organigrama",
     icon: Network,

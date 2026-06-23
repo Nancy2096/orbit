@@ -16,6 +16,7 @@ import { ArrowLeft, Users, AlertCircle, Camera, MapPin, Phone, CreditCard, UserC
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StaffAvatar } from "@/components/staff-avatar"
 import { StaffDocuments, type StaffDocument } from "@/components/hr/staff-documents"
+import { ProfileCompletionDetail } from "@/components/hr/profile-completion"
 import { EMPLOYMENT_STATUSES } from "@/app/dashboard/hr/staff/page"
 
 interface Agency {
@@ -582,6 +583,20 @@ hire_date: formData.hire_date || null,
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Avance de llenado del perfil */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCircle className="h-5 w-5" />
+                Avance del Perfil
+              </CardTitle>
+              <CardDescription>Porcentaje de información completada por categoría</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProfileCompletionDetail staff={formData} />
             </CardContent>
           </Card>
 

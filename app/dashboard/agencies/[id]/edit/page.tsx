@@ -300,6 +300,17 @@ const [positions, setPositions] = useState<Position[]>([])
     is_active: true,
   })
 
+  // Configuración de correos para onboarding (encuestas de satisfacción)
+  const [emailConfig, setEmailConfig] = useState({
+    sender_name: "",
+    sender_email: "",
+    reply_to: "",
+    hr_notification_email: "",
+    survey_subject_week1: "Tu experiencia en la primera semana",
+    survey_subject_day30: "Tu integración a 30 días",
+    signature: "",
+  })
+
   useEffect(() => {
     setMounted(true)
   }, [])
@@ -323,6 +334,12 @@ const [positions, setPositions] = useState<Position[]>([])
             ...prev,
             logo_url: agency.logo_url || "",
             ...(agency.settings?.branding || {})
+          }))
+        }
+        if (agency.settings?.onboarding_email) {
+          setEmailConfig(prev => ({
+            ...prev,
+            ...agency.settings.onboarding_email,
           }))
         }
       }
@@ -956,7 +973,8 @@ const [positions, setPositions] = useState<Position[]>([])
               background_color: branding.background_color,
               font_family: branding.font_family,
               tagline: branding.tagline,
-            }
+            },
+            onboarding_email: emailConfig,
           },
           updated_at: new Date().toISOString(),
         })
@@ -1355,7 +1373,101 @@ const [positions, setPositions] = useState<Position[]>([])
                 <Bell className="h-4 w-4 mr-2" />
                 Notificaciones
               </TabsTrigger>
+              <TabsTrigger value="onboarding-email" className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md px-4 py-2">
+                <Mail className="h-4 w-4 mr-2" />
+                Correos Onboarding
+              </TabsTrigger>
             </TabsList>
+
+          {/* Tab Correos Onboarding */}
+          <TabsContent value="onboarding-email">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-5 w-5" />
+                  Correos de Onboarding
+                </CardTitle>
+                <CardDescription>
+                  Configura los datos de envío de las encuestas de satisfacción (semana 1 y día 30) para esta agencia.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FieldGroup>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="sender_name">Nombre del remitente</Label>
+                      <Input
+                        id="sender_name"
+                        value={emailConfig.sender_name}
+                        onChange={(e) => setEmailConfig({ ...emailConfig, sender_name: e.target.value })}
+                        placeholder="Recursos Humanos"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="sender_email">Correo del remitente</Label>
+                      <Input
+                        id="sender_email"
+                        type="email"
+                        value={emailConfig.sender_email}
+                        onChange={(e) => setEmailConfig({ ...emailConfig, sender_email: e.target.value })}
+                        placeholder="rrhh@agencia.com"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="reply_to">Responder a (Reply-To)</Label>
+                      <Input
+                        id="reply_to"
+                        type="email"
+                        value={emailConfig.reply_to}
+                        onChange={(e) => setEmailConfig({ ...emailConfig, reply_to: e.target.value })}
+                        placeholder="rrhh@agencia.com"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="hr_notification_email">Correo de notificación a RRHH</Label>
+                      <Input
+                        id="hr_notification_email"
+                        type="email"
+                        value={emailConfig.hr_notification_email}
+                        onChange={(e) => setEmailConfig({ ...emailConfig, hr_notification_email: e.target.value })}
+                        placeholder="Recibe avisos cuando se responde una encuesta"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="survey_subject_week1">Asunto — Encuesta Semana 1</Label>
+                      <Input
+                        id="survey_subject_week1"
+                        value={emailConfig.survey_subject_week1}
+                        onChange={(e) => setEmailConfig({ ...emailConfig, survey_subject_week1: e.target.value })}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="survey_subject_day30">Asunto — Encuesta Día 30</Label>
+                      <Input
+                        id="survey_subject_day30"
+                        value={emailConfig.survey_subject_day30}
+                        onChange={(e) => setEmailConfig({ ...emailConfig, survey_subject_day30: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="signature">Firma del correo</Label>
+                    <Textarea
+                      id="signature"
+                      value={emailConfig.signature}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, signature: e.target.value })}
+                      placeholder="Equipo de Recursos Humanos"
+                      rows={3}
+                    />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Estos datos se usan para personalizar los correos de las encuestas de satisfacción del onboarding.
+                    El disparo automático (día 7 y día 30) usará esta configuración una vez se conecte el proveedor de correo.
+                  </p>
+                </FieldGroup>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Tab General */}
           <TabsContent value="general">
