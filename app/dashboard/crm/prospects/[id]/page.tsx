@@ -1865,9 +1865,11 @@ state_province: prospectData.state_province || "",
                         <p className="text-sm text-muted-foreground">Sincroniza tus citas con Google Calendar</p>
                       </div>
                     </div>
-                    <Button variant="outline">
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      Conectar
+                    <Button variant="outline" asChild>
+                      <Link href="/dashboard/crm/integrations?tab=google_suite">
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        Conectar
+                      </Link>
                     </Button>
                   </div>
                 </CardContent>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -233,6 +233,15 @@ interface ConnectedIntegration {
 export default function CRMIntegrationsPage() {
   const [activeTab, setActiveTab] = useState("telephony")
   const [searchQuery, setSearchQuery] = useState("")
+
+  // Permite abrir una categoría específica desde un enlace externo (ej. ?tab=google_suite)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const tab = params.get("tab")
+    if (tab && integrationCategories.some((c) => c.id === tab)) {
+      setActiveTab(tab)
+    }
+  }, [])
   const [configModalOpen, setConfigModalOpen] = useState(false)
   const [selectedIntegration, setSelectedIntegration] = useState<{
     category: typeof integrationCategories[0]
