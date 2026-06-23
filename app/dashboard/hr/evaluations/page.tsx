@@ -97,6 +97,7 @@ Play,
   BookOpen,
   Settings,
   Layers,
+  FolderPlus,
   X,
   RotateCcw,
   RefreshCw,
@@ -2062,6 +2063,16 @@ const handleCreateTemplate = () => {
     }))
   }
 
+  const handleAddNewSection = () => {
+    setNewTemplateForm(prev => ({
+      ...prev,
+      sampleQuestions: [
+        ...prev.sampleQuestions,
+        { type: "section", question: "" }
+      ]
+    }))
+  }
+
   const handleRemoveNewQuestion = (index: number) => {
     setNewTemplateForm(prev => ({
       ...prev,
@@ -2128,6 +2139,16 @@ const handleCreateTemplate = () => {
       sampleQuestions: [
         ...prev.sampleQuestions,
         { type: "multiple", question: "", options: ["", "", "", ""] }
+      ]
+    }))
+  }
+
+  const handleAddSection = () => {
+    setEditTemplateForm(prev => ({
+      ...prev,
+      sampleQuestions: [
+        ...prev.sampleQuestions,
+        { type: "section", question: "" }
       ]
     }))
   }
@@ -4400,11 +4421,21 @@ const handleCreateTemplate = () => {
                   Preguntas de Ejemplo
                 </h4>
                 <div className="space-y-4">
-                  {selectedTemplate.sampleQuestions?.map((q, index) => (
+                  {selectedTemplate.sampleQuestions?.map((q, index) => {
+                    if (q.type === "section") {
+                      return (
+                        <div key={index} className="flex items-center gap-2 border-l-4 border-primary bg-primary/5 rounded-lg p-3 mt-2">
+                          <Layers className="h-4 w-4 text-primary flex-shrink-0" />
+                          <p className="font-semibold">{q.question || "Sección"}</p>
+                        </div>
+                      )
+                    }
+                    const questionNumber = (selectedTemplate.sampleQuestions ?? []).slice(0, index).filter(x => x.type !== "section").length + 1
+                    return (
                     <div key={index} className="p-4 border rounded-lg">
                       <div className="flex items-start gap-3">
                         <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm flex items-center justify-center font-medium">
-                          {index + 1}
+                          {questionNumber}
                         </span>
                         <div className="flex-1">
                           <p className="font-medium mb-2">{q.question}</p>
@@ -4453,7 +4484,8 @@ const handleCreateTemplate = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )
+                  })}
                 </div>
               </div>
             </div>
@@ -4584,24 +4616,53 @@ const handleCreateTemplate = () => {
             </TabsContent>
 
             <TabsContent value="questions" className="space-y-4 mt-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <p className="text-sm text-muted-foreground">
-                  Agrega las preguntas para tu plantilla
+                  Agrega preguntas y secciones para organizar tu plantilla
                 </p>
-                <Button size="sm" onClick={handleAddNewQuestion}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Agregar Pregunta
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={handleAddNewSection}>
+                    <FolderPlus className="mr-2 h-4 w-4" />
+                    Agregar Sección
+                  </Button>
+                  <Button size="sm" onClick={handleAddNewQuestion}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Agregar Pregunta
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-                {newTemplateForm.sampleQuestions.map((q, index) => (
+                {newTemplateForm.sampleQuestions.map((q, index) => {
+                  if (q.type === "section") {
+                    return (
+                      <div key={index} className="flex items-center gap-2 rounded-lg border-l-4 border-primary bg-primary/5 p-3">
+                        <Layers className="h-4 w-4 text-primary flex-shrink-0" />
+                        <Input
+                          value={q.question}
+                          onChange={(e) => handleUpdateNewQuestion(index, "question", e.target.value)}
+                          placeholder="Nombre de la sección (ej. Datos generales)"
+                          className="flex-1 border-0 bg-transparent font-semibold focus-visible:ring-0 px-0 shadow-none"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleRemoveNewQuestion(index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )
+                  }
+                  const questionNumber = newTemplateForm.sampleQuestions.slice(0, index).filter(x => x.type !== "section").length + 1
+                  return (
                   <Card key={index} className="p-4">
                     <div className="space-y-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm flex items-center justify-center font-medium">
-                            {index + 1}
+                            {questionNumber}
                           </span>
                           <Select 
                             value={q.type} 
@@ -4716,7 +4777,8 @@ const handleCreateTemplate = () => {
                       )}
                     </div>
                   </Card>
-                ))}
+                  )
+                })}
 
                 {newTemplateForm.sampleQuestions.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
@@ -4851,24 +4913,53 @@ const handleCreateTemplate = () => {
             </TabsContent>
 
             <TabsContent value="questions" className="space-y-4 mt-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <p className="text-sm text-muted-foreground">
-                  Edita las preguntas de la plantilla
+                  Edita las preguntas y secciones de la plantilla
                 </p>
-                <Button size="sm" onClick={handleAddQuestion}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Agregar Pregunta
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={handleAddSection}>
+                    <FolderPlus className="mr-2 h-4 w-4" />
+                    Agregar Sección
+                  </Button>
+                  <Button size="sm" onClick={handleAddQuestion}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Agregar Pregunta
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-                {editTemplateForm.sampleQuestions.map((q, index) => (
+                {editTemplateForm.sampleQuestions.map((q, index) => {
+                  if (q.type === "section") {
+                    return (
+                      <div key={index} className="flex items-center gap-2 rounded-lg border-l-4 border-primary bg-primary/5 p-3">
+                        <Layers className="h-4 w-4 text-primary flex-shrink-0" />
+                        <Input
+                          value={q.question}
+                          onChange={(e) => handleUpdateQuestion(index, "question", e.target.value)}
+                          placeholder="Nombre de la sección (ej. Datos generales)"
+                          className="flex-1 border-0 bg-transparent font-semibold focus-visible:ring-0 px-0 shadow-none"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleRemoveQuestion(index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )
+                  }
+                  const questionNumber = editTemplateForm.sampleQuestions.slice(0, index).filter(x => x.type !== "section").length + 1
+                  return (
                   <Card key={index} className="p-4">
                     <div className="space-y-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm flex items-center justify-center font-medium">
-                            {index + 1}
+                            {questionNumber}
                           </span>
                           <Select 
                             value={q.type} 
@@ -4983,7 +5074,8 @@ const handleCreateTemplate = () => {
                       )}
                     </div>
                   </Card>
-                ))}
+                  )
+                })}
 
                 {editTemplateForm.sampleQuestions.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
