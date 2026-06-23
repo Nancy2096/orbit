@@ -5,6 +5,8 @@ import { DashboardSidebar } from "@/components/dashboard/sidebar"
 import { DashboardHeader } from "@/components/dashboard/header"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { SystemThemeProvider } from "@/components/system-theme-provider"
+import { PermissionsProvider } from "@/components/dashboard/permissions-provider"
+import { RouteGuard } from "@/components/dashboard/route-guard"
 
 export default async function DashboardLayout({
   children,
@@ -45,15 +47,17 @@ export default async function DashboardLayout({
 
   return (
     <SystemThemeProvider>
-      <SidebarProvider>
-        <DashboardSidebar user={profile} />
-        <SidebarInset>
-          <DashboardHeader user={profile} />
-          <main className="flex-1 p-6">
-            {children}
-          </main>
-        </SidebarInset>
-      </SidebarProvider>
+      <PermissionsProvider>
+        <SidebarProvider>
+          <DashboardSidebar user={profile} />
+          <SidebarInset>
+            <DashboardHeader user={profile} />
+            <main className="flex-1 p-6">
+              <RouteGuard>{children}</RouteGuard>
+            </main>
+          </SidebarInset>
+        </SidebarProvider>
+      </PermissionsProvider>
     </SystemThemeProvider>
   )
 }

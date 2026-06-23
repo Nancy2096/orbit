@@ -4,6 +4,8 @@ import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSystemBranding } from "@/hooks/use-system-branding"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
+import { getModuleForPath } from "@/lib/permission-access"
 import {
   Sidebar,
   SidebarContent,
@@ -294,6 +296,19 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
   const supabase = createClient()
   const { branding, getLogoUrl } = useSystemBranding()
   const { state, toggleSidebar } = useSidebar()
+  const { hasModule } = usePermissions()
+
+  // Filtra los items de navegación según los permisos del rol del usuario.
+  const filterNav = <T extends { url: string }>(items: T[]): T[] =>
+    items.filter((item) => hasModule(getModuleForPath(item.url)))
+
+  const filteredMainNavItems = filterNav(mainNavItems)
+  const filteredManagementNavItems = filterNav(managementNavItems)
+  const filteredOperationsNavItems = filterNav(operationsNavItems)
+  const filteredHrNavItems = filterNav(hrNavItems)
+  const filteredCrmNavItems = filterNav(crmNavItems)
+  const filteredFinanceNavItems = filterNav(financeNavItems)
+  const filteredSettingsNavItems = filterNav(settingsNavItems)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     administracion: true,
     operaciones: true,
@@ -386,7 +401,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems.map((item) => (
+              {filteredMainNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
@@ -404,6 +419,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {filteredManagementNavItems.length > 0 && (
         <SidebarGroup>
           <button 
             onClick={() => toggleSection('administracion')}
@@ -416,7 +432,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           {expandedSections.administracion && (
             <SidebarGroupContent>
               <SidebarMenu>
-                {managementNavItems.map((item) => (
+                {filteredManagementNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -434,7 +450,9 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
             </SidebarGroupContent>
           )}
         </SidebarGroup>
+        )}
 
+        {filteredOperationsNavItems.length > 0 && (
         <SidebarGroup>
           <button 
             onClick={() => toggleSection('operaciones')}
@@ -447,7 +465,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           {expandedSections.operaciones && (
             <SidebarGroupContent>
               <SidebarMenu>
-                {operationsNavItems.map((item) => (
+                {filteredOperationsNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -465,7 +483,9 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
             </SidebarGroupContent>
           )}
         </SidebarGroup>
+        )}
 
+        {filteredHrNavItems.length > 0 && (
         <SidebarGroup>
           <button 
             onClick={() => toggleSection('rrhh')}
@@ -478,7 +498,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           {expandedSections.rrhh && (
             <SidebarGroupContent>
               <SidebarMenu>
-                {hrNavItems.map((item) => (
+                {filteredHrNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -498,7 +518,9 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
             </SidebarGroupContent>
           )}
         </SidebarGroup>
+        )}
 
+        {filteredCrmNavItems.length > 0 && (
         <SidebarGroup>
           <button 
             onClick={() => toggleSection('comercial')}
@@ -511,7 +533,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           {expandedSections.comercial && (
             <SidebarGroupContent>
               <SidebarMenu>
-                {crmNavItems.map((item) => (
+                {filteredCrmNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -529,7 +551,9 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
             </SidebarGroupContent>
           )}
         </SidebarGroup>
+        )}
 
+        {filteredFinanceNavItems.length > 0 && (
         <SidebarGroup>
           <button 
             onClick={() => toggleSection('finanzas')}
@@ -542,7 +566,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           {expandedSections.finanzas && (
             <SidebarGroupContent>
               <SidebarMenu>
-                {financeNavItems.map((item) => (
+                {filteredFinanceNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -560,7 +584,9 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
             </SidebarGroupContent>
           )}
         </SidebarGroup>
+        )}
 
+        {filteredSettingsNavItems.length > 0 && (
         <SidebarGroup>
           <button 
             onClick={() => toggleSection('configuracion')}
@@ -573,7 +599,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           {expandedSections.configuracion && (
             <SidebarGroupContent>
               <SidebarMenu>
-                {settingsNavItems.map((item) => (
+                {filteredSettingsNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -591,6 +617,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
             </SidebarGroupContent>
           )}
         </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
