@@ -2080,6 +2080,16 @@ const handleCreateTemplate = () => {
     }))
   }
 
+  const handleMoveNewQuestion = (index: number, direction: "up" | "down") => {
+    setNewTemplateForm(prev => {
+      const target = direction === "up" ? index - 1 : index + 1
+      if (target < 0 || target >= prev.sampleQuestions.length) return prev
+      const items = [...prev.sampleQuestions]
+      ;[items[index], items[target]] = [items[target], items[index]]
+      return { ...prev, sampleQuestions: items }
+    })
+  }
+
   const handleUpdateNewQuestion = (index: number, field: string, value: string | string[]) => {
     setNewTemplateForm(prev => ({
       ...prev,
@@ -2158,6 +2168,16 @@ const handleCreateTemplate = () => {
       ...prev,
       sampleQuestions: prev.sampleQuestions.filter((_, i) => i !== index)
     }))
+  }
+
+  const handleMoveQuestion = (index: number, direction: "up" | "down") => {
+    setEditTemplateForm(prev => {
+      const target = direction === "up" ? index - 1 : index + 1
+      if (target < 0 || target >= prev.sampleQuestions.length) return prev
+      const items = [...prev.sampleQuestions]
+      ;[items[index], items[target]] = [items[target], items[index]]
+      return { ...prev, sampleQuestions: items }
+    })
   }
 
   const handleUpdateQuestion = (index: number, field: string, value: string | string[]) => {
@@ -4646,6 +4666,26 @@ const handleCreateTemplate = () => {
                         />
                         <Button
                           variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={index === 0}
+                          onClick={() => handleMoveNewQuestion(index, "up")}
+                          aria-label="Subir sección"
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={index === newTemplateForm.sampleQuestions.length - 1}
+                          onClick={() => handleMoveNewQuestion(index, "down")}
+                          aria-label="Bajar sección"
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
                           size="sm"
                           className="text-destructive hover:text-destructive"
                           onClick={() => handleRemoveNewQuestion(index)}
@@ -4680,14 +4720,36 @@ const handleCreateTemplate = () => {
                             </SelectContent>
                           </Select>
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleRemoveNewQuestion(index)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={index === 0}
+                            onClick={() => handleMoveNewQuestion(index, "up")}
+                            aria-label="Subir pregunta"
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={index === newTemplateForm.sampleQuestions.length - 1}
+                            onClick={() => handleMoveNewQuestion(index, "down")}
+                            aria-label="Bajar pregunta"
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleRemoveNewQuestion(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="grid gap-2">
@@ -4943,6 +5005,26 @@ const handleCreateTemplate = () => {
                         />
                         <Button
                           variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={index === 0}
+                          onClick={() => handleMoveQuestion(index, "up")}
+                          aria-label="Subir sección"
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={index === editTemplateForm.sampleQuestions.length - 1}
+                          onClick={() => handleMoveQuestion(index, "down")}
+                          aria-label="Bajar sección"
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
                           size="sm"
                           className="text-destructive hover:text-destructive"
                           onClick={() => handleRemoveQuestion(index)}
@@ -4977,14 +5059,36 @@ const handleCreateTemplate = () => {
                             </SelectContent>
                           </Select>
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleRemoveQuestion(index)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={index === 0}
+                            onClick={() => handleMoveQuestion(index, "up")}
+                            aria-label="Subir pregunta"
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={index === editTemplateForm.sampleQuestions.length - 1}
+                            onClick={() => handleMoveQuestion(index, "down")}
+                            aria-label="Bajar pregunta"
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleRemoveQuestion(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="grid gap-2">
