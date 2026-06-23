@@ -506,7 +506,7 @@ const evaluationTemplates = [
       { type: "scale", question: "Se expresa de manera clara y concisa", scale: "1-5" },
       { type: "scale", question: "Escucha activamente a los demás", scale: "1-5" },
       { type: "scale", question: "Proporciona retroalimentación constructiva", scale: "1-5" },
-      { type: "scale", question: "Adapta su comunicación según la audiencia", scale: "1-5" },
+      { type: "scale", question: "Adapta su comunicación seg��n la audiencia", scale: "1-5" },
       { type: "scale", question: "Mantiene informados a los stakeholders relevantes", scale: "1-5" },
       { type: "scale", question: "Maneja conversaciones difíciles con profesionalismo", scale: "1-5" },
       { type: "scale", question: "Presenta ideas de manera convincente", scale: "1-5" },
@@ -621,6 +621,43 @@ const evaluationTemplates = [
       { type: "scale", question: "Valora y aprovecha las fortalezas de otros", scale: "1-5" },
       { type: "scale", question: "Contribuye a un ambiente de equipo positivo", scale: "1-5" },
       { type: "behavioral", question: "Describe cómo contribuiste al éxito de un proyecto de equipo" },
+    ]
+  },
+  {
+    id: "tpl-obj-1",
+    name: "Definición de Objetivos (OKR)",
+    category: "kpi",
+    scope: "objectives" as const,
+    questions: 8,
+    time: 20,
+    description: "Plantilla para establecer objetivos y resultados clave (OKR) por colaborador, con metas medibles y plazos definidos.",
+    sampleQuestions: [
+      { type: "open", question: "¿Cuál es el objetivo principal a lograr en el período?" },
+      { type: "open", question: "Resultado clave 1 (medible y con meta numérica)" },
+      { type: "open", question: "Resultado clave 2 (medible y con meta numérica)" },
+      { type: "open", question: "Resultado clave 3 (medible y con meta numérica)" },
+      { type: "open", question: "¿Cómo contribuye este objetivo a las metas del área?" },
+      { type: "open", question: "Recursos o apoyo necesarios para lograrlo" },
+      { type: "scale", question: "Nivel de prioridad del objetivo", scale: "1-5" },
+      { type: "open", question: "Fecha límite y entregables esperados" },
+    ]
+  },
+  {
+    id: "tpl-obj-2",
+    name: "Seguimiento de Objetivos",
+    category: "kpi",
+    scope: "objectives" as const,
+    questions: 7,
+    time: 15,
+    description: "Plantilla de seguimiento periódico del avance de objetivos, con calificación de cumplimiento y acciones de mejora.",
+    sampleQuestions: [
+      { type: "scale", question: "Porcentaje de avance del objetivo", scale: "0-100" },
+      { type: "scale", question: "Cumplimiento del resultado clave 1", scale: "1-5" },
+      { type: "scale", question: "Cumplimiento del resultado clave 2", scale: "1-5" },
+      { type: "scale", question: "Cumplimiento del resultado clave 3", scale: "1-5" },
+      { type: "open", question: "Principales logros del período" },
+      { type: "open", question: "Obstáculos encontrados y acciones de mejora" },
+      { type: "open", question: "Comentarios del evaluador" },
     ]
   },
 ]
@@ -804,12 +841,12 @@ export default function EvaluationsPage() {
   
   const [selectedTemplate, setSelectedTemplate] = useState<typeof evaluationTemplates[0] | null>(null)
   const [templatesList, setTemplatesList] = useState(evaluationTemplates)
-  const [templateScopeFilter, setTemplateScopeFilter] = useState<"all" | "selection" | "permanence">("all")
+  const [templateScopeFilter, setTemplateScopeFilter] = useState<"all" | "selection" | "permanence" | "objectives">("all")
   const [newTemplateForm, setNewTemplateForm] = useState({
     name: "",
     description: "",
     category: "psychometric",
-    scope: "selection" as "selection" | "permanence",
+    scope: "selection" as "selection" | "permanence" | "objectives",
     questions: 10,
     time: 15,
     sampleQuestions: [] as Array<{
@@ -824,7 +861,7 @@ const [editTemplateForm, setEditTemplateForm] = useState({
   name: "",
   description: "",
   category: "psychometric",
-  scope: "selection" as "selection" | "permanence",
+  scope: "selection" as "selection" | "permanence" | "objectives",
   questions: 0,
   time: 0,
   sampleQuestions: [] as Array<{
@@ -835,6 +872,100 @@ const [editTemplateForm, setEditTemplateForm] = useState({
       language?: string;
     }>,
   })
+
+  // Objetivos: estado y formularios
+  type ObjectiveFollowUp = { id: string; date: string; progress: number; note: string }
+  type Objective = {
+    id: string
+    title: string
+    description: string
+    staffId: string
+    staffName: string
+    period: string
+    dueDate: string
+    progress: number
+    status: "pending" | "in_progress" | "completed" | "at_risk"
+    followUps: ObjectiveFollowUp[]
+  }
+  const [objectives, setObjectives] = useState<Objective[]>([
+    {
+      id: "obj-1",
+      title: "Incrementar retención de clientes",
+      description: "Aumentar la tasa de retención de cuentas clave en un 15% durante el período.",
+      staffId: "",
+      staffName: "Equipo Comercial",
+      period: "Q1 2026",
+      dueDate: "2026-03-31",
+      progress: 45,
+      status: "in_progress",
+      followUps: [
+        { id: "fu-1", date: "2026-02-15", progress: 45, note: "Avance en renovaciones de cuentas prioritarias." },
+      ],
+    },
+  ])
+  const [showNewObjectiveDialog, setShowNewObjectiveDialog] = useState(false)
+  const [showObjectiveFollowUpDialog, setShowObjectiveFollowUpDialog] = useState(false)
+  const [activeObjectiveId, setActiveObjectiveId] = useState<string | null>(null)
+  const [newObjectiveForm, setNewObjectiveForm] = useState({
+    title: "",
+    description: "",
+    staffId: "",
+    period: "",
+    dueDate: "",
+  })
+  const [followUpForm, setFollowUpForm] = useState({ progress: 0, note: "" })
+
+  const objectiveStatusConfig: Record<Objective["status"], { label: string; className: string }> = {
+    pending: { label: "Pendiente", className: "bg-slate-100 text-slate-700 border-slate-200" },
+    in_progress: { label: "En progreso", className: "bg-blue-50 text-blue-700 border-blue-200" },
+    at_risk: { label: "En riesgo", className: "bg-red-50 text-red-700 border-red-200" },
+    completed: { label: "Completado", className: "bg-green-50 text-green-700 border-green-200" },
+  }
+
+  const handleCreateObjective = () => {
+    if (!newObjectiveForm.title.trim()) {
+      alert("Ingresa un título para el objetivo")
+      return
+    }
+    const staff = staffList.find((s) => s.id === newObjectiveForm.staffId)
+    const newObj: Objective = {
+      id: `obj-${Date.now()}`,
+      title: newObjectiveForm.title,
+      description: newObjectiveForm.description,
+      staffId: newObjectiveForm.staffId,
+      staffName: staff ? `${staff.first_name} ${staff.last_name}` : "Sin asignar",
+      period: newObjectiveForm.period || "Sin período",
+      dueDate: newObjectiveForm.dueDate,
+      progress: 0,
+      status: "pending",
+      followUps: [],
+    }
+    setObjectives((prev) => [newObj, ...prev])
+    setNewObjectiveForm({ title: "", description: "", staffId: "", period: "", dueDate: "" })
+    setShowNewObjectiveDialog(false)
+  }
+
+  const handleAddFollowUp = () => {
+    if (!activeObjectiveId) return
+    setObjectives((prev) =>
+      prev.map((obj) => {
+        if (obj.id !== activeObjectiveId) return obj
+        const progress = Math.max(0, Math.min(100, followUpForm.progress))
+        return {
+          ...obj,
+          progress,
+          status: progress >= 100 ? "completed" : progress > 0 ? "in_progress" : obj.status,
+          followUps: [
+            { id: `fu-${Date.now()}`, date: new Date().toISOString().slice(0, 10), progress, note: followUpForm.note },
+            ...obj.followUps,
+          ],
+        }
+      })
+    )
+    setFollowUpForm({ progress: 0, note: "" })
+    setActiveObjectiveId(null)
+    setShowObjectiveFollowUpDialog(false)
+  }
 
   // Load staff data from Supabase
   useEffect(() => {
@@ -2116,7 +2247,7 @@ const handleCreateTemplate = () => {
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-grid">
           <TabsTrigger value="dashboard" className="gap-2">
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Dashboard</span>
@@ -2128,6 +2259,10 @@ const handleCreateTemplate = () => {
           <TabsTrigger value="permanence" className="gap-2">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Permanencia</span>
+          </TabsTrigger>
+          <TabsTrigger value="objectives" className="gap-2">
+            <Target className="h-4 w-4" />
+            <span className="hidden sm:inline">Objetivos</span>
           </TabsTrigger>
           <TabsTrigger value="ninebox" className="gap-2">
             <Grid3X3 className="h-4 w-4" />
@@ -3083,6 +3218,137 @@ const handleCreateTemplate = () => {
         </Card>
       </TabsContent>
 
+      {/* Objetivos Tab */}
+      <TabsContent value="objectives" className="space-y-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold">Objetivos</h2>
+            <p className="text-sm text-muted-foreground">
+              Crea objetivos por colaborador y da seguimiento o evalúa su cumplimiento
+            </p>
+          </div>
+          <Button onClick={() => setShowNewObjectiveDialog(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nuevo Objetivo
+          </Button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Objetivos</CardTitle>
+              <Target className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{objectives.length}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">En Progreso</CardTitle>
+              <TrendingUp className="h-4 w-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{objectives.filter(o => o.status === "in_progress").length}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Completados</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{objectives.filter(o => o.status === "completed").length}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Avance Promedio</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {objectives.length > 0
+                  ? Math.round(objectives.reduce((sum, o) => sum + o.progress, 0) / objectives.length)
+                  : 0}%
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {objectives.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <Target className="h-10 w-10 text-muted-foreground mb-3" />
+              <p className="font-medium">Aún no hay objetivos</p>
+              <p className="text-sm text-muted-foreground">Crea el primer objetivo para empezar a darle seguimiento.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4">
+            {objectives.map((obj) => {
+              const statusCfg = objectiveStatusConfig[obj.status]
+              return (
+                <Card key={obj.id}>
+                  <CardHeader>
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <CardTitle className="text-base">{obj.title}</CardTitle>
+                          <Badge variant="outline" className={statusCfg.className}>{statusCfg.label}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">{obj.description}</p>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2 flex-wrap">
+                          <span className="flex items-center gap-1"><Users className="h-3 w-3" />{obj.staffName}</span>
+                          <span>·</span>
+                          <span>{obj.period}</span>
+                          {obj.dueDate && (<><span>·</span><span>Vence: {obj.dueDate}</span></>)}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setActiveObjectiveId(obj.id)
+                          setFollowUpForm({ progress: obj.progress, note: "" })
+                          setShowObjectiveFollowUpDialog(true)
+                        }}
+                      >
+                        <TrendingUp className="mr-2 h-4 w-4" />
+                        Seguimiento
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="text-muted-foreground">Avance</span>
+                        <span className="font-medium">{obj.progress}%</span>
+                      </div>
+                      <Progress value={obj.progress} />
+                    </div>
+                    {obj.followUps.length > 0 && (
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs font-medium mb-2">Historial de seguimiento</p>
+                        <div className="space-y-2">
+                          {obj.followUps.map((fu) => (
+                            <div key={fu.id} className="flex items-start gap-2 text-xs">
+                              <span className="text-muted-foreground shrink-0">{fu.date}</span>
+                              <span className="font-medium shrink-0">{fu.progress}%</span>
+                              <span className="text-muted-foreground">{fu.note}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </TabsContent>
+
       {/* Nine Box Tab */}
       <TabsContent value="ninebox" className="space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -3878,6 +4144,121 @@ const handleCreateTemplate = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog: Nuevo Objetivo */}
+      <Dialog open={showNewObjectiveDialog} onOpenChange={setShowNewObjectiveDialog}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Nuevo Objetivo</DialogTitle>
+            <DialogDescription>
+              Define un objetivo para un colaborador y dale seguimiento durante el período
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="obj-title">Título del objetivo</Label>
+              <Input
+                id="obj-title"
+                placeholder="Ej. Incrementar ventas en un 20%"
+                value={newObjectiveForm.title}
+                onChange={(e) => setNewObjectiveForm({ ...newObjectiveForm, title: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="obj-desc">Descripción</Label>
+              <Textarea
+                id="obj-desc"
+                placeholder="Describe el objetivo y los resultados esperados..."
+                value={newObjectiveForm.description}
+                onChange={(e) => setNewObjectiveForm({ ...newObjectiveForm, description: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="obj-staff">Colaborador</Label>
+              <Select
+                value={newObjectiveForm.staffId}
+                onValueChange={(v) => setNewObjectiveForm({ ...newObjectiveForm, staffId: v })}
+              >
+                <SelectTrigger id="obj-staff">
+                  <SelectValue placeholder="Selecciona un colaborador" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staffList.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.first_name} {s.last_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="obj-period">Período</Label>
+                <Input
+                  id="obj-period"
+                  placeholder="Ej. Q1 2026"
+                  value={newObjectiveForm.period}
+                  onChange={(e) => setNewObjectiveForm({ ...newObjectiveForm, period: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="obj-due">Fecha límite</Label>
+                <Input
+                  id="obj-due"
+                  type="date"
+                  value={newObjectiveForm.dueDate}
+                  onChange={(e) => setNewObjectiveForm({ ...newObjectiveForm, dueDate: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewObjectiveDialog(false)}>Cancelar</Button>
+            <Button onClick={handleCreateObjective}>
+              <Plus className="mr-2 h-4 w-4" />
+              Crear Objetivo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Seguimiento de Objetivo */}
+      <Dialog open={showObjectiveFollowUpDialog} onOpenChange={setShowObjectiveFollowUpDialog}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Seguimiento de Objetivo</DialogTitle>
+            <DialogDescription>
+              Registra el avance y comentarios de evaluación del objetivo
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="fu-progress">Avance (%)</Label>
+              <Input
+                id="fu-progress"
+                type="number"
+                min={0}
+                max={100}
+                value={followUpForm.progress}
+                onChange={(e) => setFollowUpForm({ ...followUpForm, progress: parseInt(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="fu-note">Comentario / Evaluación</Label>
+              <Textarea
+                id="fu-note"
+                placeholder="Describe el avance, logros u obstáculos..."
+                value={followUpForm.note}
+                onChange={(e) => setFollowUpForm({ ...followUpForm, note: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowObjectiveFollowUpDialog(false)}>Cancelar</Button>
+            <Button onClick={handleAddFollowUp}>Guardar Seguimiento</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Templates Library Dialog */}
       <Dialog open={showTemplatesDialog} onOpenChange={setShowTemplatesDialog}>
         <DialogContent className="top-0 left-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 sm:max-w-none overflow-y-auto">
@@ -3909,6 +4290,13 @@ const handleCreateTemplate = () => {
             >
               Permanencia
             </Button>
+            <Button
+              variant={templateScopeFilter === "objectives" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTemplateScopeFilter("objectives")}
+            >
+              Objetivos
+            </Button>
           </div>
           <div className="grid gap-3 py-4 mx-auto w-full max-w-4xl">
             {templatesList
@@ -3924,8 +4312,14 @@ const handleCreateTemplate = () => {
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="font-medium">{template.name}</h4>
-                        <Badge variant="outline" className={template.scope === "selection" ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-purple-50 text-purple-700 border-purple-200"}>
-                          {template.scope === "selection" ? "Selección" : "Permanencia"}
+                        <Badge variant="outline" className={
+                          template.scope === "selection"
+                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : template.scope === "objectives"
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-purple-50 text-purple-700 border-purple-200"
+                        }>
+                          {template.scope === "selection" ? "Selección" : template.scope === "objectives" ? "Objetivos" : "Permanencia"}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
@@ -4135,7 +4529,7 @@ const handleCreateTemplate = () => {
                 <Label htmlFor="new-template-scope">Aplicación</Label>
                 <Select 
                   value={newTemplateForm.scope} 
-                  onValueChange={(v: "selection" | "permanence") => setNewTemplateForm({...newTemplateForm, scope: v})}
+                  onValueChange={(v: "selection" | "permanence" | "objectives") => setNewTemplateForm({...newTemplateForm, scope: v})}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -4151,6 +4545,12 @@ const handleCreateTemplate = () => {
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-purple-500" />
                         <span>Permanencia</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="objectives">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span>Objetivos</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -4396,7 +4796,7 @@ const handleCreateTemplate = () => {
                 <Label htmlFor="template-scope">Aplicación</Label>
                 <Select 
                   value={editTemplateForm.scope || "selection"} 
-                  onValueChange={(v: "selection" | "permanence") => setEditTemplateForm({...editTemplateForm, scope: v})}
+                  onValueChange={(v: "selection" | "permanence" | "objectives") => setEditTemplateForm({...editTemplateForm, scope: v})}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -4412,6 +4812,12 @@ const handleCreateTemplate = () => {
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-purple-500" />
                         <span>Permanencia</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="objectives">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        <span>Objetivos</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
