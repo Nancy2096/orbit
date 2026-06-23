@@ -744,51 +744,43 @@ state_province: prospectData.state_province || "",
     setUploadingQuotation(true)
 
     try {
-      const fileName = `${prospectId}/${Date.now()}-${file.name}`
-      const { error: uploadError } = await supabase.storage
-        .from("quotations")
-        .upload(fileName, file)
+      const uploadData = new FormData()
+      uploadData.append("file", file)
+      uploadData.append("prospectId", prospectId)
 
-      if (uploadError) throw uploadError
-
-      const { data: urlData } = supabase.storage
-        .from("quotations")
-        .getPublicUrl(fileName)
-
-      const version = quotations.length + 1
-      const { error: dbError } = await supabase.from("crm_prospect_quotations").insert({
-        prospect_id: prospectId,
-        file_name: file.name,
-        file_url: urlData.publicUrl,
-        file_size: file.size,
-        version: version,
+      const response = await fetch("/api/crm/quotations", {
+        method: "POST",
+        body: uploadData,
       })
 
-      if (dbError) throw dbError
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}))
+        throw new Error(result.error || "Error al subir la cotización")
+      }
 
-      toast.success("Cotizacion subida exitosamente")
+      toast.success("Cotización subida exitosamente")
       fetchData()
     } catch (error) {
       console.error(error)
-      toast.error("Error al subir la cotizacion")
+      toast.error(error instanceof Error ? error.message : "Error al subir la cotización")
     } finally {
       setUploadingQuotation(false)
+      event.target.value = ""
     }
   }
 
   const deleteQuotation = async (quotationId: string) => {
-    const { error } = await supabase
-      .from("crm_prospect_quotations")
-      .delete()
-      .eq("id", quotationId)
+    const response = await fetch(`/api/crm/quotations?id=${quotationId}`, {
+      method: "DELETE",
+    })
 
-    if (error) {
-      toast.error("Error al eliminar cotizacion")
+    if (!response.ok) {
+      toast.error("Error al eliminar cotización")
       return
     }
 
     setQuotations(prev => prev.filter(q => q.id !== quotationId))
-    toast.success("Cotizacion eliminada")
+    toast.success("Cotización eliminada")
   }
 
   const addContact = () => {
