@@ -1990,6 +1990,7 @@ const handleEditTemplate = (template: typeof evaluationTemplates[0]) => {
   time: template.time,
   sampleQuestions: template.sampleQuestions ? [...template.sampleQuestions] : [],
   })
+  setShowTemplatesDialog(false)
   setShowEditTemplateDialog(true)
   }
 
@@ -2019,10 +2020,12 @@ const handleSaveTemplate = () => {
       name: "",
       description: "",
       category: "psychometric",
+      scope: "selection",
       questions: 10,
       time: 15,
       sampleQuestions: [],
     })
+    setShowTemplatesDialog(false)
     setShowCreateTemplateDialog(true)
   }
 
