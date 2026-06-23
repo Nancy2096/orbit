@@ -29,6 +29,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { StaffAvatar } from "@/components/staff-avatar"
+import { ProfileCompletionBar } from "@/components/hr/profile-completion"
 import { Plus, Search, MoreHorizontal, Pencil, Trash2, Users, Shield, CircleDot } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
@@ -72,6 +73,25 @@ interface Staff {
   department_info: {
     name: string
   } | null
+  // Campos usados para calcular el avance de llenado del perfil
+  hire_date: string | null
+  personal_email: string | null
+  personal_phone: string | null
+  address_street: string | null
+  address_colony: string | null
+  address_city: string | null
+  address_state: string | null
+  address_zip: string | null
+  address_country: string | null
+  emergency_contact_name: string | null
+  emergency_contact_relationship: string | null
+  emergency_contact_phone: string | null
+  emergency_contact_email: string | null
+  bank_name: string | null
+  bank_account_number: string | null
+  bank_clabe: string | null
+  bank_account_holder: string | null
+  contract_type_id: string | null
 }
 
 const contractTypeLabels: Record<string, string> = {
@@ -212,6 +232,24 @@ export default function StaffPage() {
         reports_to_id,
         position_id,
         department_id,
+        contract_type_id,
+        hire_date,
+        personal_email,
+        personal_phone,
+        address_street,
+        address_colony,
+        address_city,
+        address_state,
+        address_zip,
+        address_country,
+        emergency_contact_name,
+        emergency_contact_relationship,
+        emergency_contact_phone,
+        emergency_contact_email,
+        bank_name,
+        bank_account_number,
+        bank_clabe,
+        bank_account_holder,
         agency:agencies!staff_agency_id_fkey(id, name),
         roles:role_id(name, display_name)
       `)
@@ -466,6 +504,7 @@ export default function StaffPage() {
                   <TableHead>Departamento</TableHead>
                   <TableHead>Puesto</TableHead>
                   <TableHead>Jefe Inmediato</TableHead>
+                  <TableHead>Perfil</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
@@ -517,6 +556,9 @@ export default function StaffPage() {
                       ) : (
                         <span className="text-muted-foreground text-sm">Sin jefe asignado</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <ProfileCompletionBar staff={member} />
                     </TableCell>
                     <TableCell>
                       {(() => {
