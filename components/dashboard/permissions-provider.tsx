@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { getModuleForPath, isAlwaysAllowed } from "@/lib/permission-access"
+import { getModulesForPath, isAlwaysAllowed } from "@/lib/permission-access"
 
 interface PermissionsContextValue {
   loading: boolean
@@ -11,6 +11,8 @@ interface PermissionsContextValue {
   roleName: string | null
   // ¿El usuario tiene acceso al módulo indicado?
   hasModule: (module: string | null | undefined) => boolean
+  // ¿El usuario tiene CUALQUIERA de los módulos indicados?
+  hasAnyModule: (modules: string[] | null | undefined) => boolean
   // ¿El usuario puede acceder a la ruta indicada?
   canAccessPath: (pathname: string) => boolean
 }
@@ -21,6 +23,7 @@ const PermissionsContext = createContext<PermissionsContextValue>({
   modules: new Set(),
   roleName: null,
   hasModule: () => false,
+  hasAnyModule: () => false,
   canAccessPath: () => false,
 })
 
@@ -105,21 +108,31 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
     [fullAccess, modules],
   )
 
+  const hasAnyModule = useCallback(
+    (mods: string[] | null | undefined) => {
+      if (fullAccess) return true
+      // Sin módulos requeridos (ruta no mapeada) se permite por defecto.
+      if (!mods || mods.length === 0) return true
+      return mods.some((m) => modules.has(m))
+    },
+    [fullAccess, modules],
+  )
+
   const canAccessPath = useCallback(
     (pathname: string) => {
       if (fullAccess) return true
       if (isAlwaysAllowed(pathname)) return true
-      const module = getModuleForPath(pathname)
+      const mods = getModulesForPath(pathname)
       // Rutas sin módulo mapeado se permiten por defecto.
-      if (!module) return true
-      return modules.has(module)
+      if (!mods || mods.length === 0) return true
+      return mods.some((m) => modules.has(m))
     },
     [fullAccess, modules],
   )
 
   return (
     <PermissionsContext.Provider
-      value={{ loading, fullAccess, modules, roleName, hasModule, canAccessPath }}
+      value={{ loading, fullAccess, modules, roleName, hasModule, hasAnyModule, canAccessPath }}
     >
       {children}
     </PermissionsContext.Provider>

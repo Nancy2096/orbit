@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSystemBranding } from "@/hooks/use-system-branding"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
-import { getModuleForPath } from "@/lib/permission-access"
+import { getModulesForPath } from "@/lib/permission-access"
 import {
   Sidebar,
   SidebarContent,
@@ -296,11 +296,11 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
   const supabase = createClient()
   const { branding, getLogoUrl } = useSystemBranding()
   const { state, toggleSidebar } = useSidebar()
-  const { hasModule } = usePermissions()
+  const { hasAnyModule } = usePermissions()
 
   // Filtra los items de navegación según los permisos del rol del usuario.
   const filterNav = <T extends { url: string }>(items: T[]): T[] =>
-    items.filter((item) => hasModule(getModuleForPath(item.url)))
+    items.filter((item) => hasAnyModule(getModulesForPath(item.url)))
 
   const filteredMainNavItems = filterNav(mainNavItems)
   const filteredManagementNavItems = filterNav(managementNavItems)

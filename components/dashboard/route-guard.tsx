@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import { ShieldAlert } from "lucide-react"
+import { ShieldAlert, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 
@@ -10,9 +10,14 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const { loading, canAccessPath } = usePermissions()
 
-  // Mientras carga el perfil/permisos, no bloqueamos el render para evitar parpadeos.
+  // Mientras carga el perfil/permisos mostramos un loader para no exponer
+  // contenido restringido antes de validar el acceso.
   if (loading) {
-    return <>{children}</>
+    return (
+      <div className="flex min-h-[70vh] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
   }
 
   if (!canAccessPath(pathname)) {
