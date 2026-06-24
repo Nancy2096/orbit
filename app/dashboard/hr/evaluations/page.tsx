@@ -845,6 +845,7 @@ export default function EvaluationsPage() {
   const [templateScopeFilter, setTemplateScopeFilter] = useState<"all" | "selection" | "permanence" | "objectives">("all")
   const [newTemplateForm, setNewTemplateForm] = useState({
     name: "",
+    subtitle: "",
     description: "",
     category: "psychometric",
     scope: "selection" as "selection" | "permanence" | "objectives",
@@ -853,6 +854,7 @@ export default function EvaluationsPage() {
     sampleQuestions: [] as Array<{
       type: string;
       question: string;
+      description?: string;
       options?: string[];
       scale?: string;
       language?: string;
@@ -860,6 +862,7 @@ export default function EvaluationsPage() {
   })
 const [editTemplateForm, setEditTemplateForm] = useState({
   name: "",
+  subtitle: "",
   description: "",
   category: "psychometric",
   scope: "selection" as "selection" | "permanence" | "objectives",
@@ -868,6 +871,7 @@ const [editTemplateForm, setEditTemplateForm] = useState({
   sampleQuestions: [] as Array<{
   type: string;
   question: string;
+  description?: string;
   options?: string[];
   scale?: string;
       language?: string;
@@ -1984,6 +1988,7 @@ const handleEditTemplate = (template: typeof evaluationTemplates[0]) => {
   setSelectedTemplate(template)
   setEditTemplateForm({
   name: template.name,
+  subtitle: (template as { subtitle?: string }).subtitle ?? "",
   description: template.description || "",
   category: template.category,
   scope: template.scope || "selection",
@@ -2002,6 +2007,7 @@ const handleSaveTemplate = () => {
   ? {
   ...t,
   name: editTemplateForm.name,
+  subtitle: editTemplateForm.subtitle,
   description: editTemplateForm.description,
   category: editTemplateForm.category,
   scope: editTemplateForm.scope,
@@ -2034,6 +2040,7 @@ const handleCreateTemplate = () => {
   const newTemplate = {
   id: `tpl-${Date.now()}`,
   name: newTemplateForm.name,
+  subtitle: newTemplateForm.subtitle,
   description: newTemplateForm.description,
   category: newTemplateForm.category,
   scope: newTemplateForm.scope,
@@ -2045,8 +2052,10 @@ const handleCreateTemplate = () => {
     setShowCreateTemplateDialog(false)
     setNewTemplateForm({
       name: "",
+      subtitle: "",
       description: "",
       category: "psychometric",
+      scope: "selection",
       questions: 10,
       time: 15,
       sampleQuestions: [],
@@ -2101,6 +2110,8 @@ const handleCreateTemplate = () => {
             newQuestion.options = ["", "", "", ""]
           } else if (value === "scale") {
             newQuestion.scale = "1-5"
+          } else if (value === "rating") {
+            newQuestion.scale = "5"
           } else if (value === "code") {
             newQuestion.language = "javascript"
           }
@@ -2192,6 +2203,8 @@ const handleCreateTemplate = () => {
             newQuestion.options = ["", "", "", ""]
           } else if (value === "scale") {
             newQuestion.scale = "1-5"
+          } else if (value === "rating") {
+            newQuestion.scale = "5"
           } else if (value === "code") {
             newQuestion.language = "javascript"
           }
@@ -4366,6 +4379,9 @@ const handleCreateTemplate = () => {
                           {template.scope === "selection" ? "Selección" : template.scope === "objectives" ? "Objetivos" : "Permanencia"}
                         </Badge>
                       </div>
+                      {(template as { subtitle?: string }).subtitle && (
+                        <p className="text-sm text-muted-foreground">{(template as { subtitle?: string }).subtitle}</p>
+                      )}
                       <p className="text-sm text-muted-foreground">
                         {template.questions} preguntas · {template.time} minutos
                       </p>
@@ -4412,6 +4428,11 @@ const handleCreateTemplate = () => {
               )}
               {selectedTemplate?.name}
             </DialogTitle>
+            {(selectedTemplate as { subtitle?: string } | null)?.subtitle && (
+              <p className="text-sm font-medium text-muted-foreground">
+                {(selectedTemplate as { subtitle?: string }).subtitle}
+              </p>
+            )}
             <DialogDescription>
               {selectedTemplate?.description}
             </DialogDescription>
@@ -4444,9 +4465,14 @@ const handleCreateTemplate = () => {
                   {selectedTemplate.sampleQuestions?.map((q, index) => {
                     if (q.type === "section") {
                       return (
-                        <div key={index} className="flex items-center gap-2 border-l-4 border-primary bg-primary/5 rounded-lg p-3 mt-2">
-                          <Layers className="h-4 w-4 text-primary flex-shrink-0" />
-                          <p className="font-semibold">{q.question || "Sección"}</p>
+                        <div key={index} className="border-l-4 border-primary bg-primary/5 rounded-lg p-3 mt-2">
+                          <div className="flex items-center gap-2">
+                            <Layers className="h-4 w-4 text-primary flex-shrink-0" />
+                            <p className="font-semibold">{q.question || "Sección"}</p>
+                          </div>
+                          {q.description && (
+                            <p className="text-sm text-muted-foreground mt-1 ml-6">{q.description}</p>
+                          )}
                         </div>
                       )
                     }
@@ -4482,6 +4508,16 @@ const handleCreateTemplate = () => {
                               ))}
                             </div>
                           )}
+                          {q.type === "rating" && (
+                            <div className="flex items-center gap-1 mt-2">
+                              {[1, 2, 3, 4, 5].map((n) => (
+                                <Star key={n} className="h-6 w-6 text-amber-400 fill-amber-400" />
+                              ))}
+                            </div>
+                          )}
+                          {q.type === "date" && (
+                            <Input type="date" disabled className="mt-2 w-[200px]" />
+                          )}
                           {(q.type === "open" || q.type === "behavioral") && (
                             <Textarea 
                               placeholder="Escribe tu respuesta aquí..." 
@@ -4497,6 +4533,8 @@ const handleCreateTemplate = () => {
                           <Badge variant="outline" className="mt-2 text-xs">
                             {q.type === "multiple" && "Opción múltiple"}
                             {q.type === "scale" && "Escala 1-5"}
+                            {q.type === "rating" && "Calificación con estrellas"}
+                            {q.type === "date" && "Fecha compromiso"}
                             {q.type === "open" && "Respuesta abierta"}
                             {q.type === "behavioral" && "Pregunta conductual"}
                             {q.type === "code" && "Código"}
@@ -4548,6 +4586,15 @@ const handleCreateTemplate = () => {
                   value={newTemplateForm.name}
                   onChange={(e) => setNewTemplateForm({...newTemplateForm, name: e.target.value})}
                   placeholder="Ej: Evaluación de Ventas"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="new-template-subtitle">Subtítulo</Label>
+                <Input 
+                  id="new-template-subtitle"
+                  value={newTemplateForm.subtitle}
+                  onChange={(e) => setNewTemplateForm({...newTemplateForm, subtitle: e.target.value})}
+                  placeholder="Ej: Competencias comerciales 2025"
                 />
               </div>
               <div className="grid gap-2">
@@ -4656,42 +4703,51 @@ const handleCreateTemplate = () => {
                 {newTemplateForm.sampleQuestions.map((q, index) => {
                   if (q.type === "section") {
                     return (
-                      <div key={index} className="flex items-center gap-2 rounded-lg border-l-4 border-primary bg-primary/5 p-3">
-                        <Layers className="h-4 w-4 text-primary flex-shrink-0" />
-                        <Input
-                          value={q.question}
-                          onChange={(e) => handleUpdateNewQuestion(index, "question", e.target.value)}
-                          placeholder="Nombre de la sección (ej. Datos generales)"
-                          className="flex-1 border-0 bg-transparent font-semibold focus-visible:ring-0 px-0 shadow-none"
+                      <div key={index} className="rounded-lg border-l-4 border-primary bg-primary/5 p-3">
+                        <div className="flex items-center gap-2">
+                          <Layers className="h-4 w-4 text-primary flex-shrink-0" />
+                          <Input
+                            value={q.question}
+                            onChange={(e) => handleUpdateNewQuestion(index, "question", e.target.value)}
+                            placeholder="Nombre de la sección (ej. Datos generales)"
+                            className="flex-1 border-0 bg-transparent font-semibold focus-visible:ring-0 px-0 shadow-none"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={index === 0}
+                            onClick={() => handleMoveNewQuestion(index, "up")}
+                            aria-label="Subir sección"
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={index === newTemplateForm.sampleQuestions.length - 1}
+                            onClick={() => handleMoveNewQuestion(index, "down")}
+                            aria-label="Bajar sección"
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleRemoveNewQuestion(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <Textarea
+                          value={q.description || ""}
+                          onChange={(e) => handleUpdateNewQuestion(index, "description", e.target.value)}
+                          placeholder="Descripción o instrucciones de la sección (opcional)"
+                          rows={2}
+                          className="mt-2 ml-6 resize-none border-dashed bg-background/60 text-sm"
                         />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          disabled={index === 0}
-                          onClick={() => handleMoveNewQuestion(index, "up")}
-                          aria-label="Subir sección"
-                        >
-                          <ArrowUp className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          disabled={index === newTemplateForm.sampleQuestions.length - 1}
-                          onClick={() => handleMoveNewQuestion(index, "down")}
-                          aria-label="Bajar sección"
-                        >
-                          <ArrowDown className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleRemoveNewQuestion(index)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
                       </div>
                     )
                   }
@@ -4714,6 +4770,8 @@ const handleCreateTemplate = () => {
                             <SelectContent>
                               <SelectItem value="multiple">Opción Múltiple</SelectItem>
                               <SelectItem value="scale">Escala 1-5</SelectItem>
+                              <SelectItem value="rating">Calificación con estrellas</SelectItem>
+                              <SelectItem value="date">Fecha compromiso</SelectItem>
                               <SelectItem value="open">Respuesta Abierta</SelectItem>
                               <SelectItem value="behavioral">Conductual</SelectItem>
                               <SelectItem value="code">Código</SelectItem>
@@ -4809,6 +4867,24 @@ const handleCreateTemplate = () => {
                         </div>
                       )}
 
+                      {q.type === "rating" && (
+                        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+                          <span className="text-sm text-muted-foreground">Calificación:</span>
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star key={n} className="h-5 w-5 text-amber-400 fill-amber-400" />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {q.type === "date" && (
+                        <div className="grid gap-2">
+                          <span className="text-sm text-muted-foreground">Fecha compromiso:</span>
+                          <Input type="date" disabled className="w-[200px]" />
+                        </div>
+                      )}
+
                       {q.type === "code" && (
                         <div className="grid gap-2">
                           <Label>Lenguaje de Programación</Label>
@@ -4887,6 +4963,15 @@ const handleCreateTemplate = () => {
                   value={editTemplateForm.name}
                   onChange={(e) => setEditTemplateForm({...editTemplateForm, name: e.target.value})}
                   placeholder="Ej: Evaluación Técnica - Frontend"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="template-subtitle">Subtítulo</Label>
+                <Input 
+                  id="template-subtitle"
+                  value={editTemplateForm.subtitle}
+                  onChange={(e) => setEditTemplateForm({...editTemplateForm, subtitle: e.target.value})}
+                  placeholder="Ej: Competencias técnicas 2025"
                 />
               </div>
               <div className="grid gap-2">
@@ -4995,7 +5080,8 @@ const handleCreateTemplate = () => {
                 {editTemplateForm.sampleQuestions.map((q, index) => {
                   if (q.type === "section") {
                     return (
-                      <div key={index} className="flex items-center gap-2 rounded-lg border-l-4 border-primary bg-primary/5 p-3">
+                      <div key={index} className="rounded-lg border-l-4 border-primary bg-primary/5 p-3">
+                        <div className="flex items-center gap-2">
                         <Layers className="h-4 w-4 text-primary flex-shrink-0" />
                         <Input
                           value={q.question}
@@ -5031,6 +5117,14 @@ const handleCreateTemplate = () => {
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
+                        </div>
+                        <Textarea
+                          value={q.description || ""}
+                          onChange={(e) => handleUpdateQuestion(index, "description", e.target.value)}
+                          placeholder="Descripción o instrucciones de la sección (opcional)"
+                          rows={2}
+                          className="mt-2 ml-6 resize-none border-dashed bg-background/60 text-sm"
+                        />
                       </div>
                     )
                   }
@@ -5053,6 +5147,8 @@ const handleCreateTemplate = () => {
                             <SelectContent>
                               <SelectItem value="multiple">Opción Múltiple</SelectItem>
                               <SelectItem value="scale">Escala 1-5</SelectItem>
+                              <SelectItem value="rating">Calificación con estrellas</SelectItem>
+                              <SelectItem value="date">Fecha compromiso</SelectItem>
                               <SelectItem value="open">Respuesta Abierta</SelectItem>
                               <SelectItem value="behavioral">Conductual</SelectItem>
                               <SelectItem value="code">Código</SelectItem>
@@ -5145,6 +5241,24 @@ const handleCreateTemplate = () => {
                         <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
                           <span className="text-sm text-muted-foreground">Escala de respuesta:</span>
                           <Badge variant="secondary">1 - Nunca a 5 - Siempre</Badge>
+                        </div>
+                      )}
+
+                      {q.type === "rating" && (
+                        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+                          <span className="text-sm text-muted-foreground">Calificación:</span>
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star key={n} className="h-5 w-5 text-amber-400 fill-amber-400" />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {q.type === "date" && (
+                        <div className="grid gap-2">
+                          <span className="text-sm text-muted-foreground">Fecha compromiso:</span>
+                          <Input type="date" disabled className="w-[200px]" />
                         </div>
                       )}
 
