@@ -104,6 +104,9 @@ Play,
   Send,
   Link2,
   Mail,
+  CalendarClock,
+  AlertTriangle,
+  CalendarCheck,
 } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
@@ -127,6 +130,17 @@ import {
   Line,
 } from "recharts"
 import { createClient } from "@/lib/supabase/client"
+import { RichText } from "@/components/rich-text"
+import { BoldableTextarea } from "@/components/boldable-textarea"
+import {
+  type TemplateSchedule,
+  type ScheduleAlert,
+  buildAlerts,
+  daysUntil,
+  levelForDays,
+  formatScheduleDate,
+  relativeLabel,
+} from "@/lib/evaluation-schedule"
 
 // Types for staff data
 interface StaffMember {
@@ -851,6 +865,8 @@ export default function EvaluationsPage() {
     scope: "selection" as "selection" | "permanence" | "objectives",
     questions: 10,
     time: 15,
+    applicationDate: "",
+    nextEvaluationDate: "",
     sampleQuestions: [] as Array<{
       type: string;
       question: string;
@@ -868,6 +884,8 @@ const [editTemplateForm, setEditTemplateForm] = useState({
   scope: "selection" as "selection" | "permanence" | "objectives",
   questions: 0,
   time: 0,
+  applicationDate: "",
+  nextEvaluationDate: "",
   sampleQuestions: [] as Array<{
   type: string;
   question: string;
@@ -877,6 +895,10 @@ const [editTemplateForm, setEditTemplateForm] = useState({
       language?: string;
     }>,
   })
+
+  // Calendario de aplicación de plantillas (persistido en Supabase) y alertas derivadas.
+  const [schedules, setSchedules] = useState<Record<string, TemplateSchedule>>({})
+  const [templateToDelete, setTemplateToDelete] = useState<{ id: string; name: string } | null>(null)
 
   // Objetivos: estado y formularios
   type ObjectiveFollowUp = { id: string; date: string; progress: number; note: string }
@@ -1994,6 +2016,8 @@ const handleEditTemplate = (template: typeof evaluationTemplates[0]) => {
   scope: template.scope || "selection",
   questions: template.questions,
   time: template.time,
+  applicationDate: schedules[template.id]?.application_date ?? "",
+  nextEvaluationDate: schedules[template.id]?.next_evaluation_date ?? "",
   sampleQuestions: template.sampleQuestions ? [...template.sampleQuestions] : [],
   })
   setShowTemplatesDialog(false)
@@ -2002,10 +2026,9 @@ const handleEditTemplate = (template: typeof evaluationTemplates[0]) => {
 
 const handleSaveTemplate = () => {
   if (selectedTemplate) {
-  setTemplatesList(prev => prev.map(t =>
-  t.id === selectedTemplate.id
-  ? {
-  ...t,
+  const updatedIndex = templatesList.findIndex(t => t.id === selectedTemplate.id)
+  const updatedTemplate = {
+  ...selectedTemplate,
   name: editTemplateForm.name,
   subtitle: editTemplateForm.subtitle,
   description: editTemplateForm.description,
@@ -2015,8 +2038,14 @@ const handleSaveTemplate = () => {
   time: editTemplateForm.time,
   sampleQuestions: editTemplateForm.sampleQuestions,
   }
-  : t
-  ))
+  setTemplatesList(prev => prev.map(t => t.id === selectedTemplate.id ? updatedTemplate : t))
+  void persistTemplate(updatedTemplate, updatedIndex < 0 ? templatesList.length : updatedIndex)
+  void persistSchedule(
+    selectedTemplate.id,
+    editTemplateForm.name,
+    editTemplateForm.applicationDate,
+    editTemplateForm.nextEvaluationDate,
+  )
     }
     setShowEditTemplateDialog(false)
     setSelectedTemplate(null)
@@ -2025,11 +2054,14 @@ const handleSaveTemplate = () => {
   const handleOpenCreateTemplate = () => {
     setNewTemplateForm({
       name: "",
+      subtitle: "",
       description: "",
       category: "psychometric",
       scope: "selection",
       questions: 10,
       time: 15,
+      applicationDate: "",
+      nextEvaluationDate: "",
       sampleQuestions: [],
     })
     setShowTemplatesDialog(false)
@@ -2037,8 +2069,9 @@ const handleSaveTemplate = () => {
   }
 
 const handleCreateTemplate = () => {
+  const newId = `tpl-${Date.now()}`
   const newTemplate = {
-  id: `tpl-${Date.now()}`,
+  id: newId,
   name: newTemplateForm.name,
   subtitle: newTemplateForm.subtitle,
   description: newTemplateForm.description,
@@ -2049,6 +2082,13 @@ const handleCreateTemplate = () => {
   sampleQuestions: newTemplateForm.sampleQuestions,
   }
   setTemplatesList(prev => [...prev, newTemplate])
+  void persistTemplate(newTemplate, templatesList.length)
+  void persistSchedule(
+    newId,
+    newTemplateForm.name,
+    newTemplateForm.applicationDate,
+    newTemplateForm.nextEvaluationDate,
+  )
     setShowCreateTemplateDialog(false)
     setNewTemplateForm({
       name: "",
@@ -2058,9 +2098,148 @@ const handleCreateTemplate = () => {
       scope: "selection",
       questions: 10,
       time: 15,
+      applicationDate: "",
+      nextEvaluationDate: "",
       sampleQuestions: [],
     })
   }
+
+  // Carga el calendario de plantillas desde Supabase.
+  const loadSchedules = async () => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("evaluation_template_schedules")
+      .select("*")
+    if (error) {
+      console.log("[v0] Error cargando calendario de plantillas:", error.message)
+      return
+    }
+    const map: Record<string, TemplateSchedule> = {}
+    for (const row of (data as TemplateSchedule[]) || []) {
+      map[row.template_id] = row
+    }
+    setSchedules(map)
+  }
+
+  // Convierte una fila de la base de datos al formato usado en la UI.
+  const rowToTemplate = (row: Record<string, unknown>): typeof evaluationTemplates[0] => ({
+    id: row.id as string,
+    name: (row.name as string) ?? "",
+    subtitle: (row.subtitle as string) ?? "",
+    description: (row.description as string) ?? "",
+    category: (row.category as string) ?? "psychometric",
+    scope: (row.scope as "selection" | "permanence" | "objectives") ?? "selection",
+    questions: (row.questions as number) ?? 0,
+    time: (row.time_minutes as number) ?? 0,
+    sampleQuestions: (row.sample_questions as typeof evaluationTemplates[0]["sampleQuestions"]) ?? [],
+  }) as typeof evaluationTemplates[0]
+
+  // Convierte una plantilla de la UI a una fila para la base de datos.
+  const templateToRow = (template: typeof evaluationTemplates[0], sortOrder: number) => ({
+    id: template.id,
+    name: template.name,
+    subtitle: (template as { subtitle?: string }).subtitle ?? "",
+    description: template.description ?? "",
+    category: template.category,
+    scope: template.scope ?? "selection",
+    questions: template.questions ?? 0,
+    time_minutes: template.time ?? 0,
+    sample_questions: template.sampleQuestions ?? [],
+    sort_order: sortOrder,
+    updated_at: new Date().toISOString(),
+  })
+
+  // Carga las plantillas desde Supabase. Si no existen, siembra las predeterminadas.
+  const loadTemplates = async () => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("evaluation_templates")
+      .select("*")
+      .order("sort_order", { ascending: true })
+    if (error) {
+      console.log("[v0] Error cargando plantillas:", error.message)
+      return
+    }
+    if (!data || data.length === 0) {
+      // Primera vez: sembrar plantillas predeterminadas en la base de datos.
+      const rows = evaluationTemplates.map((t, i) => templateToRow(t, i))
+      const { error: seedError } = await supabase.from("evaluation_templates").insert(rows)
+      if (seedError) {
+        console.log("[v0] Error sembrando plantillas:", seedError.message)
+      }
+      setTemplatesList(evaluationTemplates)
+      return
+    }
+    setTemplatesList((data as Record<string, unknown>[]).map(rowToTemplate))
+  }
+
+  // Guarda (upsert) una plantilla completa en la base de datos.
+  const persistTemplate = async (template: typeof evaluationTemplates[0], sortOrder: number) => {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from("evaluation_templates")
+      .upsert(templateToRow(template, sortOrder), { onConflict: "id" })
+    if (error) {
+      console.log("[v0] Error guardando plantilla:", error.message)
+    }
+  }
+
+  useEffect(() => {
+    void loadSchedules()
+    void loadTemplates()
+  }, [])
+
+  // Guarda (upsert) las fechas de una plantilla y actualiza el estado local.
+  const persistSchedule = async (
+    templateId: string,
+    templateName: string,
+    applicationDate: string,
+    nextEvaluationDate: string,
+  ) => {
+    const payload: TemplateSchedule = {
+      template_id: templateId,
+      template_name: templateName,
+      application_date: applicationDate || null,
+      next_evaluation_date: nextEvaluationDate || null,
+    }
+    setSchedules(prev => ({ ...prev, [templateId]: payload }))
+    const supabase = createClient()
+    const { error } = await supabase
+      .from("evaluation_template_schedules")
+      .upsert({ ...payload, updated_at: new Date().toISOString() }, { onConflict: "template_id" })
+    if (error) {
+      console.log("[v0] Error guardando fechas de plantilla:", error.message)
+    }
+  }
+
+  // Elimina una plantilla de la lista y su calendario asociado.
+  const handleDeleteTemplate = async (templateId: string) => {
+    setTemplatesList(prev => prev.filter(t => t.id !== templateId))
+    setSchedules(prev => {
+      const next = { ...prev }
+      delete next[templateId]
+      return next
+    })
+    setTemplateToDelete(null)
+    const supabase = createClient()
+    const { error: tplError } = await supabase
+      .from("evaluation_templates")
+      .delete()
+      .eq("id", templateId)
+    if (tplError) {
+      console.log("[v0] Error eliminando plantilla:", tplError.message)
+    }
+    const { error } = await supabase
+      .from("evaluation_template_schedules")
+      .delete()
+      .eq("template_id", templateId)
+    if (error) {
+      console.log("[v0] Error eliminando calendario de plantilla:", error.message)
+    }
+  }
+
+  // Alertas activas calculadas a partir del calendario.
+  const scheduleAlerts: ScheduleAlert[] = buildAlerts(Object.values(schedules))
 
   const handleAddNewQuestion = () => {
     setNewTemplateForm(prev => ({
@@ -2301,6 +2480,37 @@ const handleCreateTemplate = () => {
           </Button>
         </div>
       </div>
+
+      {/* Alertas de calendario de evaluaciones */}
+      {scheduleAlerts.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-amber-800">
+            <AlertTriangle className="h-5 w-5" />
+            <h3 className="font-semibold">
+              {scheduleAlerts.length} {scheduleAlerts.length === 1 ? "evaluación requiere" : "evaluaciones requieren"} atención
+            </h3>
+          </div>
+          <ul className="mt-3 space-y-2">
+            {scheduleAlerts.slice(0, 5).map((alert, i) => (
+              <li key={`${alert.templateId}-${alert.kind}-${i}`} className="flex items-center justify-between gap-3 text-sm">
+                <span className="flex items-center gap-2 text-foreground">
+                  <span className={`h-2 w-2 rounded-full ${alert.level === "overdue" ? "bg-red-500" : "bg-amber-500"}`} />
+                  <span className="font-medium">{alert.templateName}</span>
+                  <span className="text-muted-foreground">
+                    {alert.kind === "application" ? "aplicación" : "próxima evaluación"} {relativeLabel(alert.days)}
+                  </span>
+                </span>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {formatScheduleDate(alert.date)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {scheduleAlerts.length > 5 && (
+            <p className="mt-2 text-xs text-amber-700">y {scheduleAlerts.length - 5} más…</p>
+          )}
+        </div>
+      )}
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -4360,6 +4570,9 @@ const handleCreateTemplate = () => {
               .filter(t => templateScopeFilter === "all" || t.scope === templateScopeFilter)
               .map((template) => {
               const config = categoryConfig[template.category] || categoryConfig.technical
+              const schedule = schedules[template.id]
+              const appDays = schedule?.application_date ? daysUntil(schedule.application_date) : null
+              const appLevel = appDays !== null ? levelForDays(appDays) : "none"
               return (
                 <div key={template.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
                   <div className="flex items-center gap-3">
@@ -4378,6 +4591,16 @@ const handleCreateTemplate = () => {
                         }>
                           {template.scope === "selection" ? "Selección" : template.scope === "objectives" ? "Objetivos" : "Permanencia"}
                         </Badge>
+                        {(appLevel === "overdue" || appLevel === "due-soon") && (
+                          <Badge variant="outline" className={
+                            appLevel === "overdue"
+                              ? "bg-red-50 text-red-700 border-red-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200"
+                          }>
+                            <AlertTriangle className="mr-1 h-3 w-3" />
+                            {appLevel === "overdue" ? "Vencida" : "Por aplicar"}
+                          </Badge>
+                        )}
                       </div>
                       {(template as { subtitle?: string }).subtitle && (
                         <p className="text-sm text-muted-foreground">{(template as { subtitle?: string }).subtitle}</p>
@@ -4385,6 +4608,22 @@ const handleCreateTemplate = () => {
                       <p className="text-sm text-muted-foreground">
                         {template.questions} preguntas · {template.time} minutos
                       </p>
+                      {(schedule?.application_date || schedule?.next_evaluation_date) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          {schedule?.application_date && (
+                            <span className="flex items-center gap-1">
+                              <CalendarClock className="h-3.5 w-3.5" />
+                              Aplicar: {formatScheduleDate(schedule.application_date)}
+                            </span>
+                          )}
+                          {schedule?.next_evaluation_date && (
+                            <span className="flex items-center gap-1">
+                              <CalendarCheck className="h-3.5 w-3.5" />
+                              Próxima: {formatScheduleDate(schedule.next_evaluation_date)}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 <div className="flex items-center gap-2">
@@ -4399,6 +4638,15 @@ const handleCreateTemplate = () => {
                       <Button size="sm">
                         Usar
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setTemplateToDelete({ id: template.id, name: template.name })}
+                        aria-label={`Borrar plantilla ${template.name}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                 </div>
               )
@@ -4411,6 +4659,34 @@ const handleCreateTemplate = () => {
             <Button onClick={handleOpenCreateTemplate}>
               <Plus className="mr-2 h-4 w-4" />
               Crear Plantilla
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Borrar plantilla: confirmación */}
+      <Dialog open={templateToDelete !== null} onOpenChange={(open) => { if (!open) setTemplateToDelete(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Borrar plantilla
+            </DialogTitle>
+            <DialogDescription>
+              ¿Seguro que deseas borrar la plantilla{" "}
+              <span className="font-semibold text-foreground">{templateToDelete?.name}</span>? Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTemplateToDelete(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => { if (templateToDelete) void handleDeleteTemplate(templateToDelete.id) }}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Borrar
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4433,15 +4709,15 @@ const handleCreateTemplate = () => {
                 {(selectedTemplate as { subtitle?: string }).subtitle}
               </p>
             )}
-            <DialogDescription>
-              {selectedTemplate?.description}
+            <DialogDescription asChild>
+              <span><RichText text={selectedTemplate?.description} /></span>
             </DialogDescription>
           </DialogHeader>
           
           {selectedTemplate && (
             <div className="space-y-6 py-4">
               {/* Template Info */}
-              <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+              <div className="flex flex-wrap items-center gap-4 p-4 bg-muted/50 rounded-lg">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm">{selectedTemplate.questions} preguntas</span>
@@ -4453,6 +4729,18 @@ const handleCreateTemplate = () => {
                 <Badge variant="secondary">
                   {categoryConfig[selectedTemplate.category]?.label || selectedTemplate.category}
                 </Badge>
+                {schedules[selectedTemplate.id]?.application_date && (
+                  <div className="flex items-center gap-2">
+                    <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">Aplicar: {formatScheduleDate(schedules[selectedTemplate.id].application_date)}</span>
+                  </div>
+                )}
+                {schedules[selectedTemplate.id]?.next_evaluation_date && (
+                  <div className="flex items-center gap-2">
+                    <CalendarCheck className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">Próxima: {formatScheduleDate(schedules[selectedTemplate.id].next_evaluation_date)}</span>
+                  </div>
+                )}
               </div>
 
               {/* Sample Questions */}
@@ -4468,10 +4756,10 @@ const handleCreateTemplate = () => {
                         <div key={index} className="border-l-4 border-primary bg-primary/5 rounded-lg p-3 mt-2">
                           <div className="flex items-center gap-2">
                             <Layers className="h-4 w-4 text-primary flex-shrink-0" />
-                            <p className="font-semibold">{q.question || "Sección"}</p>
+                            <p className="font-semibold"><RichText text={q.question || "Sección"} /></p>
                           </div>
                           {q.description && (
-                            <p className="text-sm text-muted-foreground mt-1 ml-6">{q.description}</p>
+                            <p className="text-sm text-muted-foreground mt-1 ml-6"><RichText text={q.description} /></p>
                           )}
                         </div>
                       )
@@ -4484,7 +4772,7 @@ const handleCreateTemplate = () => {
                           {questionNumber}
                         </span>
                         <div className="flex-1">
-                          <p className="font-medium mb-2">{q.question}</p>
+                          <p className="font-medium mb-2"><RichText text={q.question} /></p>
                           {q.type === "multiple" && q.options && (
                             <div className="space-y-2 ml-1">
                               {q.options.map((opt, i) => (
@@ -4599,13 +4887,41 @@ const handleCreateTemplate = () => {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="new-template-description">Descripción</Label>
-                <Textarea 
+                <BoldableTextarea
                   id="new-template-description"
                   value={newTemplateForm.description}
-                  onChange={(e) => setNewTemplateForm({...newTemplateForm, description: e.target.value})}
+                  onChange={(v) => setNewTemplateForm({...newTemplateForm, description: v})}
                   placeholder="Describe el propósito y contenido de esta plantilla..."
                   rows={3}
                 />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="new-template-application-date" className="flex items-center gap-1.5">
+                    <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                    Fecha de aplicación
+                  </Label>
+                  <Input
+                    id="new-template-application-date"
+                    type="date"
+                    value={newTemplateForm.applicationDate}
+                    onChange={(e) => setNewTemplateForm({...newTemplateForm, applicationDate: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">Cuándo se debe aplicar esta evaluación</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="new-template-next-date" className="flex items-center gap-1.5">
+                    <CalendarCheck className="h-4 w-4 text-muted-foreground" />
+                    Próxima evaluación
+                  </Label>
+                  <Input
+                    id="new-template-next-date"
+                    type="date"
+                    value={newTemplateForm.nextEvaluationDate}
+                    onChange={(e) => setNewTemplateForm({...newTemplateForm, nextEvaluationDate: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">Cuándo aplicarla nuevamente</p>
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="new-template-category">Categoría</Label>
@@ -4741,13 +5057,15 @@ const handleCreateTemplate = () => {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                        <Textarea
-                          value={q.description || ""}
-                          onChange={(e) => handleUpdateNewQuestion(index, "description", e.target.value)}
-                          placeholder="Descripción o instrucciones de la sección (opcional)"
-                          rows={2}
-                          className="mt-2 ml-6 resize-none border-dashed bg-background/60 text-sm"
-                        />
+                        <div className="mt-2 ml-6">
+                          <BoldableTextarea
+                            value={q.description || ""}
+                            onChange={(v) => handleUpdateNewQuestion(index, "description", v)}
+                            placeholder="Descripción o instrucciones de la sección (opcional)"
+                            rows={2}
+                            className="border-dashed bg-background/60 text-sm"
+                          />
+                        </div>
                       </div>
                     )
                   }
@@ -4976,13 +5294,41 @@ const handleCreateTemplate = () => {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="template-description">Descripción</Label>
-                <Textarea 
+                <BoldableTextarea
                   id="template-description"
                   value={editTemplateForm.description}
-                  onChange={(e) => setEditTemplateForm({...editTemplateForm, description: e.target.value})}
+                  onChange={(v) => setEditTemplateForm({...editTemplateForm, description: v})}
                   placeholder="Describe el propósito y contenido de esta plantilla..."
                   rows={3}
                 />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="template-application-date" className="flex items-center gap-1.5">
+                    <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                    Fecha de aplicación
+                  </Label>
+                  <Input
+                    id="template-application-date"
+                    type="date"
+                    value={editTemplateForm.applicationDate}
+                    onChange={(e) => setEditTemplateForm({...editTemplateForm, applicationDate: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">Cuándo se debe aplicar esta evaluación</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="template-next-date" className="flex items-center gap-1.5">
+                    <CalendarCheck className="h-4 w-4 text-muted-foreground" />
+                    Próxima evaluación
+                  </Label>
+                  <Input
+                    id="template-next-date"
+                    type="date"
+                    value={editTemplateForm.nextEvaluationDate}
+                    onChange={(e) => setEditTemplateForm({...editTemplateForm, nextEvaluationDate: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">Cuándo aplicarla nuevamente</p>
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="template-category">Categoría</Label>
@@ -5118,13 +5464,15 @@ const handleCreateTemplate = () => {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                         </div>
-                        <Textarea
-                          value={q.description || ""}
-                          onChange={(e) => handleUpdateQuestion(index, "description", e.target.value)}
-                          placeholder="Descripción o instrucciones de la sección (opcional)"
-                          rows={2}
-                          className="mt-2 ml-6 resize-none border-dashed bg-background/60 text-sm"
-                        />
+                        <div className="mt-2 ml-6">
+                          <BoldableTextarea
+                            value={q.description || ""}
+                            onChange={(v) => handleUpdateQuestion(index, "description", v)}
+                            placeholder="Descripción o instrucciones de la sección (opcional)"
+                            rows={2}
+                            className="border-dashed bg-background/60 text-sm"
+                          />
+                        </div>
                       </div>
                     )
                   }

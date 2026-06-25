@@ -1,6 +1,13 @@
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Building2, Users, Shield, FolderKanban } from "lucide-react"
+import { Building2, Users, Shield, FolderKanban, AlertTriangle, CalendarClock } from "lucide-react"
+import Link from "next/link"
+import {
+  type TemplateSchedule,
+  buildAlerts,
+  formatScheduleDate,
+  relativeLabel,
+} from "@/lib/evaluation-schedule"
 
 async function getDashboardStats() {
   const supabase = await createClient()
@@ -40,9 +47,18 @@ async function getRecentUsers() {
   return data || []
 }
 
+async function getEvaluationAlerts() {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("evaluation_template_schedules")
+    .select("*")
+  return buildAlerts((data as TemplateSchedule[]) || [])
+}
+
 export default async function DashboardPage() {
   const stats = await getDashboardStats()
   const recentUsers = await getRecentUsers()
+  const evaluationAlerts = await getEvaluationAlerts()
 
   const statCards = [
     {
@@ -87,6 +103,52 @@ export default async function DashboardPage() {
           Bienvenido al sistema de gestión multiagencia
         </p>
       </div>
+
+      {evaluationAlerts.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-amber-800">
+              <AlertTriangle className="h-5 w-5" />
+              Alertas de evaluaciones
+            </CardTitle>
+            <CardDescription className="text-amber-700">
+              {evaluationAlerts.length}{" "}
+              {evaluationAlerts.length === 1 ? "evaluación requiere" : "evaluaciones requieren"} atención
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {evaluationAlerts.slice(0, 5).map((alert, i) => (
+                <li
+                  key={`${alert.templateId}-${alert.kind}-${i}`}
+                  className="flex items-center justify-between gap-3 text-sm"
+                >
+                  <span className="flex items-center gap-2 text-foreground">
+                    <span
+                      className={`h-2 w-2 rounded-full ${alert.level === "overdue" ? "bg-red-500" : "bg-amber-500"}`}
+                    />
+                    <span className="font-medium">{alert.templateName}</span>
+                    <span className="text-muted-foreground">
+                      {alert.kind === "application" ? "aplicación" : "próxima evaluación"}{" "}
+                      {relativeLabel(alert.days)}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    {formatScheduleDate(alert.date)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <Link
+              href="/dashboard/hr/evaluations"
+              className="mt-3 inline-block text-sm font-medium text-amber-800 hover:underline"
+            >
+              Ver evaluaciones
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {statCards.map((stat) => (
