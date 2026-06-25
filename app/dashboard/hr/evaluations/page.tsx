@@ -2026,10 +2026,9 @@ const handleEditTemplate = (template: typeof evaluationTemplates[0]) => {
 
 const handleSaveTemplate = () => {
   if (selectedTemplate) {
-  setTemplatesList(prev => prev.map(t =>
-  t.id === selectedTemplate.id
-  ? {
-  ...t,
+  const updatedIndex = templatesList.findIndex(t => t.id === selectedTemplate.id)
+  const updatedTemplate = {
+  ...selectedTemplate,
   name: editTemplateForm.name,
   subtitle: editTemplateForm.subtitle,
   description: editTemplateForm.description,
@@ -2039,8 +2038,8 @@ const handleSaveTemplate = () => {
   time: editTemplateForm.time,
   sampleQuestions: editTemplateForm.sampleQuestions,
   }
-  : t
-  ))
+  setTemplatesList(prev => prev.map(t => t.id === selectedTemplate.id ? updatedTemplate : t))
+  void persistTemplate(updatedTemplate, updatedIndex < 0 ? templatesList.length : updatedIndex)
   void persistSchedule(
     selectedTemplate.id,
     editTemplateForm.name,
@@ -2083,6 +2082,7 @@ const handleCreateTemplate = () => {
   sampleQuestions: newTemplateForm.sampleQuestions,
   }
   setTemplatesList(prev => [...prev, newTemplate])
+  void persistTemplate(newTemplate, templatesList.length)
   void persistSchedule(
     newId,
     newTemplateForm.name,
@@ -2121,8 +2121,72 @@ const handleCreateTemplate = () => {
     setSchedules(map)
   }
 
+  // Convierte una fila de la base de datos al formato usado en la UI.
+  const rowToTemplate = (row: Record<string, unknown>): typeof evaluationTemplates[0] => ({
+    id: row.id as string,
+    name: (row.name as string) ?? "",
+    subtitle: (row.subtitle as string) ?? "",
+    description: (row.description as string) ?? "",
+    category: (row.category as string) ?? "psychometric",
+    scope: (row.scope as "selection" | "permanence" | "objectives") ?? "selection",
+    questions: (row.questions as number) ?? 0,
+    time: (row.time_minutes as number) ?? 0,
+    sampleQuestions: (row.sample_questions as typeof evaluationTemplates[0]["sampleQuestions"]) ?? [],
+  }) as typeof evaluationTemplates[0]
+
+  // Convierte una plantilla de la UI a una fila para la base de datos.
+  const templateToRow = (template: typeof evaluationTemplates[0], sortOrder: number) => ({
+    id: template.id,
+    name: template.name,
+    subtitle: (template as { subtitle?: string }).subtitle ?? "",
+    description: template.description ?? "",
+    category: template.category,
+    scope: template.scope ?? "selection",
+    questions: template.questions ?? 0,
+    time_minutes: template.time ?? 0,
+    sample_questions: template.sampleQuestions ?? [],
+    sort_order: sortOrder,
+    updated_at: new Date().toISOString(),
+  })
+
+  // Carga las plantillas desde Supabase. Si no existen, siembra las predeterminadas.
+  const loadTemplates = async () => {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from("evaluation_templates")
+      .select("*")
+      .order("sort_order", { ascending: true })
+    if (error) {
+      console.log("[v0] Error cargando plantillas:", error.message)
+      return
+    }
+    if (!data || data.length === 0) {
+      // Primera vez: sembrar plantillas predeterminadas en la base de datos.
+      const rows = evaluationTemplates.map((t, i) => templateToRow(t, i))
+      const { error: seedError } = await supabase.from("evaluation_templates").insert(rows)
+      if (seedError) {
+        console.log("[v0] Error sembrando plantillas:", seedError.message)
+      }
+      setTemplatesList(evaluationTemplates)
+      return
+    }
+    setTemplatesList((data as Record<string, unknown>[]).map(rowToTemplate))
+  }
+
+  // Guarda (upsert) una plantilla completa en la base de datos.
+  const persistTemplate = async (template: typeof evaluationTemplates[0], sortOrder: number) => {
+    const supabase = createClient()
+    const { error } = await supabase
+      .from("evaluation_templates")
+      .upsert(templateToRow(template, sortOrder), { onConflict: "id" })
+    if (error) {
+      console.log("[v0] Error guardando plantilla:", error.message)
+    }
+  }
+
   useEffect(() => {
     void loadSchedules()
+    void loadTemplates()
   }, [])
 
   // Guarda (upsert) las fechas de una plantilla y actualiza el estado local.
@@ -2158,6 +2222,13 @@ const handleCreateTemplate = () => {
     })
     setTemplateToDelete(null)
     const supabase = createClient()
+    const { error: tplError } = await supabase
+      .from("evaluation_templates")
+      .delete()
+      .eq("id", templateId)
+    if (tplError) {
+      console.log("[v0] Error eliminando plantilla:", tplError.message)
+    }
     const { error } = await supabase
       .from("evaluation_template_schedules")
       .delete()
