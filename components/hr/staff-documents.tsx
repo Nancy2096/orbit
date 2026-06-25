@@ -273,7 +273,7 @@ export function StaffDocuments({
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            onClick={() => window.open(existingDoc.file_url, "_blank")}
+                            onClick={() => window.open(`/api/staff/documents/file?id=${existingDoc.id}`, "_blank")}
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
@@ -284,7 +284,7 @@ export function StaffDocuments({
                             className="h-8 w-8"
                             asChild
                           >
-                            <a href={existingDoc.file_url} download={existingDoc.file_name}>
+                            <a href={`/api/staff/documents/file?id=${existingDoc.id}&download=1`}>
                               <Download className="h-4 w-4" />
                             </a>
                           </Button>

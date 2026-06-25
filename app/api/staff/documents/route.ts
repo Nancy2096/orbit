@@ -75,9 +75,9 @@ export async function POST(request: NextRequest) {
     const extension = file.name.split(".").pop() || "pdf"
     const fileName = `staff/${staffId}/${documentType}_${timestamp}.${extension}`
 
-    // Upload to Vercel Blob
+    // Upload to Vercel Blob (el store está configurado como privado)
     const blob = await put(fileName, file, {
-      access: "public",
+      access: "private",
       addRandomSuffix: false,
     })
 

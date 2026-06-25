@@ -116,7 +116,16 @@ const CATEGORY_DEFINITIONS: {
   },
 ]
 
-export function calculateProfileCompletion(staff: StaffProfileFields | null | undefined): ProfileCompletion {
+// Información opcional de documentos para incluir su avance como una sección más.
+export interface DocumentCompletionInfo {
+  uploaded: number
+  total: number
+}
+
+export function calculateProfileCompletion(
+  staff: StaffProfileFields | null | undefined,
+  documentInfo?: DocumentCompletionInfo,
+): ProfileCompletion {
   const categories: ProfileCategory[] = CATEGORY_DEFINITIONS.map((def) => {
     const total = def.fields.length
     let filled = 0
@@ -136,6 +145,19 @@ export function calculateProfileCompletion(staff: StaffProfileFields | null | un
       percentage: total === 0 ? 0 : Math.round((filled / total) * 100),
     }
   })
+
+  // Si se proporciona información de documentos, se añade como una sección más
+  // para que el porcentaje total refleje también su avance.
+  if (documentInfo && documentInfo.total > 0) {
+    const filled = Math.min(documentInfo.uploaded, documentInfo.total)
+    categories.push({
+      key: "documents",
+      label: "Documentos",
+      filled,
+      total: documentInfo.total,
+      percentage: Math.round((filled / documentInfo.total) * 100),
+    })
+  }
 
   const totalFields = categories.reduce((sum, c) => sum + c.total, 0)
   const totalFilled = categories.reduce((sum, c) => sum + c.filled, 0)

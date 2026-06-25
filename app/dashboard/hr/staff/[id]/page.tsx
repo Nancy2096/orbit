@@ -15,7 +15,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { ArrowLeft, Users, AlertCircle, Camera, MapPin, Phone, CreditCard, UserCircle, Upload, Globe } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StaffAvatar } from "@/components/staff-avatar"
-import { StaffDocuments, type StaffDocument } from "@/components/hr/staff-documents"
+import { StaffDocuments, DOCUMENT_TYPES, type StaffDocument } from "@/components/hr/staff-documents"
 import { ProfileCompletionDetail } from "@/components/hr/profile-completion"
 import { EMPLOYMENT_STATUSES } from "@/app/dashboard/hr/staff/page"
 
@@ -596,7 +596,10 @@ hire_date: formData.hire_date || null,
               <CardDescription>Porcentaje de información completada por categoría</CardDescription>
             </CardHeader>
             <CardContent>
-              <ProfileCompletionDetail staff={formData} />
+              <ProfileCompletionDetail
+                staff={formData}
+                documentInfo={{ uploaded: staffDocuments.length, total: DOCUMENT_TYPES.length }}
+              />
             </CardContent>
           </Card>
 

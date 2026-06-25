@@ -5,6 +5,7 @@ import {
   calculateProfileCompletion,
   getCompletionColors,
   type StaffProfileFields,
+  type DocumentCompletionInfo,
 } from "@/lib/staff-profile-completion"
 
 // Barra compacta tipo semáforo para usar dentro de la tabla de personal.
@@ -43,12 +44,14 @@ export function ProfileCompletionBar({
 // Tarjeta detallada con barra total y desglose por categoría (gráfica de barras).
 export function ProfileCompletionDetail({
   staff,
+  documentInfo,
   className,
 }: {
   staff: StaffProfileFields | null | undefined
+  documentInfo?: DocumentCompletionInfo
   className?: string
 }) {
-  const completion = calculateProfileCompletion(staff)
+  const completion = calculateProfileCompletion(staff, documentInfo)
   const overall = getCompletionColors(completion.percentage)
 
   return (
