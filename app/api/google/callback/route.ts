@@ -5,7 +5,7 @@ import { google } from "googleapis"
 
 export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin
-  const integrationsUrl = `${origin}/dashboard/crm/integrations?tab=google_suite`
+  const integrationsUrl = `${origin}/dashboard/crm/integrations?tab=communication`
 
   const code = request.nextUrl.searchParams.get("code")
   const state = request.nextUrl.searchParams.get("state")
