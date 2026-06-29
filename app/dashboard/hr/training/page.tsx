@@ -40,8 +40,10 @@ import {
   BarChart3,
   AlertCircle,
   ChevronRight,
-  Loader2
+  Loader2,
+  Upload
 } from "lucide-react"
+import { upload } from "@vercel/blob/client"
 
 const supabase = createClient()
 
@@ -207,6 +209,9 @@ export default function TrainingPage() {
     explanation: ""
   })
 
+  // Subida de material de capacitación
+  const [uploadingContent, setUploadingContent] = useState(false)
+
   // Enrollments & Team View
   const [staff, setStaff] = useState<Staff[]>([])
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
@@ -316,15 +321,21 @@ export default function TrainingPage() {
   }
 
   const fetchStaff = async () => {
-    const { data } = await supabase
+    // Mostrar todo el personal de la agencia: los asignados directamente
+    // (agency_id), los asignados a varias agencias (agency_ids) y los globales.
+    const { data, error } = await supabase
       .from("staff")
       .select(`
         id, first_name, last_name, email, position, department_id,
         department:departments(name)
       `)
-      .eq("agency_id", selectedAgency)
-      .eq("status", "active")
+      .eq("is_active", true)
+      .or(`agency_id.eq.${selectedAgency},agency_ids.cs.{${selectedAgency}},is_global.eq.true`)
       .order("first_name")
+    if (error) {
+      console.log("[v0] Error cargando personal:", error.message)
+      return
+    }
     if (data) setStaff(data)
   }
 
@@ -404,6 +415,27 @@ export default function TrainingPage() {
     if (confirm("¿Eliminar este curso y todo su contenido?")) {
       await supabase.from("training_courses").delete().eq("id", id)
       fetchCourses()
+    }
+  }
+
+  // Sube un archivo (presentación, documento, video) y lo guarda como URL del contenido.
+  const handleUploadContentFile = async (file: File) => {
+    setUploadingContent(true)
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+      const blob = await upload(`training-content/${Date.now()}-${safeName}`, file, {
+        access: "private",
+        handleUploadUrl: "/api/training/upload",
+        contentType: file.type || undefined,
+      })
+      // El store es privado, así que servimos el archivo mediante el proxy autenticado.
+      const pathname = blob.url.split(".vercel-storage.com/")[1] ?? blob.pathname
+      setNewContent((prev) => ({ ...prev, content_url: `/api/file?pathname=${encodeURIComponent(pathname)}` }))
+    } catch (error) {
+      console.log("[v0] Error al subir archivo de contenido:", (error as Error).message)
+      alert("No se pudo subir el archivo. Verifica el tipo y tamaño (máx. 200 MB).")
+    } finally {
+      setUploadingContent(false)
     }
   }
 
@@ -1397,11 +1429,44 @@ export default function TrainingPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>URL del Contenido *</Label>
+              <Label>Archivo o URL del Contenido *</Label>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploadingContent}
+                  onClick={() => document.getElementById("training-content-file")?.click()}
+                >
+                  {uploadingContent ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Subiendo...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4" /> Subir archivo
+                    </>
+                  )}
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Presentación, PDF, documento o video (máx. 200 MB)
+                </span>
+                <input
+                  id="training-content-file"
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,image/*,video/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) void handleUploadContentFile(file)
+                    e.target.value = ""
+                  }}
+                />
+              </div>
               <Input
                 value={newContent.content_url}
                 onChange={(e) => setNewContent({ ...newContent, content_url: e.target.value })}
-                placeholder="https://..."
+                placeholder="https://... o sube un archivo arriba"
               />
             </div>
             <div className="space-y-2">
