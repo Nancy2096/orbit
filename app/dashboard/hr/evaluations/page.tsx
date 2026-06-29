@@ -675,6 +675,101 @@ const evaluationTemplates = [
       { type: "open", question: "Comentarios del evaluador" },
     ]
   },
+  {
+    id: "tpl-onb-1",
+    name: "Evaluación de Onboarding — 1 Semana",
+    category: "onboarding",
+    scope: "onboarding" as const,
+    questions: 11,
+    time: 10,
+    description: "Evaluación de satisfacción del proceso de onboarding durante la primera semana. Mide el proceso de bienvenida, la claridad del rol y la disponibilidad de herramientas y accesos.",
+    sampleQuestions: [
+      // 1. Proceso de Bienvenida
+      { type: "scale", question: "El proceso de bienvenida fue claro y organizado.", scale: "1-5" },
+      { type: "scale", question: "Me presentaron con mi equipo de trabajo.", scale: "1-5" },
+      { type: "scale", question: "Recibí toda la información necesaria el primer día.", scale: "1-5" },
+      { type: "scale", question: "El espacio de trabajo estaba listo para mi llegada.", scale: "1-5" },
+      // 2. Comunicación y Claridad del Rol
+      { type: "scale", question: "Me explicaron claramente mis funciones y responsabilidades.", scale: "1-5" },
+      { type: "scale", question: "Conozco a quién reporto y quién es mi contacto principal.", scale: "1-5" },
+      { type: "scale", question: "Me compartieron los objetivos del puesto.", scale: "1-5" },
+      // 3. Herramientas y Accesos
+      { type: "scale", question: "Cuento con las herramientas necesarias para trabajar.", scale: "1-5" },
+      { type: "scale", question: "Tengo acceso a los sistemas y plataformas que requiero.", scale: "1-5" },
+      // 4. Comentarios
+      { type: "open", question: "¿Qué fue lo mejor de tu primera semana?" },
+      { type: "open", question: "¿Qué mejorarías del proceso de inicio?" },
+    ]
+  },
+  {
+    id: "tpl-onb-2",
+    name: "Evaluación de Onboarding — 30 Días",
+    category: "onboarding",
+    scope: "onboarding" as const,
+    questions: 16,
+    time: 15,
+    description: "Evaluación de satisfacción del proceso de onboarding a los 30 días. Mide la integración al equipo, la claridad operativa, el acompañamiento recibido y la cultura.",
+    sampleQuestions: [
+      // 1. Integración al Equipo
+      { type: "scale", question: "Me siento parte del equipo.", scale: "1-5" },
+      { type: "scale", question: "La comunicación con mi equipo es fluida y abierta.", scale: "1-5" },
+      { type: "scale", question: "Conozco el rol de cada miembro del equipo.", scale: "1-5" },
+      { type: "scale", question: "Me siento cómodo/a pidiendo ayuda cuando la necesito.", scale: "1-5" },
+      // 2. Claridad Operativa
+      { type: "scale", question: "Entiendo claramente mis objetivos y métricas de éxito.", scale: "1-5" },
+      { type: "scale", question: "Conozco los procesos y flujos de trabajo de mi área.", scale: "1-5" },
+      { type: "scale", question: "Tengo claridad sobre mis prioridades del mes.", scale: "1-5" },
+      { type: "scale", question: "Cuento con los recursos necesarios para cumplir mis funciones.", scale: "1-5" },
+      // 3. Acompañamiento y Soporte
+      { type: "scale", question: "He recibido retroalimentación de mi líder directo.", scale: "1-5" },
+      { type: "scale", question: "Sé a quién acudir cuando tengo dudas operativas.", scale: "1-5" },
+      { type: "scale", question: "El nivel de acompañamiento durante el primer mes fue adecuado.", scale: "1-5" },
+      // 4. Cultura y Ambiente
+      { type: "scale", question: "El ambiente de trabajo es positivo y colaborativo.", scale: "1-5" },
+      { type: "scale", question: "La cultura de la empresa coincide con lo que me comunicaron al inicio.", scale: "1-5" },
+      // 5. Comentarios
+      { type: "open", question: "¿Qué ha superado tus expectativas en este primer mes?" },
+      { type: "open", question: "¿Qué necesitas que mejore para desarrollar tu trabajo de forma óptima?" },
+      { type: "open", question: "¿Hay algo que no esperabas encontrar (positivo o de mejora)?" },
+    ]
+  },
+  {
+    id: "tpl-onb-3",
+    name: "Evaluación de Onboarding — 90 Días",
+    category: "onboarding",
+    scope: "onboarding" as const,
+    questions: 20,
+    time: 20,
+    description: "Evaluación de satisfacción del proceso de onboarding a los 90 días. Mide adaptación y desempeño, liderazgo, crecimiento, cultura y una retrospectiva del proceso de incorporación.",
+    sampleQuestions: [
+      // 1. Adaptación y Desempeño
+      { type: "scale", question: "Me siento completamente integrado/a a mi rol.", scale: "1-5" },
+      { type: "scale", question: "Mis funciones y responsabilidades son claras.", scale: "1-5" },
+      { type: "scale", question: "Logro cumplir con los objetivos asignados.", scale: "1-5" },
+      { type: "scale", question: "Cuento con las habilidades y herramientas para desempeñarme bien.", scale: "1-5" },
+      // 2. Liderazgo y Retroalimentación
+      { type: "scale", question: "Mi líder directo me da retroalimentación oportuna y constructiva.", scale: "1-5" },
+      { type: "scale", question: "Tengo conversaciones de seguimiento sobre mi desempeño.", scale: "1-5" },
+      { type: "scale", question: "Siento que mi trabajo es reconocido.", scale: "1-5" },
+      { type: "scale", question: "Mi líder me apoya en mi desarrollo profesional.", scale: "1-5" },
+      // 3. Crecimiento y Desarrollo
+      { type: "scale", question: "Veo oportunidades de crecimiento en la empresa.", scale: "1-5" },
+      { type: "scale", question: "He tenido acceso a capacitación o aprendizaje relevante.", scale: "1-5" },
+      { type: "scale", question: "Mi plan de desarrollo está claro.", scale: "1-5" },
+      // 4. Cultura y Pertenencia
+      { type: "scale", question: "Me identifico con los valores y la cultura de la empresa.", scale: "1-5" },
+      { type: "scale", question: "Me siento valorado/a como parte del equipo.", scale: "1-5" },
+      { type: "scale", question: "Recomendaría esta empresa a alguien de mi círculo.", scale: "1-5" },
+      // 5. Proceso de Onboarding (Retrospectiva)
+      { type: "scale", question: "El proceso de incorporación me preparó adecuadamente para mi rol.", scale: "1-5" },
+      { type: "scale", question: "La información recibida durante el onboarding fue útil y relevante.", scale: "1-5" },
+      { type: "scale", question: "El tiempo de adaptación fue razonable.", scale: "1-5" },
+      // 6. Comentarios
+      { type: "open", question: "¿Qué es lo que más valoras de trabajar en la empresa?" },
+      { type: "open", question: "¿Qué cambiarías del proceso de onboarding para futuros ingresos?" },
+      { type: "open", question: "¿Tienes algún comentario adicional para el equipo de RH?" },
+    ]
+  },
 ]
 
 const categoryConfig: Record<string, { label: string; icon: React.ReactNode; color: string; bgColor: string }> = {
@@ -688,6 +783,7 @@ const categoryConfig: Record<string, { label: string; icon: React.ReactNode; col
   competencies: { label: "Competencias", icon: <Award className="h-4 w-4" />, color: "text-cyan-600", bgColor: "bg-cyan-100 dark:bg-cyan-900/30" },
   potential: { label: "Potencial", icon: <Lightbulb className="h-4 w-4" />, color: "text-yellow-600", bgColor: "bg-yellow-100 dark:bg-yellow-900/30" },
   climate: { label: "Clima Laboral", icon: <ThermometerSun className="h-4 w-4" />, color: "text-teal-600", bgColor: "bg-teal-100 dark:bg-teal-900/30" },
+  onboarding: { label: "Onboarding", icon: <ClipboardList className="h-4 w-4" />, color: "text-emerald-600", bgColor: "bg-emerald-100 dark:bg-emerald-900/30" },
 }
 
 const statusConfig: Record<string, { label: string; color: string; bgColor: string }> = {
@@ -856,13 +952,13 @@ export default function EvaluationsPage() {
   
   const [selectedTemplate, setSelectedTemplate] = useState<typeof evaluationTemplates[0] | null>(null)
   const [templatesList, setTemplatesList] = useState(evaluationTemplates)
-  const [templateScopeFilter, setTemplateScopeFilter] = useState<"all" | "selection" | "permanence" | "objectives">("all")
+  const [templateScopeFilter, setTemplateScopeFilter] = useState<"all" | "selection" | "permanence" | "objectives" | "onboarding">("all")
   const [newTemplateForm, setNewTemplateForm] = useState({
     name: "",
     subtitle: "",
     description: "",
     category: "psychometric",
-    scope: "selection" as "selection" | "permanence" | "objectives",
+    scope: "selection" as "selection" | "permanence" | "objectives" | "onboarding",
     questions: 10,
     time: 15,
     applicationDate: "",
@@ -2128,7 +2224,7 @@ const handleCreateTemplate = () => {
     subtitle: (row.subtitle as string) ?? "",
     description: (row.description as string) ?? "",
     category: (row.category as string) ?? "psychometric",
-    scope: (row.scope as "selection" | "permanence" | "objectives") ?? "selection",
+    scope: (row.scope as "selection" | "permanence" | "objectives" | "onboarding") ?? "selection",
     questions: (row.questions as number) ?? 0,
     time: (row.time_minutes as number) ?? 0,
     sampleQuestions: (row.sample_questions as typeof evaluationTemplates[0]["sampleQuestions"]) ?? [],
@@ -2168,6 +2264,25 @@ const handleCreateTemplate = () => {
         console.log("[v0] Error sembrando plantillas:", seedError.message)
       }
       setTemplatesList(evaluationTemplates)
+      return
+    }
+    // Sembrar plantillas predeterminadas que aún no existan (p. ej. las de Onboarding
+    // agregadas después de la siembra inicial), sin sobrescribir las personalizadas.
+    const existingIds = new Set((data as Record<string, unknown>[]).map((r) => r.id as string))
+    const missing = evaluationTemplates.filter((t) => !existingIds.has(t.id))
+    if (missing.length > 0) {
+      const baseOrder = data.length
+      const rows = missing.map((t, i) => templateToRow(t, baseOrder + i))
+      const { error: insertError } = await supabase.from("evaluation_templates").insert(rows)
+      if (insertError) {
+        console.log("[v0] Error agregando plantillas faltantes:", insertError.message)
+        setTemplatesList((data as Record<string, unknown>[]).map(rowToTemplate))
+        return
+      }
+      setTemplatesList([
+        ...(data as Record<string, unknown>[]).map(rowToTemplate),
+        ...missing,
+      ])
       return
     }
     setTemplatesList((data as Record<string, unknown>[]).map(rowToTemplate))
@@ -2514,7 +2629,7 @@ const handleCreateTemplate = () => {
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-4 sm:grid-cols-7 lg:w-auto lg:inline-grid">
           <TabsTrigger value="dashboard" className="gap-2">
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Dashboard</span>
@@ -2530,6 +2645,10 @@ const handleCreateTemplate = () => {
           <TabsTrigger value="objectives" className="gap-2">
             <Target className="h-4 w-4" />
             <span className="hidden sm:inline">Objetivos</span>
+          </TabsTrigger>
+          <TabsTrigger value="onboarding" className="gap-2">
+            <ClipboardList className="h-4 w-4" />
+            <span className="hidden sm:inline">Onboarding</span>
           </TabsTrigger>
           <TabsTrigger value="ninebox" className="gap-2">
             <Grid3X3 className="h-4 w-4" />
@@ -3616,6 +3735,148 @@ const handleCreateTemplate = () => {
         )}
       </TabsContent>
 
+      {/* Onboarding Tab */}
+      <TabsContent value="onboarding" className="space-y-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold">Evaluaciones de Onboarding</h2>
+            <p className="text-sm text-muted-foreground">
+              Evalúa la experiencia del proceso de incorporación con encuestas de satisfacción a 1 semana, 30 y 90 días.
+            </p>
+          </div>
+          <Button onClick={handleOpenCreateTemplate}>
+            <Plus className="h-4 w-4 mr-2" />
+            Crear Plantilla
+          </Button>
+        </div>
+
+        {/* Onboarding Stats */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          {(() => {
+            const onbTemplates = templatesList.filter((t) => t.scope === "onboarding")
+            const totalQuestions = onbTemplates.reduce((sum, t) => sum + (t.questions || 0), 0)
+            const scheduled = onbTemplates.filter((t) => schedules[t.id]?.application_date || schedules[t.id]?.next_evaluation_date).length
+            const cards = [
+              { label: "Plantillas de Onboarding", value: onbTemplates.length, hint: "Encuestas configuradas", icon: <ClipboardList className="h-6 w-6 text-emerald-600" />, bg: "bg-emerald-100" },
+              { label: "Total de Preguntas", value: totalQuestions, hint: "En todas las encuestas", icon: <FileText className="h-6 w-6 text-blue-600" />, bg: "bg-blue-100" },
+              { label: "Con Fechas Programadas", value: scheduled, hint: "Aplicación o próxima evaluación", icon: <CalendarClock className="h-6 w-6 text-amber-600" />, bg: "bg-amber-100" },
+            ]
+            return cards.map((c) => (
+              <Card key={c.label} className="relative overflow-hidden">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">{c.label}</p>
+                      <p className="text-3xl font-bold">{c.value}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{c.hint}</p>
+                    </div>
+                    <div className={`h-12 w-12 rounded-full ${c.bg} flex items-center justify-center`}>
+                      {c.icon}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          })()}
+        </div>
+
+        {/* Onboarding Templates List */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Plantillas de Onboarding</CardTitle>
+            <CardDescription>
+              Edita las encuestas, ajusta sus preguntas y programa sus fechas igual que las demás evaluaciones.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {templatesList.filter((t) => t.scope === "onboarding").length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <ClipboardList className="h-10 w-10 text-muted-foreground mb-3" />
+                <p className="text-sm text-muted-foreground">Aún no hay plantillas de Onboarding.</p>
+                <Button className="mt-4" onClick={handleOpenCreateTemplate}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Crear Plantilla
+                </Button>
+              </div>
+            ) : (
+              templatesList
+                .filter((t) => t.scope === "onboarding")
+                .map((template) => {
+                  const config = categoryConfig[template.category] || categoryConfig.onboarding
+                  const schedule = schedules[template.id]
+                  const appDays = schedule?.application_date ? daysUntil(schedule.application_date) : null
+                  const appLevel = appDays !== null ? levelForDays(appDays) : "none"
+                  return (
+                    <div key={template.id} className="flex flex-col gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-lg ${config.bgColor} ${config.color} flex items-center justify-center`}>
+                          {config.icon}
+                        </div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="font-medium">{template.name}</h4>
+                            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                              Onboarding
+                            </Badge>
+                            {(appLevel === "overdue" || appLevel === "due-soon") && (
+                              <Badge variant="outline" className={
+                                appLevel === "overdue"
+                                  ? "bg-red-50 text-red-700 border-red-200"
+                                  : "bg-amber-50 text-amber-700 border-amber-200"
+                              }>
+                                <AlertTriangle className="mr-1 h-3 w-3" />
+                                {appLevel === "overdue" ? "Vencida" : "Por aplicar"}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {template.questions} preguntas · {template.time} minutos
+                          </p>
+                          {(schedule?.application_date || schedule?.next_evaluation_date) && (
+                            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                              {schedule?.application_date && (
+                                <span className="flex items-center gap-1">
+                                  <CalendarClock className="h-3.5 w-3.5" />
+                                  Aplicar: {formatScheduleDate(schedule.application_date)}
+                                </span>
+                              )}
+                              {schedule?.next_evaluation_date && (
+                                <span className="flex items-center gap-1">
+                                  <CalendarCheck className="h-3.5 w-3.5" />
+                                  Próxima: {formatScheduleDate(schedule.next_evaluation_date)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleEditTemplate(template)}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handlePreviewTemplate(template)}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          Vista Previa
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setTemplateToDelete({ id: template.id, name: template.name })}
+                          aria-label={`Borrar plantilla ${template.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
+
       {/* Nine Box Tab */}
       <TabsContent value="ninebox" className="space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -4564,6 +4825,13 @@ const handleCreateTemplate = () => {
             >
               Objetivos
             </Button>
+            <Button
+              variant={templateScopeFilter === "onboarding" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTemplateScopeFilter("onboarding")}
+            >
+              Onboarding
+            </Button>
           </div>
           <div className="grid gap-3 py-4 mx-auto w-full max-w-4xl">
             {templatesList
@@ -4587,9 +4855,11 @@ const handleCreateTemplate = () => {
                             ? "bg-blue-50 text-blue-700 border-blue-200"
                             : template.scope === "objectives"
                             ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : template.scope === "onboarding"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                             : "bg-purple-50 text-purple-700 border-purple-200"
                         }>
-                          {template.scope === "selection" ? "Selección" : template.scope === "objectives" ? "Objetivos" : "Permanencia"}
+                          {template.scope === "selection" ? "Selección" : template.scope === "objectives" ? "Objetivos" : template.scope === "onboarding" ? "Onboarding" : "Permanencia"}
                         </Badge>
                         {(appLevel === "overdue" || appLevel === "due-soon") && (
                           <Badge variant="outline" className={
@@ -4947,7 +5217,7 @@ const handleCreateTemplate = () => {
                 <Label htmlFor="new-template-scope">Aplicación</Label>
                 <Select 
                   value={newTemplateForm.scope} 
-                  onValueChange={(v: "selection" | "permanence" | "objectives") => setNewTemplateForm({...newTemplateForm, scope: v})}
+                  onValueChange={(v: "selection" | "permanence" | "objectives" | "onboarding") => setNewTemplateForm({...newTemplateForm, scope: v})}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -4969,6 +5239,12 @@ const handleCreateTemplate = () => {
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-500" />
                         <span>Objetivos</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="onboarding">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <span>Onboarding</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -5354,7 +5630,7 @@ const handleCreateTemplate = () => {
                 <Label htmlFor="template-scope">Aplicación</Label>
                 <Select 
                   value={editTemplateForm.scope || "selection"} 
-                  onValueChange={(v: "selection" | "permanence" | "objectives") => setEditTemplateForm({...editTemplateForm, scope: v})}
+                  onValueChange={(v: "selection" | "permanence" | "objectives" | "onboarding") => setEditTemplateForm({...editTemplateForm, scope: v})}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -5376,6 +5652,12 @@ const handleCreateTemplate = () => {
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-500" />
                         <span>Objetivos</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="onboarding">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <span>Onboarding</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
