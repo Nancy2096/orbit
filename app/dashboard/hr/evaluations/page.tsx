@@ -1977,8 +1977,9 @@ const [editTemplateForm, setEditTemplateForm] = useState({
         return
       }
 
-      // Find template and normalize its structure
-      const rawTemplate = evaluationTemplates.find(t => t.id === staffEvalTemplate)
+      // Find template and normalize its structure (usa la lista editable para
+      // respetar cualquier modificación guardada en las plantillas).
+      const rawTemplate = templatesList.find(t => t.id === staffEvalTemplate)
       if (!rawTemplate) {
         alert("Plantilla no encontrada")
         return
@@ -6335,10 +6336,12 @@ const handleCreateTemplate = () => {
                     </SelectTrigger>
                     <SelectContent>
                       {templatesList
-                        .filter(t => t.scope === "permanence")
+                        .filter(t => t.scope === "permanence" || t.scope === "onboarding")
                         .map(t => (
                           <SelectItem key={t.id} value={t.id}>
-                            {t.name} ({t.questions || t.sampleQuestions?.length || 0} preguntas)
+                            {t.name}
+                            {t.scope === "onboarding" ? " · Onboarding" : ""}
+                            {" "}({t.questions || t.sampleQuestions?.length || 0} preguntas)
                           </SelectItem>
                         ))}
                     </SelectContent>
