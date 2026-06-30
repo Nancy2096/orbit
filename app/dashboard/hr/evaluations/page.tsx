@@ -925,6 +925,8 @@ export default function EvaluationsPage() {
   // Iniciar evaluación para Objetivos y Onboarding (selección de colaborador)
   const [startScopedEvalScope, setStartScopedEvalScope] = useState<"objectives" | "onboarding" | null>(null)
   const [startScopedEvalStaffId, setStartScopedEvalStaffId] = useState<string>("")
+  // Filtro de la tabla de colaboradores en Onboarding
+  const [onboardingFilter, setOnboardingFilter] = useState<"in_process" | "completed" | "all">("in_process")
   
   // Estado para reiniciar/reenviar evaluaciones
   const [showResendEvalDialog, setShowResendEvalDialog] = useState(false)
@@ -3781,129 +3783,294 @@ const handleCreateTemplate = () => {
           </div>
         </div>
 
-        {/* Onboarding Stats */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          {(() => {
-            const onbTemplates = templatesList.filter((t) => t.scope === "onboarding")
-            const totalQuestions = onbTemplates.reduce((sum, t) => sum + (t.questions || 0), 0)
-            const scheduled = onbTemplates.filter((t) => schedules[t.id]?.application_date || schedules[t.id]?.next_evaluation_date).length
-            const cards = [
-              { label: "Plantillas de Onboarding", value: onbTemplates.length, hint: "Encuestas configuradas", icon: <ClipboardList className="h-6 w-6 text-emerald-600" />, bg: "bg-emerald-100" },
-              { label: "Total de Preguntas", value: totalQuestions, hint: "En todas las encuestas", icon: <FileText className="h-6 w-6 text-blue-600" />, bg: "bg-blue-100" },
-              { label: "Con Fechas Programadas", value: scheduled, hint: "Aplicación o próxima evaluación", icon: <CalendarClock className="h-6 w-6 text-amber-600" />, bg: "bg-amber-100" },
-            ]
-            return cards.map((c) => (
-              <Card key={c.label} className="relative overflow-hidden">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">{c.label}</p>
-                      <p className="text-3xl font-bold">{c.value}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{c.hint}</p>
-                    </div>
-                    <div className={`h-12 w-12 rounded-full ${c.bg} flex items-center justify-center`}>
-                      {c.icon}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          })()}
+        {(() => {
+          const tenureDays = (d?: string | null) =>
+            d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null
+          const onbEvals = staffEvaluations.filter((e) => e.evaluation_type === "onboarding")
+          const completed = onbEvals.filter((e) => e.status === "completed")
+          const inProgress = onbEvals.filter((e) => e.status === "in_progress")
+          const avg =
+            completed.length > 0
+              ? Math.round(completed.reduce((s, e) => s + (e.score || 0), 0) / completed.length)
+              : 0
+          const inOnboarding = staffList.filter((s) => {
+            const t = tenureDays(s.hire_date)
+            return t !== null && t <= 90
+          }).length
+
+          const statCards = [
+            {
+              label: "En Onboarding",
+              value: inOnboarding,
+              hint: "Colaboradores en sus primeros 90 días",
+              icon: <Users className="h-7 w-7 text-white" />,
+              grad: "from-emerald-500 to-emerald-600",
+              border: "border-l-emerald-500",
+            },
+            {
+              label: "Promedio General",
+              value: `${avg}%`,
+              hint: `${completed.length} encuestas completadas`,
+              icon: <TrendingUp className="h-7 w-7 text-white" />,
+              grad: "from-blue-500 to-blue-600",
+              border: "border-l-blue-500",
+            },
+            {
+              label: "Completadas",
+              value: completed.length,
+              hint: "Respuestas recibidas",
+              icon: <CheckCircle2 className="h-7 w-7 text-white" />,
+              grad: "from-violet-500 to-violet-600",
+              border: "border-l-violet-500",
+            },
+            {
+              label: "En Proceso",
+              value: inProgress.length,
+              hint: "Encuestas pendientes de responder",
+              icon: <Clock className="h-7 w-7 text-white" />,
+              grad: "from-amber-500 to-amber-600",
+              border: "border-l-amber-500",
+            },
+          ]
+
+          const stageData = [
+            { etapa: "1ª Semana", colaboradores: staffList.filter((s) => { const t = tenureDays(s.hire_date); return t !== null && t <= 7 }).length },
+            { etapa: "30 Días", colaboradores: staffList.filter((s) => { const t = tenureDays(s.hire_date); return t !== null && t > 7 && t <= 30 }).length },
+            { etapa: "90 Días", colaboradores: staffList.filter((s) => { const t = tenureDays(s.hire_date); return t !== null && t > 30 && t <= 90 }).length },
+          ]
+
+          const satisfaction = [
+            { name: "Excelente", value: completed.filter((e) => (e.score || 0) >= 90).length, fill: "var(--color-chart-1)" },
+            { name: "Bueno", value: completed.filter((e) => (e.score || 0) >= 70 && (e.score || 0) < 90).length, fill: "var(--color-chart-2)" },
+            { name: "Regular", value: completed.filter((e) => (e.score || 0) >= 50 && (e.score || 0) < 70).length, fill: "var(--color-chart-4)" },
+            { name: "Bajo", value: completed.filter((e) => (e.score || 0) < 50).length, fill: "var(--color-chart-5)" },
+          ]
+          const satisfactionColors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444"]
+          const hasSatisfaction = satisfaction.some((s) => s.value > 0)
+
+          return (
+            <>
+              {/* Stat Cards */}
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {statCards.map((c) => (
+                  <Card key={c.label} className={`relative overflow-hidden border-l-4 ${c.border}`}>
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">{c.label}</p>
+                          <p className="text-3xl font-bold">{c.value}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{c.hint}</p>
+                        </div>
+                        <div className={`h-14 w-14 rounded-2xl bg-gradient-to-br ${c.grad} flex items-center justify-center shadow-lg`}>
+                          {c.icon}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Charts */}
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Colaboradores por Etapa</CardTitle>
+                    <CardDescription>Personal en proceso de onboarding según su antigüedad</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={stageData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
+                        <XAxis dataKey="etapa" tickLine={false} axisLine={false} fontSize={12} />
+                        <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={12} />
+                        <RechartsTooltip
+                          cursor={{ fill: "rgba(16,185,129,0.08)" }}
+                          contentStyle={{ borderRadius: 8, border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                        />
+                        <Bar dataKey="colaboradores" name="Colaboradores" radius={[6, 6, 0, 0]} fill="#10b981" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Distribución de Satisfacción</CardTitle>
+                    <CardDescription>Resultados de las encuestas completadas</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {hasSatisfaction ? (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie data={satisfaction} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2}>
+                            {satisfaction.map((entry, i) => (
+                              <Cell key={entry.name} fill={satisfactionColors[i]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip contentStyle={{ borderRadius: 8, border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                          <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-[260px] text-center">
+                        <BarChart3 className="h-10 w-10 text-muted-foreground mb-3" />
+                        <p className="text-sm text-muted-foreground">Aún no hay encuestas completadas para graficar.</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )
+        })()}
+
+        {/* Search + Filter */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar colaborador..."
+              value={staffSearchTerm}
+              onChange={(e) => setStaffSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <div className="flex gap-1 rounded-lg border p-1">
+            {([
+              { key: "in_process", label: "En proceso" },
+              { key: "completed", label: "Completados" },
+              { key: "all", label: "Todos" },
+            ] as const).map((f) => (
+              <Button
+                key={f.key}
+                variant={onboardingFilter === f.key ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setOnboardingFilter(f.key)}
+              >
+                {f.label}
+              </Button>
+            ))}
+          </div>
         </div>
 
-        {/* Onboarding Templates List */}
+        {/* Onboarding Collaborators Table */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Plantillas de Onboarding</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Colaboradores en Onboarding</CardTitle>
             <CardDescription>
-              Edita las encuestas, ajusta sus preguntas y programa sus fechas igual que las demás evaluaciones.
+              Personal que está en su proceso de incorporación y quienes ya lo completaron.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {templatesList.filter((t) => t.scope === "onboarding").length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <ClipboardList className="h-10 w-10 text-muted-foreground mb-3" />
-                <p className="text-sm text-muted-foreground">Aún no hay plantillas de Onboarding.</p>
-                <Button className="mt-4" onClick={handleOpenCreateTemplate}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Crear Plantilla
-                </Button>
-              </div>
-            ) : (
-              templatesList
-                .filter((t) => t.scope === "onboarding")
-                .map((template) => {
-                  const config = categoryConfig[template.category] || categoryConfig.onboarding
-                  const schedule = schedules[template.id]
-                  const appDays = schedule?.application_date ? daysUntil(schedule.application_date) : null
-                  const appLevel = appDays !== null ? levelForDays(appDays) : "none"
-                  return (
-                    <div key={template.id} className="flex flex-col gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-lg ${config.bgColor} ${config.color} flex items-center justify-center`}>
-                          {config.icon}
-                        </div>
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="font-medium">{template.name}</h4>
-                            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                              Onboarding
-                            </Badge>
-                            {(appLevel === "overdue" || appLevel === "due-soon") && (
-                              <Badge variant="outline" className={
-                                appLevel === "overdue"
-                                  ? "bg-red-50 text-red-700 border-red-200"
-                                  : "bg-amber-50 text-amber-700 border-amber-200"
-                              }>
-                                <AlertTriangle className="mr-1 h-3 w-3" />
-                                {appLevel === "overdue" ? "Vencida" : "Por aplicar"}
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {template.questions} preguntas · {template.time} minutos
-                          </p>
-                          {(schedule?.application_date || schedule?.next_evaluation_date) && (
-                            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                              {schedule?.application_date && (
-                                <span className="flex items-center gap-1">
-                                  <CalendarClock className="h-3.5 w-3.5" />
-                                  Aplicar: {formatScheduleDate(schedule.application_date)}
-                                </span>
-                              )}
-                              {schedule?.next_evaluation_date && (
-                                <span className="flex items-center gap-1">
-                                  <CalendarCheck className="h-3.5 w-3.5" />
-                                  Próxima: {formatScheduleDate(schedule.next_evaluation_date)}
-                                </span>
-                              )}
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Colaborador</TableHead>
+                  <TableHead>Departamento</TableHead>
+                  <TableHead>Ingreso</TableHead>
+                  <TableHead>Etapa</TableHead>
+                  <TableHead>Encuesta</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(() => {
+                  const tenureDays = (d?: string | null) =>
+                    d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null
+                  const rows = filteredStaff
+                    .map((staff) => {
+                      const t = tenureDays(staff.hire_date)
+                      const onbEval = staffEvaluations.find(
+                        (e) => e.staff_id === staff.id && e.evaluation_type === "onboarding"
+                      )
+                      const inProcess = t !== null && t <= 90
+                      return { staff, t, onbEval, inProcess }
+                    })
+                    .filter(({ inProcess, onbEval }) => {
+                      if (onboardingFilter === "in_process") return inProcess
+                      if (onboardingFilter === "completed") return !inProcess || onbEval?.status === "completed"
+                      return true
+                    })
+
+                  if (loadingStaff) {
+                    return (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8">
+                          <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                        </TableCell>
+                      </TableRow>
+                    )
+                  }
+                  if (rows.length === 0) {
+                    return (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          No hay colaboradores en esta vista
+                        </TableCell>
+                      </TableRow>
+                    )
+                  }
+
+                  return rows.map(({ staff, t, onbEval, inProcess }) => {
+                    const stageLabel =
+                      t === null ? "—" : t <= 7 ? "1ª Semana" : t <= 30 ? "30 Días" : t <= 90 ? "90 Días" : "Completado"
+                    return (
+                      <TableRow key={staff.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                {staff.first_name[0]}{staff.last_name[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium">{staff.first_name} {staff.last_name}</div>
+                              <div className="text-xs text-muted-foreground">{staff.position || "Sin puesto"}</div>
                             </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>{staff.department || "-"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {staff.hire_date ? formatScheduleDate(staff.hire_date) : "—"}
+                          {t !== null && <span className="block text-xs">{t} días</span>}
+                        </TableCell>
+                        <TableCell>
+                          {inProcess ? (
+                            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                              {stageLabel}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-muted-foreground">Completado</Badge>
                           )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => handleEditTemplate(template)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Editar
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handlePreviewTemplate(template)}>
-                          <Eye className="mr-2 h-4 w-4" />
-                          Vista Previa
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => setTemplateToDelete({ id: template.id, name: template.name })}
-                          aria-label={`Borrar plantilla ${template.name}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  )
-                })
-            )}
+                        </TableCell>
+                        <TableCell>
+                          {onbEval?.status === "completed" ? (
+                            <Badge className="bg-green-100 text-green-700">{onbEval.score ?? 0}%</Badge>
+                          ) : onbEval?.status === "in_progress" ? (
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700">En proceso</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-muted-foreground">Sin evaluar</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setStartScopedEvalScope("onboarding")
+                              setStartScopedEvalStaffId(staff.id)
+                            }}
+                          >
+                            <Play className="mr-2 h-4 w-4" />
+                            Iniciar
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                })()}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       </TabsContent>
@@ -4663,7 +4830,7 @@ const handleCreateTemplate = () => {
               <Input placeholder="Ej: Evaluación Técnica - Frontend Developer" />
             </div>
             <div className="space-y-2">
-              <Label>Descripción</Label>
+              <Label>Descripci��n</Label>
               <Textarea placeholder="Descripción de la evaluación..." />
             </div>
             <div className="grid grid-cols-2 gap-4">
