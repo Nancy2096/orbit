@@ -921,6 +921,10 @@ export default function EvaluationsPage() {
   } | null>(null)
   const [staffApplyEvalAnswers, setStaffApplyEvalAnswers] = useState<Record<number, number>>({})
   const [staffApplyEvalCurrentQuestion, setStaffApplyEvalCurrentQuestion] = useState(0)
+
+  // Iniciar evaluación para Objetivos y Onboarding (selección de colaborador)
+  const [startScopedEvalScope, setStartScopedEvalScope] = useState<"objectives" | "onboarding" | null>(null)
+  const [startScopedEvalStaffId, setStartScopedEvalStaffId] = useState<string>("")
   
   // Estado para reiniciar/reenviar evaluaciones
   const [showResendEvalDialog, setShowResendEvalDialog] = useState(false)
@@ -1500,12 +1504,16 @@ const [editTemplateForm, setEditTemplateForm] = useState({
 
   // Start a staff evaluation
   const handleStartStaffEvaluation = async (staffId: string, evalType: string) => {
+    // Onboarding y Objetivos pueden tener varias evaluaciones por colaborador
+    // (p. ej. encuestas a 1 semana, 30 y 90 días), por lo que no se bloquean.
+    const allowsMultiple = evalType === "onboarding" || evalType === "objectives"
+
     // Check if evaluation already exists
     const existing = staffEvaluations.find(
       e => e.staff_id === staffId && e.evaluation_type === evalType
     )
-    
-    if (existing) {
+
+    if (existing && !allowsMultiple) {
       alert("Esta evaluación ya ha sido iniciada")
       return
     }
@@ -3614,10 +3622,21 @@ const handleCreateTemplate = () => {
               Crea objetivos por colaborador y da seguimiento o evalúa su cumplimiento
             </p>
           </div>
-          <Button onClick={() => setShowNewObjectiveDialog(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Objetivo
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowNewObjectiveDialog(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nuevo Objetivo
+            </Button>
+            <Button
+              onClick={() => {
+                setStartScopedEvalScope("objectives")
+                setStartScopedEvalStaffId("")
+              }}
+            >
+              <Play className="mr-2 h-4 w-4" />
+              Iniciar Evaluación
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -3745,10 +3764,21 @@ const handleCreateTemplate = () => {
               Evalúa la experiencia del proceso de incorporación con encuestas de satisfacción a 1 semana, 30 y 90 días.
             </p>
           </div>
-          <Button onClick={handleOpenCreateTemplate}>
-            <Plus className="h-4 w-4 mr-2" />
-            Crear Plantilla
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleOpenCreateTemplate}>
+              <Plus className="h-4 w-4 mr-2" />
+              Crear Plantilla
+            </Button>
+            <Button
+              onClick={() => {
+                setStartScopedEvalScope("onboarding")
+                setStartScopedEvalStaffId("")
+              }}
+            >
+              <Play className="h-4 w-4 mr-2" />
+              Iniciar Evaluación
+            </Button>
+          </div>
         </div>
 
         {/* Onboarding Stats */}
@@ -6319,6 +6349,8 @@ const handleCreateTemplate = () => {
                     {staffEvalMethodData.evalType === "kpis" && "Evaluación de KPIs"}
                     {staffEvalMethodData.evalType === "competencies" && "Evaluación de Competencias"}
                     {staffEvalMethodData.evalType === "potential" && "Evaluación de Potencial"}
+                    {staffEvalMethodData.evalType === "objectives" && "Evaluación de Objetivos"}
+                    {staffEvalMethodData.evalType === "onboarding" && "Evaluación de Onboarding"}
                   </strong>
                 </>
               )}
@@ -6335,15 +6367,22 @@ const handleCreateTemplate = () => {
                       <SelectValue placeholder="Selecciona una plantilla" />
                     </SelectTrigger>
                     <SelectContent>
-                      {templatesList
-                        .filter(t => t.scope === "permanence" || t.scope === "onboarding")
-                        .map(t => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                            {t.scope === "onboarding" ? " · Onboarding" : ""}
-                            {" "}({t.questions || t.sampleQuestions?.length || 0} preguntas)
-                          </SelectItem>
-                        ))}
+                      {(() => {
+                        // Mostrar las plantillas del scope correspondiente al tipo de evaluación.
+                        const evalScope =
+                          staffEvalMethodData?.evalType === "onboarding"
+                            ? "onboarding"
+                            : staffEvalMethodData?.evalType === "objectives"
+                            ? "objectives"
+                            : "permanence"
+                        return templatesList
+                          .filter(t => t.scope === evalScope)
+                          .map(t => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {t.name} ({t.questions || t.sampleQuestions?.length || 0} preguntas)
+                            </SelectItem>
+                          ))
+                      })()}
                     </SelectContent>
                   </Select>
                 </div>
@@ -6691,6 +6730,73 @@ const handleCreateTemplate = () => {
               setShowStartPermanenceEvalDialog(false)
             }}>
               Iniciar Evaluación
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Iniciar Evaluación (Objetivos / Onboarding) */}
+      <Dialog
+        open={startScopedEvalScope !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setStartScopedEvalScope(null)
+            setStartScopedEvalStaffId("")
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {startScopedEvalScope === "onboarding"
+                ? "Iniciar Evaluación de Onboarding"
+                : "Iniciar Evaluación de Objetivos"}
+            </DialogTitle>
+            <DialogDescription>
+              Selecciona el colaborador para iniciar la evaluación. En el siguiente paso podrás elegir la plantilla.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Colaborador</Label>
+              <Select value={startScopedEvalStaffId} onValueChange={setStartScopedEvalStaffId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un colaborador" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staffList.map((staff) => (
+                    <SelectItem key={staff.id} value={staff.id}>
+                      {staff.first_name} {staff.last_name} - {staff.position_rel?.name || staff.position || "Sin puesto"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setStartScopedEvalScope(null)
+                setStartScopedEvalStaffId("")
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              disabled={!startScopedEvalStaffId}
+              onClick={() => {
+                const scope = startScopedEvalScope
+                const staffId = startScopedEvalStaffId
+                setStartScopedEvalScope(null)
+                setStartScopedEvalStaffId("")
+                if (scope && staffId) {
+                  void handleStartStaffEvaluation(staffId, scope)
+                }
+              }}
+            >
+              <Play className="mr-2 h-4 w-4" />
+              Continuar
             </Button>
           </DialogFooter>
         </DialogContent>
