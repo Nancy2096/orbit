@@ -1664,13 +1664,12 @@ if (isTemplateFormat) {
 
         // Handle bank_account_name -> bank_account_id
         if (key === "bank_account_name" && value) {
-          const { data } = await supabase
-            .from("agency_bank_accounts")
+          const query = supabase
+            .from("bank_accounts")
             .select("id")
-            .eq("agency_id", resolved.agency_id)
-            .ilike("bank_name", String(value))
-            .limit(1)
-            .single()
+            .ilike("account_name", String(value))
+          if (resolved.agency_id) query.eq("agency_id", resolved.agency_id)
+          const { data } = await query.limit(1).maybeSingle()
           if (data) {
             resolved.bank_account_id = data.id
           }
