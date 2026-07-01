@@ -1730,7 +1730,7 @@ if (isTemplateFormat) {
         // Handle team member emails -> staff IDs for accounts
         const teamEmailMappings: Record<string, string> = {
           "account_manager_email": "account_manager_id",
-          "sales_advisor_email": "sales_rep_id",
+          "sales_advisor_email": "sales_advisor_id",
           "tech_manager_email": "tech_manager_id",
           "tech_coordinator_email": "tech_coordinator_id",
           "strategy_manager_email": "strategy_manager_id",
