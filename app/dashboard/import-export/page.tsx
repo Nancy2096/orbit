@@ -1664,13 +1664,12 @@ if (isTemplateFormat) {
 
         // Handle bank_account_name -> bank_account_id
         if (key === "bank_account_name" && value) {
-          const { data } = await supabase
-            .from("agency_bank_accounts")
+          const query = supabase
+            .from("bank_accounts")
             .select("id")
-            .eq("agency_id", resolved.agency_id)
-            .ilike("bank_name", String(value))
-            .limit(1)
-            .single()
+            .ilike("account_name", String(value))
+          if (resolved.agency_id) query.eq("agency_id", resolved.agency_id)
+          const { data } = await query.limit(1).maybeSingle()
           if (data) {
             resolved.bank_account_id = data.id
           }
@@ -1730,7 +1729,7 @@ if (isTemplateFormat) {
         // Handle team member emails -> staff IDs for accounts
         const teamEmailMappings: Record<string, string> = {
           "account_manager_email": "account_manager_id",
-          "sales_advisor_email": "sales_rep_id",
+          "sales_advisor_email": "sales_advisor_id",
           "tech_manager_email": "tech_manager_id",
           "tech_coordinator_email": "tech_coordinator_id",
           "strategy_manager_email": "strategy_manager_id",
