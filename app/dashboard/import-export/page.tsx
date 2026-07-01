@@ -1553,7 +1553,6 @@ if (isTemplateFormat) {
 
     // Cache for lookups to avoid repeated queries
     const agencyCache = new Map<string, string>()
-    const clientCache = new Map<string, string>()
     const vendorCache = new Map<string, string>()
     const employeeCache = new Map<string, string>()
     const currencyCache = new Map<string, string>()
@@ -1563,6 +1562,44 @@ if (isTemplateFormat) {
     // Pre-fetch agencies for resolution
     const { data: agenciesData } = await supabase.from("agencies").select("id, name")
     agenciesData?.forEach(a => agencyCache.set(a.name.toLowerCase(), a.id))
+
+    // Pre-fetch all clients for robust matching (handles spacing/spelling and
+    // clients that belong to a different agency than the one in the row).
+    const normName = (s: unknown) => String(s).toLowerCase().replace(/\s+/g, " ").trim()
+    const compactName = (s: unknown) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "")
+    const clientByNameAgency = new Map<string, string>()
+    const clientByNameGlobal = new Map<string, string>()
+    const clientByCompactAgency = new Map<string, string>()
+    const clientByCompactGlobal = new Map<string, string>()
+    const clientByTax = new Map<string, string>()
+    const { data: clientsData } = await supabase
+      .from("clients")
+      .select("id, company_name, tax_id, agency_id")
+    clientsData?.forEach(c => {
+      const n = normName(c.company_name)
+      const compact = compactName(c.company_name)
+      clientByNameAgency.set(`${c.agency_id}:${n}`, c.id)
+      if (!clientByNameGlobal.has(n)) clientByNameGlobal.set(n, c.id)
+      clientByCompactAgency.set(`${c.agency_id}:${compact}`, c.id)
+      if (!clientByCompactGlobal.has(compact)) clientByCompactGlobal.set(compact, c.id)
+      if (c.tax_id) clientByTax.set(String(c.tax_id).toUpperCase(), c.id)
+    })
+
+    // Resuelve el id de un cliente probando: nombre exacto (por agencia y global),
+    // RFC, y por último nombre compacto (ignora espacios/puntuación).
+    const resolveClientId = (agencyId: unknown, name: unknown, taxId: unknown): string | undefined => {
+      const n = normName(name)
+      const compact = compactName(name)
+      const aid = agencyId ? String(agencyId) : ""
+      return (
+        (aid && clientByNameAgency.get(`${aid}:${n}`)) ||
+        clientByNameGlobal.get(n) ||
+        (taxId ? clientByTax.get(String(taxId).toUpperCase()) : undefined) ||
+        (aid && clientByCompactAgency.get(`${aid}:${compact}`)) ||
+        clientByCompactGlobal.get(compact) ||
+        undefined
+      )
+    }
 
     for (const row of rows) {
       const resolved: Record<string, unknown> = {}
@@ -1603,16 +1640,9 @@ if (isTemplateFormat) {
           continue
         }
 
-        // Handle client_company_name -> client_id
+        // Handle client_company_name -> client_id (usa RFC de la misma fila como respaldo)
         if (key === "client_company_name" && value) {
-          const cacheKey = `${resolved.agency_id || ""}:${String(value).toLowerCase()}`
-          if (!clientCache.has(cacheKey)) {
-            const query = supabase.from("clients").select("id").ilike("company_name", String(value))
-            if (resolved.agency_id) query.eq("agency_id", resolved.agency_id)
-            const { data } = await query.limit(1).single()
-            if (data) clientCache.set(cacheKey, data.id)
-          }
-          const clientId = clientCache.get(cacheKey)
+          const clientId = resolveClientId(resolved.agency_id, value, row.client_tax_id)
           if (clientId) {
             resolved.client_id = clientId
           } else {
@@ -1622,18 +1652,12 @@ if (isTemplateFormat) {
           continue
         }
 
-        // Handle client_tax_id -> client_id (alternative to company_name)
-        if (key === "client_tax_id" && value && !resolved.client_id) {
-          const cacheKey = `tax:${resolved.agency_id || ""}:${String(value).toUpperCase()}`
-          if (!clientCache.has(cacheKey)) {
-            const query = supabase.from("clients").select("id").ilike("tax_id", String(value))
-            if (resolved.agency_id) query.eq("agency_id", resolved.agency_id)
-            const { data } = await query.limit(1).single()
-            if (data) clientCache.set(cacheKey, data.id)
-          }
-          const clientId = clientCache.get(cacheKey)
-          if (clientId) {
-            resolved.client_id = clientId
+        // Handle client_tax_id -> client_id (alternativa). Nunca se inserta como columna:
+        // la tabla accounts no tiene la columna client_tax_id, por eso siempre hacemos continue.
+        if (key === "client_tax_id") {
+          if (value && !resolved.client_id) {
+            const clientId = resolveClientId(resolved.agency_id, undefined, value)
+            if (clientId) resolved.client_id = clientId
           }
           continue
         }
@@ -1760,7 +1784,8 @@ if (isTemplateFormat) {
           }
           const currencyId = currencyCache.get(cacheKey)
           if (currencyId) {
-            resolved.currency_id = currencyId
+            // La tabla accounts usa retainer_currency_id en lugar de currency_id.
+            resolved[tableName === "accounts" ? "retainer_currency_id" : "currency_id"] = currencyId
           }
           continue
         }
