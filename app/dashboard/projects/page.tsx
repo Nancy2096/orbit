@@ -49,13 +49,11 @@ interface ProjectAccount {
   account_manager_id: string | null
   client: {
     company_name: string
+    country: string | null
+    state: string | null
   } | null
   agency: {
     name: string
-  } | null
-  account_manager: {
-    first_name: string
-    last_name: string
   } | null
 }
 
@@ -68,10 +66,28 @@ interface ColumnDef {
 const defaultColumns: ColumnDef[] = [
   { key: "project", label: "Proyecto", visible: true },
   { key: "client", label: "Cliente", visible: true },
+  { key: "country", label: "País", visible: true },
+  { key: "state", label: "Estado (Ubicación)", visible: true },
   { key: "agency", label: "Agencia", visible: true },
-  { key: "manager", label: "Responsable", visible: true },
   { key: "status", label: "Estado", visible: true },
 ]
+
+const countryLabels: Record<string, string> = {
+  MX: "México",
+  US: "Estados Unidos",
+  USA: "Estados Unidos",
+  CA: "Canadá",
+  ES: "España",
+  AR: "Argentina",
+  CO: "Colombia",
+  CL: "Chile",
+  PE: "Perú",
+}
+
+function formatCountry(code: string | null | undefined) {
+  if (!code) return "-"
+  return countryLabels[code.toUpperCase()] || code
+}
 
 interface Filters {
   status: string
@@ -143,29 +159,23 @@ export default function ProjectsPage() {
     // Get related data
     const clientIds = [...new Set(data.map((a) => a.client_id).filter(Boolean))]
     const agencyIds = [...new Set(data.map((a) => a.agency_id).filter(Boolean))]
-    const staffIds = [...new Set(data.map((a) => a.account_manager_id).filter(Boolean))]
 
-    const [clientsRes, agenciesRes, staffRes] = await Promise.all([
+    const [clientsRes, agenciesRes] = await Promise.all([
       clientIds.length > 0
-        ? supabase.from("clients").select("id, company_name").in("id", clientIds)
+        ? supabase.from("clients").select("id, company_name, country, state").in("id", clientIds)
         : { data: [] },
       agencyIds.length > 0
         ? supabase.from("agencies").select("id, name").in("id", agencyIds)
-        : { data: [] },
-      staffIds.length > 0
-        ? supabase.from("staff").select("id, first_name, last_name").in("id", staffIds)
         : { data: [] },
     ])
 
     const clientsMap = new Map((clientsRes.data || []).map((c) => [c.id, c]))
     const agenciesMap = new Map((agenciesRes.data || []).map((a) => [a.id, a]))
-    const staffMap = new Map((staffRes.data || []).map((s) => [s.id, s]))
 
     const mappedData = data.map((account) => ({
       ...account,
       client: account.client_id ? clientsMap.get(account.client_id) || null : null,
       agency: account.agency_id ? agenciesMap.get(account.agency_id) || null : null,
-      account_manager: account.account_manager_id ? staffMap.get(account.account_manager_id) || null : null,
     }))
 
     setProjects(mappedData as ProjectAccount[])
@@ -483,16 +493,19 @@ export default function ProjectsPage() {
                               {project.client?.company_name || "-"}
                             </span>
                           )}
+                          {column.key === "country" && (
+                            <span className="text-sm">
+                              {formatCountry(project.client?.country)}
+                            </span>
+                          )}
+                          {column.key === "state" && (
+                            <span className="text-sm">
+                              {project.client?.state || "-"}
+                            </span>
+                          )}
                           {column.key === "agency" && (
                             <span className="text-sm">
                               {project.agency?.name || "-"}
-                            </span>
-                          )}
-                          {column.key === "manager" && (
-                            <span className="text-sm">
-                              {project.account_manager
-                                ? `${project.account_manager.first_name} ${project.account_manager.last_name}`
-                                : "-"}
                             </span>
                           )}
                           {column.key === "status" && (
