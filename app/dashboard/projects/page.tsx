@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import {
   Table,
@@ -21,10 +22,21 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, FolderKanban, Calendar, DollarSign } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, FolderKanban, Calendar, DollarSign, Settings2, Filter, X } from "lucide-react"
 
 interface Project {
   id: string
@@ -45,6 +57,29 @@ interface Project {
       name: string
     } | null
   } | null
+}
+
+interface ColumnDef {
+  key: string
+  label: string
+  visible: boolean
+}
+
+const defaultColumns: ColumnDef[] = [
+  { key: "project", label: "Proyecto", visible: true },
+  { key: "client_account", label: "Cliente / Cuenta", visible: true },
+  { key: "dates", label: "Fechas", visible: true },
+  { key: "budget", label: "Presupuesto", visible: true },
+  { key: "progress", label: "Progreso", visible: true },
+  { key: "priority", label: "Prioridad", visible: false },
+  { key: "status", label: "Estado", visible: true },
+]
+
+interface Filters {
+  status: string
+  priority: string
+  agency: string
+  client: string
 }
 
 const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -69,6 +104,14 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [columns, setColumns] = useState<ColumnDef[]>(defaultColumns)
+  const [filters, setFilters] = useState<Filters>({
+    status: "all",
+    priority: "all",
+    agency: "all",
+    client: "all",
+  })
+  const [showFilters, setShowFilters] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -118,12 +161,58 @@ export default function ProjectsPage() {
     }
   }
 
-  const filteredProjects = projects.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.project_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.account?.client?.company_name.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  function toggleColumn(key: string) {
+    setColumns(columns.map(col =>
+      col.key === key ? { ...col, visible: !col.visible } : col
+    ))
+  }
+
+  function clearFilters() {
+    setFilters({
+      status: "all",
+      priority: "all",
+      agency: "all",
+      client: "all",
+    })
+  }
+
+  const activeFiltersCount = useMemo(() => {
+    return Object.values(filters).filter(v => v !== "" && v !== "all").length
+  }, [filters])
+
+  const uniqueAgencies = useMemo(() => {
+    const set = new Set<string>()
+    projects.forEach(p => {
+      if (p.account?.agency?.name) set.add(p.account.agency.name)
+    })
+    return [...set].sort()
+  }, [projects])
+
+  const uniqueClients = useMemo(() => {
+    const set = new Set<string>()
+    projects.forEach(p => {
+      if (p.account?.client?.company_name) set.add(p.account.client.company_name)
+    })
+    return [...set].sort()
+  }, [projects])
+
+  const filteredProjects = useMemo(() => {
+    return projects.filter((p) => {
+      const matchesSearch =
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.project_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.account?.client?.company_name.toLowerCase().includes(searchTerm.toLowerCase())
+
+      const matchesStatus = !filters.status || filters.status === "all" || p.status === filters.status
+      const matchesPriority = !filters.priority || filters.priority === "all" || p.priority === filters.priority
+      const matchesAgency = !filters.agency || filters.agency === "all" || p.account?.agency?.name === filters.agency
+      const matchesClient = !filters.client || filters.client === "all" || p.account?.client?.company_name === filters.client
+
+      return matchesSearch && matchesStatus && matchesPriority && matchesAgency && matchesClient
+    })
+  }, [projects, searchTerm, filters])
+
+  const visibleColumns = columns.filter(col => col.visible)
 
   function formatDate(date: string | null) {
     if (!date) return "-"
@@ -162,22 +251,192 @@ export default function ProjectsPage() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg">Lista de Proyectos</CardTitle>
-              <CardDescription>
-                {projects.length} proyecto{projects.length !== 1 ? "s" : ""} registrado{projects.length !== 1 ? "s" : ""}
-              </CardDescription>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg">Lista de Proyectos</CardTitle>
+                <CardDescription>
+                  {filteredProjects.length} de {projects.length} proyecto{projects.length !== 1 ? "s" : ""}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Search */}
+                <div className="relative w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por nombre o cliente..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                {/* Filter button */}
+                <Popover open={showFilters} onOpenChange={setShowFilters}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="icon" className="relative">
+                      <Filter className="h-4 w-4" />
+                      {activeFiltersCount > 0 && (
+                        <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-[10px] font-medium text-primary-foreground flex items-center justify-center">
+                          {activeFiltersCount}
+                        </span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80" align="end">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium">Filtros</h4>
+                        {activeFiltersCount > 0 && (
+                          <Button variant="ghost" size="sm" onClick={clearFilters}>
+                            <X className="mr-1 h-3 w-3" />
+                            Limpiar
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Estado</Label>
+                          <Select
+                            value={filters.status}
+                            onValueChange={(value) => setFilters({ ...filters, status: value })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todos los estados" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todos los estados</SelectItem>
+                              {Object.entries(statusLabels).map(([value, { label }]) => (
+                                <SelectItem key={value} value={value}>{label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Prioridad</Label>
+                          <Select
+                            value={filters.priority}
+                            onValueChange={(value) => setFilters({ ...filters, priority: value })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todas las prioridades" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas las prioridades</SelectItem>
+                              {Object.entries(priorityLabels).map(([value, { label }]) => (
+                                <SelectItem key={value} value={value}>{label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Agencia</Label>
+                          <Select
+                            value={filters.agency}
+                            onValueChange={(value) => setFilters({ ...filters, agency: value })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todas las agencias" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas las agencias</SelectItem>
+                              {uniqueAgencies.map((agency) => (
+                                <SelectItem key={agency} value={agency}>{agency}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Cliente</Label>
+                          <Select
+                            value={filters.client}
+                            onValueChange={(value) => setFilters({ ...filters, client: value })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todos los clientes" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todos los clientes</SelectItem>
+                              {uniqueClients.map((client) => (
+                                <SelectItem key={client} value={client}>{client}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Column visibility */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="icon">
+                      <Settings2 className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Columnas visibles</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {columns.map((column) => (
+                      <DropdownMenuCheckboxItem
+                        key={column.key}
+                        checked={column.visible}
+                        onCheckedChange={() => toggleColumn(column.key)}
+                      >
+                        {column.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
-            <div className="relative w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por nombre o cliente..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+
+            {/* Active filters badges */}
+            {activeFiltersCount > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {filters.status && filters.status !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Estado: {statusLabels[filters.status]?.label || filters.status}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, status: "all" })}
+                    />
+                  </Badge>
+                )}
+                {filters.priority && filters.priority !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Prioridad: {priorityLabels[filters.priority]?.label || filters.priority}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, priority: "all" })}
+                    />
+                  </Badge>
+                )}
+                {filters.agency && filters.agency !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Agencia: {filters.agency}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, agency: "all" })}
+                    />
+                  </Badge>
+                )}
+                {filters.client && filters.client !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Cliente: {filters.client}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, client: "all" })}
+                    />
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -192,9 +451,11 @@ export default function ProjectsPage() {
               </EmptyMedia>
               <EmptyTitle>No hay proyectos</EmptyTitle>
               <EmptyDescription>
-                {searchTerm ? "No se encontraron resultados para tu búsqueda" : "Comienza creando tu primer proyecto"}
+                {searchTerm || activeFiltersCount > 0
+                  ? "No se encontraron resultados para tu búsqueda"
+                  : "Comienza creando tu primer proyecto"}
               </EmptyDescription>
-              {!searchTerm && (
+              {!searchTerm && activeFiltersCount === 0 && (
                 <Button asChild>
                   <Link href="/dashboard/projects/new">
                     <Plus className="mr-2 h-4 w-4" />
@@ -204,105 +465,113 @@ export default function ProjectsPage() {
               )}
             </Empty>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12 text-right">#</TableHead>
-                  <TableHead>Proyecto</TableHead>
-                  <TableHead>Cliente / Cuenta</TableHead>
-                  <TableHead>Fechas</TableHead>
-                  <TableHead>Presupuesto</TableHead>
-                  <TableHead>Progreso</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProjects.map((project, index) => (
-                  <TableRow key={project.id}>
-                    <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
-                      {index + 1}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{project.name}</div>
-                        {project.project_code && (
-                          <div className="text-xs text-muted-foreground">
-                            {project.project_code}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">
-                          {project.account?.client?.company_name || "-"}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {project.account?.account_name}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm">
-                        <Calendar className="h-3 w-3 text-muted-foreground" />
-                        <span>{formatDate(project.start_date)}</span>
-                        <span className="text-muted-foreground">-</span>
-                        <span>{formatDate(project.end_date)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <DollarSign className="h-3 w-3 text-muted-foreground" />
-                        {formatCurrency(project.budget_amount)}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="w-24 space-y-1">
-                        <Progress value={project.progress_percentage} className="h-2" />
-                        <div className="text-xs text-muted-foreground text-right">
-                          {project.progress_percentage}%
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <Badge variant={statusLabels[project.status]?.variant || "outline"}>
-                          {statusLabels[project.status]?.label || project.status}
-                        </Badge>
-                        <Badge variant={priorityLabels[project.priority]?.variant || "outline"} className="text-xs">
-                          {priorityLabels[project.priority]?.label || project.priority}
-                        </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/dashboard/projects/${project.id}`}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Editar
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => handleDelete(project.id)}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Eliminar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12 text-right">#</TableHead>
+                    {visibleColumns.map((column) => (
+                      <TableHead key={column.key}>{column.label}</TableHead>
+                    ))}
+                    <TableHead className="w-12"></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredProjects.map((project, index) => (
+                    <TableRow key={project.id}>
+                      <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
+                        {index + 1}
+                      </TableCell>
+                      {visibleColumns.map((column) => (
+                        <TableCell key={column.key}>
+                          {column.key === "project" && (
+                            <div>
+                              <Link
+                                href={`/dashboard/projects/${project.id}`}
+                                className="font-medium hover:underline"
+                              >
+                                {project.name}
+                              </Link>
+                              {project.project_code && (
+                                <div className="text-xs text-muted-foreground">
+                                  {project.project_code}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {column.key === "client_account" && (
+                            <div>
+                              <div className="font-medium">
+                                {project.account?.client?.company_name || "-"}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {project.account?.account_name}
+                              </div>
+                            </div>
+                          )}
+                          {column.key === "dates" && (
+                            <div className="flex items-center gap-1 text-sm">
+                              <Calendar className="h-3 w-3 text-muted-foreground" />
+                              <span>{formatDate(project.start_date)}</span>
+                              <span className="text-muted-foreground">-</span>
+                              <span>{formatDate(project.end_date)}</span>
+                            </div>
+                          )}
+                          {column.key === "budget" && (
+                            <div className="flex items-center gap-1">
+                              <DollarSign className="h-3 w-3 text-muted-foreground" />
+                              {formatCurrency(project.budget_amount)}
+                            </div>
+                          )}
+                          {column.key === "progress" && (
+                            <div className="w-24 space-y-1">
+                              <Progress value={project.progress_percentage} className="h-2" />
+                              <div className="text-xs text-muted-foreground text-right">
+                                {project.progress_percentage}%
+                              </div>
+                            </div>
+                          )}
+                          {column.key === "priority" && (
+                            <Badge variant={priorityLabels[project.priority]?.variant || "outline"} className="text-xs">
+                              {priorityLabels[project.priority]?.label || project.priority}
+                            </Badge>
+                          )}
+                          {column.key === "status" && (
+                            <Badge variant={statusLabels[project.status]?.variant || "outline"}>
+                              {statusLabels[project.status]?.label || project.status}
+                            </Badge>
+                          )}
+                        </TableCell>
+                      ))}
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/projects/${project.id}`}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDelete(project.id)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Eliminar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

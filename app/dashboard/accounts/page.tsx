@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
 import {
   Table,
   TableBody,
@@ -20,10 +21,21 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Settings2, Filter, X } from "lucide-react"
 
 interface Account {
   id: string
@@ -33,6 +45,9 @@ interface Account {
   payment_terms: number
   discount_percentage: number
   status: string
+  client_id: string | null
+  agency_id: string | null
+  account_manager_id: string | null
   client: {
     company_name: string
   } | null
@@ -43,6 +58,30 @@ interface Account {
     first_name: string
     last_name: string
   } | null
+}
+
+interface ColumnDef {
+  key: string
+  label: string
+  visible: boolean
+}
+
+const defaultColumns: ColumnDef[] = [
+  { key: "account_name", label: "Cuenta", visible: true },
+  { key: "client", label: "Cliente", visible: true },
+  { key: "agency", label: "Agencia", visible: true },
+  { key: "type", label: "Tipo", visible: true },
+  { key: "manager", label: "Responsable", visible: true },
+  { key: "payment_terms", label: "Términos", visible: false },
+  { key: "discount", label: "Descuento", visible: false },
+  { key: "status", label: "Estado", visible: true },
+]
+
+interface Filters {
+  status: string
+  agency_id: string
+  account_type: string
+  client_id: string
 }
 
 const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -63,6 +102,14 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [columns, setColumns] = useState<ColumnDef[]>(defaultColumns)
+  const [filters, setFilters] = useState<Filters>({
+    status: "all",
+    agency_id: "all",
+    account_type: "all",
+    client_id: "all",
+  })
+  const [showFilters, setShowFilters] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -148,12 +195,63 @@ export default function AccountsPage() {
     }
   }
 
-  const filteredAccounts = accounts.filter(
-    (a) =>
-      a.account_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      a.client?.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      a.agency?.name.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  function toggleColumn(key: string) {
+    setColumns(columns.map(col =>
+      col.key === key ? { ...col, visible: !col.visible } : col
+    ))
+  }
+
+  function clearFilters() {
+    setFilters({
+      status: "all",
+      agency_id: "all",
+      account_type: "all",
+      client_id: "all",
+    })
+  }
+
+  const activeFiltersCount = useMemo(() => {
+    return Object.values(filters).filter(v => v !== "" && v !== "all").length
+  }, [filters])
+
+  // Unique agencies and clients derived from the loaded accounts
+  const uniqueAgencies = useMemo(() => {
+    const map = new Map<string, string>()
+    accounts.forEach(a => {
+      if (a.agency_id && a.agency?.name) map.set(a.agency_id, a.agency.name)
+    })
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [accounts])
+
+  const uniqueClients = useMemo(() => {
+    const map = new Map<string, string>()
+    accounts.forEach(a => {
+      if (a.client_id && a.client?.company_name) map.set(a.client_id, a.client.company_name)
+    })
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [accounts])
+
+  const uniqueTypes = useMemo(() => {
+    return [...new Set(accounts.map(a => a.account_type).filter(Boolean))].sort()
+  }, [accounts])
+
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((a) => {
+      const matchesSearch =
+        a.account_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        a.client?.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        a.agency?.name.toLowerCase().includes(searchTerm.toLowerCase())
+
+      const matchesStatus = !filters.status || filters.status === "all" || a.status === filters.status
+      const matchesAgency = !filters.agency_id || filters.agency_id === "all" || a.agency_id === filters.agency_id
+      const matchesType = !filters.account_type || filters.account_type === "all" || a.account_type === filters.account_type
+      const matchesClient = !filters.client_id || filters.client_id === "all" || a.client_id === filters.client_id
+
+      return matchesSearch && matchesStatus && matchesAgency && matchesType && matchesClient
+    })
+  }, [accounts, searchTerm, filters])
+
+  const visibleColumns = columns.filter(col => col.visible)
 
   if (!mounted) {
     return (
@@ -182,22 +280,199 @@ export default function AccountsPage() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg">Lista de Cuentas</CardTitle>
-              <CardDescription>
-                {accounts.length} cuenta{accounts.length !== 1 ? "s" : ""} registrada{accounts.length !== 1 ? "s" : ""}
-              </CardDescription>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg">Lista de Cuentas</CardTitle>
+                <CardDescription>
+                  {filteredAccounts.length} de {accounts.length} cuenta{accounts.length !== 1 ? "s" : ""}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Search */}
+                <div className="relative w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por cuenta, cliente o agencia..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                {/* Filter button */}
+                <Popover open={showFilters} onOpenChange={setShowFilters}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="icon" className="relative">
+                      <Filter className="h-4 w-4" />
+                      {activeFiltersCount > 0 && (
+                        <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-[10px] font-medium text-primary-foreground flex items-center justify-center">
+                          {activeFiltersCount}
+                        </span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80" align="end">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium">Filtros</h4>
+                        {activeFiltersCount > 0 && (
+                          <Button variant="ghost" size="sm" onClick={clearFilters}>
+                            <X className="mr-1 h-3 w-3" />
+                            Limpiar
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Estado</Label>
+                          <Select
+                            value={filters.status}
+                            onValueChange={(value) => setFilters({ ...filters, status: value })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todos los estados" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todos los estados</SelectItem>
+                              <SelectItem value="active">Activa</SelectItem>
+                              <SelectItem value="inactive">Inactiva</SelectItem>
+                              <SelectItem value="on_hold">En pausa</SelectItem>
+                              <SelectItem value="closed">Cerrada</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Tipo</Label>
+                          <Select
+                            value={filters.account_type}
+                            onValueChange={(value) => setFilters({ ...filters, account_type: value })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todos los tipos" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todos los tipos</SelectItem>
+                              {uniqueTypes.map((type) => (
+                                <SelectItem key={type} value={type}>
+                                  {typeLabels[type] || type}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Agencia</Label>
+                          <Select
+                            value={filters.agency_id}
+                            onValueChange={(value) => setFilters({ ...filters, agency_id: value })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todas las agencias" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas las agencias</SelectItem>
+                              {uniqueAgencies.map((agency) => (
+                                <SelectItem key={agency.id} value={agency.id}>
+                                  {agency.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Cliente</Label>
+                          <Select
+                            value={filters.client_id}
+                            onValueChange={(value) => setFilters({ ...filters, client_id: value })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todos los clientes" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todos los clientes</SelectItem>
+                              {uniqueClients.map((client) => (
+                                <SelectItem key={client.id} value={client.id}>
+                                  {client.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Column visibility */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="icon">
+                      <Settings2 className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Columnas visibles</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {columns.map((column) => (
+                      <DropdownMenuCheckboxItem
+                        key={column.key}
+                        checked={column.visible}
+                        onCheckedChange={() => toggleColumn(column.key)}
+                      >
+                        {column.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
-            <div className="relative w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por cuenta, cliente o agencia..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+
+            {/* Active filters badges */}
+            {activeFiltersCount > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {filters.status && filters.status !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Estado: {statusLabels[filters.status]?.label || filters.status}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, status: "all" })}
+                    />
+                  </Badge>
+                )}
+                {filters.account_type && filters.account_type !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Tipo: {typeLabels[filters.account_type] || filters.account_type}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, account_type: "all" })}
+                    />
+                  </Badge>
+                )}
+                {filters.agency_id && filters.agency_id !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Agencia: {uniqueAgencies.find(a => a.id === filters.agency_id)?.name}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, agency_id: "all" })}
+                    />
+                  </Badge>
+                )}
+                {filters.client_id && filters.client_id !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Cliente: {uniqueClients.find(c => c.id === filters.client_id)?.name}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, client_id: "all" })}
+                    />
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -212,9 +487,11 @@ export default function AccountsPage() {
               </EmptyMedia>
               <EmptyTitle>No hay cuentas</EmptyTitle>
               <EmptyDescription>
-                {searchTerm ? "No se encontraron resultados para tu búsqueda" : "Comienza creando tu primera cuenta"}
+                {searchTerm || activeFiltersCount > 0
+                  ? "No se encontraron resultados para tu búsqueda"
+                  : "Comienza creando tu primera cuenta"}
               </EmptyDescription>
-              {!searchTerm && (
+              {!searchTerm && activeFiltersCount === 0 && (
                 <Button asChild>
                   <Link href="/dashboard/accounts/new">
                     <Plus className="mr-2 h-4 w-4" />
@@ -224,103 +501,112 @@ export default function AccountsPage() {
               )}
             </Empty>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12 text-right">#</TableHead>
-                  <TableHead>Cuenta</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Agencia</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Responsable</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredAccounts.map((account, index) => (
-                  <TableRow key={account.id}>
-                    <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
-                      {index + 1}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{account.account_name}</div>
-                        {account.discount_percentage > 0 && (
-                          <div className="text-xs text-muted-foreground">
-                            Descuento: {account.discount_percentage}%
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">
-                        {account.client?.company_name || "-"}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        {account.agency?.name || "-"}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <Badge variant="outline">
-                          {typeLabels[account.account_type] || account.account_type}
-                        </Badge>
-                        {account.account_type === "retainer" && account.retainer_amount && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            ${account.retainer_amount.toLocaleString("es-MX")}/mes
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        {account.account_manager
-                          ? `${account.account_manager.first_name} ${account.account_manager.last_name}`
-                          : "-"}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusLabels[account.status]?.variant || "outline"}>
-                        {statusLabels[account.status]?.label || account.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/dashboard/accounts/${account.id}`}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Editar
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link href={`/dashboard/projects?account=${account.id}`}>
-                              <FolderKanban className="mr-2 h-4 w-4" />
-                              Ver proyectos
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => handleDelete(account.id)}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Eliminar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12 text-right">#</TableHead>
+                    {visibleColumns.map((column) => (
+                      <TableHead key={column.key}>{column.label}</TableHead>
+                    ))}
+                    <TableHead className="w-12"></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredAccounts.map((account, index) => (
+                    <TableRow key={account.id}>
+                      <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
+                        {index + 1}
+                      </TableCell>
+                      {visibleColumns.map((column) => (
+                        <TableCell key={column.key}>
+                          {column.key === "account_name" && (
+                            <Link
+                              href={`/dashboard/accounts/${account.id}`}
+                              className="font-medium hover:underline"
+                            >
+                              {account.account_name}
+                            </Link>
+                          )}
+                          {column.key === "client" && (
+                            <div className="font-medium">
+                              {account.client?.company_name || "-"}
+                            </div>
+                          )}
+                          {column.key === "agency" && (
+                            <div className="text-sm">
+                              {account.agency?.name || "-"}
+                            </div>
+                          )}
+                          {column.key === "type" && (
+                            <div>
+                              <Badge variant="outline">
+                                {typeLabels[account.account_type] || account.account_type}
+                              </Badge>
+                              {account.account_type === "retainer" && account.retainer_amount && (
+                                <div className="text-xs text-muted-foreground mt-1">
+                                  ${account.retainer_amount.toLocaleString("es-MX")}/mes
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {column.key === "manager" && (
+                            <div className="text-sm">
+                              {account.account_manager
+                                ? `${account.account_manager.first_name} ${account.account_manager.last_name}`
+                                : "-"}
+                            </div>
+                          )}
+                          {column.key === "payment_terms" && (
+                            <div className="text-sm">{account.payment_terms} días</div>
+                          )}
+                          {column.key === "discount" && (
+                            <div className="text-sm">
+                              {account.discount_percentage > 0 ? `${account.discount_percentage}%` : "-"}
+                            </div>
+                          )}
+                          {column.key === "status" && (
+                            <Badge variant={statusLabels[account.status]?.variant || "outline"}>
+                              {statusLabels[account.status]?.label || account.status}
+                            </Badge>
+                          )}
+                        </TableCell>
+                      ))}
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/accounts/${account.id}`}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/projects?account=${account.id}`}>
+                                <FolderKanban className="mr-2 h-4 w-4" />
+                                Ver proyectos
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDelete(account.id)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Eliminar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
