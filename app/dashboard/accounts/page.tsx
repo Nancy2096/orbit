@@ -283,17 +283,6 @@ export default function AccountsPage() {
     })
   }, [accounts, searchTerm, filters])
 
-  const totalsByCurrency = useMemo(() => {
-    const map = new Map<string, number>()
-    filteredAccounts.forEach(a => {
-      const code = a.currency_code || "—"
-      map.set(code, (map.get(code) || 0) + (a.total_contracted || 0))
-    })
-    return [...map.entries()]
-      .map(([code, total]) => ({ code, total }))
-      .sort((a, b) => a.code.localeCompare(b.code))
-  }, [filteredAccounts])
-
   const visibleColumns = columns.filter(col => col.visible)
 
   if (!mounted) {
@@ -646,34 +635,6 @@ export default function AccountsPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow className="border-t-2 bg-muted/50 font-medium hover:bg-muted/50">
-                    <TableCell className="text-right tabular-nums">
-                      {filteredAccounts.length}
-                    </TableCell>
-                    {visibleColumns.map((column, i) => (
-                      <TableCell key={column.key}>
-                        {i === 0 && "Total de cuentas"}
-                      </TableCell>
-                    ))}
-                    <TableCell />
-                  </TableRow>
-                  {totalsByCurrency.map((t) => (
-                    <TableRow key={t.code} className="bg-muted/30 font-medium hover:bg-muted/30">
-                      <TableCell />
-                      {visibleColumns.map((column, i) => (
-                        <TableCell key={column.key}>
-                          {i === 0 && `Total contratado (${t.code})`}
-                          {column.key === "total_contracted" && (
-                            <span className="tabular-nums">
-                              ${t.total.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          )}
-                          {column.key === "currency_code" && t.code}
-                        </TableCell>
-                      ))}
-                      <TableCell />
                     </TableRow>
                   ))}
                 </TableBody>
