@@ -47,6 +47,8 @@ interface ProjectAccount {
   client_id: string | null
   agency_id: string | null
   account_manager_id: string | null
+  total_contracted: number
+  currency_code: string
   client: {
     company_name: string
     country: string | null
@@ -69,6 +71,8 @@ const defaultColumns: ColumnDef[] = [
   { key: "country", label: "País", visible: true },
   { key: "state", label: "Estado (Ubicación)", visible: true },
   { key: "agency", label: "Agencia", visible: true },
+  { key: "total_contracted", label: "Total Contratado", visible: true },
+  { key: "currency_code", label: "Moneda", visible: true },
   { key: "status", label: "Estado", visible: true },
 ]
 
@@ -140,7 +144,8 @@ export default function ProjectsPage() {
         status,
         client_id,
         agency_id,
-        account_manager_id
+        account_manager_id,
+        retainer_currency_id
       `)
       .eq("account_type", "project")
       .order("account_name", { ascending: true })
@@ -160,20 +165,35 @@ export default function ProjectsPage() {
     const clientIds = [...new Set(data.map((a) => a.client_id).filter(Boolean))]
     const agencyIds = [...new Set(data.map((a) => a.agency_id).filter(Boolean))]
 
-    const [clientsRes, agenciesRes] = await Promise.all([
+    const accountIds = data.map((a) => a.id)
+
+    const [clientsRes, agenciesRes, servicesRes, currenciesRes] = await Promise.all([
       clientIds.length > 0
         ? supabase.from("clients").select("id, company_name, country, state").in("id", clientIds)
         : { data: [] },
       agencyIds.length > 0
         ? supabase.from("agencies").select("id, name").in("id", agencyIds)
         : { data: [] },
+      accountIds.length > 0
+        ? supabase.from("account_services").select("account_id, final_price").eq("is_active", true).in("account_id", accountIds)
+        : { data: [] },
+      supabase.from("currencies").select("id, code"),
     ])
 
     const clientsMap = new Map((clientsRes.data || []).map((c) => [c.id, c]))
     const agenciesMap = new Map((agenciesRes.data || []).map((a) => [a.id, a]))
+    const currenciesMap = new Map((currenciesRes.data || []).map((c: { id: string; code: string }) => [c.id, c.code]))
+
+    // Sum contracted services (total contratado) per project
+    const totalsMap = new Map<string, number>()
+    ;(servicesRes.data || []).forEach((s: { account_id: string; final_price: number | null }) => {
+      totalsMap.set(s.account_id, (totalsMap.get(s.account_id) || 0) + (Number(s.final_price) || 0))
+    })
 
     const mappedData = data.map((account) => ({
       ...account,
+      total_contracted: totalsMap.get(account.id) || 0,
+      currency_code: account.retainer_currency_id ? (currenciesMap.get(account.retainer_currency_id) || "—") : "—",
       client: account.client_id ? clientsMap.get(account.client_id) || null : null,
       agency: account.agency_id ? agenciesMap.get(account.agency_id) || null : null,
     }))
@@ -237,6 +257,18 @@ export default function ProjectsPage() {
       return matchesSearch && matchesStatus && matchesAgency && matchesClient
     })
   }, [projects, searchTerm, filters])
+
+  const totalsByCurrency = useMemo(() => {
+    const map = new Map<string, number>()
+    filteredProjects.forEach((p) => {
+      const code = p.currency_code || "—"
+      map.set(code, (map.get(code) || 0) + (p.total_contracted || 0))
+    })
+    return [...map.entries()]
+      .filter(([code]) => code !== "—")
+      .map(([code, total]) => ({ code, total }))
+      .sort((a, b) => a.code.localeCompare(b.code))
+  }, [filteredProjects])
 
   const visibleColumns = columns.filter((col) => col.visible)
 
@@ -508,6 +540,14 @@ export default function ProjectsPage() {
                               {project.agency?.name || "-"}
                             </span>
                           )}
+                          {column.key === "total_contracted" && (
+                            <span className="text-sm font-medium tabular-nums">
+                              ${project.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          )}
+                          {column.key === "currency_code" && (
+                            <span className="text-sm">{project.currency_code}</span>
+                          )}
                           {column.key === "status" && (
                             <Badge variant={statusLabels[project.status]?.variant || "outline"}>
                               {statusLabels[project.status]?.label || project.status}
@@ -539,6 +579,23 @@ export default function ProjectsPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
+                    </TableRow>
+                  ))}
+                  {totalsByCurrency.map((t) => (
+                    <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
+                      <TableCell />
+                      {visibleColumns.map((column, i) => (
+                        <TableCell key={column.key}>
+                          {i === 0 && `Total contratado (${t.code})`}
+                          {column.key === "total_contracted" && (
+                            <span className="tabular-nums">
+                              ${t.total.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          )}
+                          {column.key === "currency_code" && t.code}
+                        </TableCell>
+                      ))}
+                      <TableCell />
                     </TableRow>
                   ))}
                 </TableBody>

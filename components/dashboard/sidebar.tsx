@@ -107,6 +107,11 @@ const managementNavItems = [
 
 const operationsNavItems = [
   {
+    title: "Dashboard",
+    url: "/dashboard/operations",
+    icon: BarChart3,
+  },
+  {
     title: "Clientes",
     url: "/dashboard/clients",
     icon: Briefcase,

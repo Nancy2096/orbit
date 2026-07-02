@@ -159,11 +159,12 @@ payment_terms: "30",
   }
 
   async function fetchAgencyClients(agencyId: string) {
+    // Mostrar TODOS los clientes de la agencia (activos e inactivos) para poder
+    // dar de alta cuentas/proyectos con cualquier cliente registrado.
     const { data } = await supabase
       .from("clients")
       .select("id, company_name")
       .eq("agency_id", agencyId)
-      .eq("status", "active")
       .order("company_name")
     
     if (data) setClients(data)

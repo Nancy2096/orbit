@@ -12,6 +12,7 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   ["/dashboard/roles", ["roles"]],
 
   // Operaciones
+  ["/dashboard/operations", ["accounts", "projects", "clients"]],
   ["/dashboard/clients", ["clients"]],
   ["/dashboard/accounts", ["accounts"]],
   ["/dashboard/projects", ["projects"]],
