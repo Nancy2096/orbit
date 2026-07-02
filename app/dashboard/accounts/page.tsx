@@ -48,6 +48,7 @@ interface Account {
   client_id: string | null
   agency_id: string | null
   account_manager_id: string | null
+  total_contracted: number
   client: {
     company_name: string
     country: string | null
@@ -70,7 +71,7 @@ const defaultColumns: ColumnDef[] = [
   { key: "country", label: "País", visible: true },
   { key: "state", label: "Estado (Ubicación)", visible: true },
   { key: "agency", label: "Agencia", visible: true },
-  { key: "type", label: "Tipo", visible: true },
+  { key: "total_contracted", label: "Total Contratado", visible: true },
   { key: "payment_terms", label: "Términos", visible: false },
   { key: "discount", label: "Descuento", visible: false },
   { key: "status", label: "Estado", visible: true },
@@ -176,21 +177,33 @@ export default function AccountsPage() {
     const clientIds = [...new Set(data.map(a => a.client_id).filter(Boolean))]
     const agencyIds = [...new Set(data.map(a => a.agency_id).filter(Boolean))]
 
-    const [clientsRes, agenciesRes] = await Promise.all([
+    const accountIds = data.map(a => a.id)
+
+    const [clientsRes, agenciesRes, servicesRes] = await Promise.all([
       clientIds.length > 0 
         ? supabase.from("clients").select("id, company_name, country, state").in("id", clientIds)
         : { data: [] },
       agencyIds.length > 0
         ? supabase.from("agencies").select("id, name").in("id", agencyIds)
         : { data: [] },
+      accountIds.length > 0
+        ? supabase.from("account_services").select("account_id, final_price").eq("is_active", true).in("account_id", accountIds)
+        : { data: [] },
     ])
 
     const clientsMap = new Map((clientsRes.data || []).map(c => [c.id, c]))
     const agenciesMap = new Map((agenciesRes.data || []).map(a => [a.id, a]))
 
+    // Sum contracted services (total contratado) per account
+    const totalsMap = new Map<string, number>()
+    ;(servicesRes.data || []).forEach((s: { account_id: string; final_price: number | null }) => {
+      totalsMap.set(s.account_id, (totalsMap.get(s.account_id) || 0) + (Number(s.final_price) || 0))
+    })
+
     // Map data to expected interface
     const mappedData = data.map(account => ({
       ...account,
+      total_contracted: totalsMap.get(account.id) || 0,
       client: account.client_id ? clientsMap.get(account.client_id) || null : null,
       agency: account.agency_id ? agenciesMap.get(account.agency_id) || null : null,
     }))
@@ -263,6 +276,10 @@ export default function AccountsPage() {
       return matchesSearch && matchesStatus && matchesAgency && matchesType && matchesClient
     })
   }, [accounts, searchTerm, filters])
+
+  const totalContractedSum = useMemo(() => {
+    return filteredAccounts.reduce((sum, a) => sum + (a.total_contracted || 0), 0)
+  }, [filteredAccounts])
 
   const visibleColumns = columns.filter(col => col.visible)
 
@@ -561,16 +578,9 @@ export default function AccountsPage() {
                               {account.agency?.name || "-"}
                             </div>
                           )}
-                          {column.key === "type" && (
-                            <div>
-                              <Badge variant="outline">
-                                {typeLabels[account.account_type] || account.account_type}
-                              </Badge>
-                              {account.account_type === "retainer" && account.retainer_amount && (
-                                <div className="text-xs text-muted-foreground mt-1">
-                                  ${account.retainer_amount.toLocaleString("es-MX")}/mes
-                                </div>
-                              )}
+                          {column.key === "total_contracted" && (
+                            <div className="text-sm font-medium tabular-nums">
+                              ${account.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           )}
                           {column.key === "payment_terms" && (
@@ -620,6 +630,22 @@ export default function AccountsPage() {
                       </TableCell>
                     </TableRow>
                   ))}
+                  <TableRow className="border-t-2 bg-muted/50 font-medium hover:bg-muted/50">
+                    <TableCell className="text-right tabular-nums">
+                      {filteredAccounts.length}
+                    </TableCell>
+                    {visibleColumns.map((column, i) => (
+                      <TableCell key={column.key}>
+                        {i === 0 && "Total de cuentas"}
+                        {column.key === "total_contracted" && (
+                          <span className="tabular-nums">
+                            ${totalContractedSum.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        )}
+                      </TableCell>
+                    ))}
+                    <TableCell />
+                  </TableRow>
                 </TableBody>
               </Table>
             </div>
