@@ -74,8 +74,9 @@ export async function POST(request: NextRequest) {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
     const fileName = `quotations/${prospectId}/${timestamp}-${safeName}`
 
+    // El store de Blob está configurado como privado.
     const blob = await put(fileName, file, {
-      access: "public",
+      access: "private",
       addRandomSuffix: false,
     })
 

@@ -1571,17 +1571,36 @@ state_province: prospectData.state_province || "",
                             <div>
                               <div className="font-medium">{q.file_name}</div>
                               <div className="text-xs text-muted-foreground">
-                                Version {q.version} - {new Date(q.created_at).toLocaleDateString("es-MX")}
+                                Versión {q.version} ·{" "}
+                                {new Date(q.created_at).toLocaleString("es-MX", {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  year: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                })}
                               </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="icon" asChild>
-                              <a href={q.file_url} target="_blank" rel="noopener noreferrer">
+                            <Button variant="ghost" size="icon" asChild title="Ver / descargar">
+                              <a
+                                href={`/api/file?pathname=${encodeURIComponent(
+                                  new URL(q.file_url).pathname.replace(/^\//, "")
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
                                 <ExternalLink className="h-4 w-4" />
                               </a>
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => deleteQuotation(q.id)}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteQuotation(q.id)}
+                              title="Eliminar archivo"
+                            >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
