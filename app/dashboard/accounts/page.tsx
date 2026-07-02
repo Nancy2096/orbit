@@ -49,6 +49,7 @@ interface Account {
   agency_id: string | null
   account_manager_id: string | null
   total_contracted: number
+  currency_code: string
   client: {
     company_name: string
     country: string | null
@@ -72,6 +73,7 @@ const defaultColumns: ColumnDef[] = [
   { key: "state", label: "Estado (Ubicación)", visible: true },
   { key: "agency", label: "Agencia", visible: true },
   { key: "total_contracted", label: "Total Contratado", visible: true },
+  { key: "currency_code", label: "Moneda", visible: true },
   { key: "payment_terms", label: "Términos", visible: false },
   { key: "discount", label: "Descuento", visible: false },
   { key: "status", label: "Estado", visible: true },
@@ -157,7 +159,8 @@ export default function AccountsPage() {
         status,
         client_id,
         agency_id,
-        account_manager_id
+        account_manager_id,
+        retainer_currency_id
       `)
       .eq("account_type", "retainer")
       .order("account_name", { ascending: true })
@@ -179,7 +182,7 @@ export default function AccountsPage() {
 
     const accountIds = data.map(a => a.id)
 
-    const [clientsRes, agenciesRes, servicesRes] = await Promise.all([
+    const [clientsRes, agenciesRes, servicesRes, currenciesRes] = await Promise.all([
       clientIds.length > 0 
         ? supabase.from("clients").select("id, company_name, country, state").in("id", clientIds)
         : { data: [] },
@@ -189,10 +192,12 @@ export default function AccountsPage() {
       accountIds.length > 0
         ? supabase.from("account_services").select("account_id, final_price").eq("is_active", true).in("account_id", accountIds)
         : { data: [] },
+      supabase.from("currencies").select("id, code"),
     ])
 
     const clientsMap = new Map((clientsRes.data || []).map(c => [c.id, c]))
     const agenciesMap = new Map((agenciesRes.data || []).map(a => [a.id, a]))
+    const currenciesMap = new Map((currenciesRes.data || []).map((c: { id: string; code: string }) => [c.id, c.code]))
 
     // Sum contracted services (total contratado) per account
     const totalsMap = new Map<string, number>()
@@ -204,6 +209,7 @@ export default function AccountsPage() {
     const mappedData = data.map(account => ({
       ...account,
       total_contracted: totalsMap.get(account.id) || 0,
+      currency_code: account.retainer_currency_id ? (currenciesMap.get(account.retainer_currency_id) || "—") : "—",
       client: account.client_id ? clientsMap.get(account.client_id) || null : null,
       agency: account.agency_id ? agenciesMap.get(account.agency_id) || null : null,
     }))
@@ -277,8 +283,15 @@ export default function AccountsPage() {
     })
   }, [accounts, searchTerm, filters])
 
-  const totalContractedSum = useMemo(() => {
-    return filteredAccounts.reduce((sum, a) => sum + (a.total_contracted || 0), 0)
+  const totalsByCurrency = useMemo(() => {
+    const map = new Map<string, number>()
+    filteredAccounts.forEach(a => {
+      const code = a.currency_code || "—"
+      map.set(code, (map.get(code) || 0) + (a.total_contracted || 0))
+    })
+    return [...map.entries()]
+      .map(([code, total]) => ({ code, total }))
+      .sort((a, b) => a.code.localeCompare(b.code))
   }, [filteredAccounts])
 
   const visibleColumns = columns.filter(col => col.visible)
@@ -583,6 +596,11 @@ export default function AccountsPage() {
                               ${account.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           )}
+                          {column.key === "currency_code" && (
+                            <div className="text-sm">
+                              {account.currency_code}
+                            </div>
+                          )}
                           {column.key === "payment_terms" && (
                             <div className="text-sm">{account.payment_terms} días</div>
                           )}
@@ -637,15 +655,27 @@ export default function AccountsPage() {
                     {visibleColumns.map((column, i) => (
                       <TableCell key={column.key}>
                         {i === 0 && "Total de cuentas"}
-                        {column.key === "total_contracted" && (
-                          <span className="tabular-nums">
-                            ${totalContractedSum.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        )}
                       </TableCell>
                     ))}
                     <TableCell />
                   </TableRow>
+                  {totalsByCurrency.map((t) => (
+                    <TableRow key={t.code} className="bg-muted/30 font-medium hover:bg-muted/30">
+                      <TableCell />
+                      {visibleColumns.map((column, i) => (
+                        <TableCell key={column.key}>
+                          {i === 0 && `Total contratado (${t.code})`}
+                          {column.key === "total_contracted" && (
+                            <span className="tabular-nums">
+                              ${t.total.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          )}
+                          {column.key === "currency_code" && t.code}
+                        </TableCell>
+                      ))}
+                      <TableCell />
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>
