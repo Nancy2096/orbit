@@ -16,9 +16,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No se proporcionó el ID del prospecto" }, { status: 400 })
     }
 
-    if (file.type !== "application/pdf") {
+    // Tipos de documento permitidos para cotizaciones: PDF, Word, Excel e imágenes.
+    const allowedMimeTypes = new Set([
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+    ])
+    const allowedExtensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp"]
+    const lowerName = (file.name || "").toLowerCase()
+    const hasAllowedExtension = allowedExtensions.some((ext) => lowerName.endsWith(ext))
+    // Algunos navegadores no reportan el MIME type; en ese caso validamos por extensión.
+    const hasAllowedType = file.type ? allowedMimeTypes.has(file.type) : hasAllowedExtension
+    if (!hasAllowedType && !hasAllowedExtension) {
       return NextResponse.json(
-        { error: "Solo se permiten archivos PDF" },
+        { error: "Formato no permitido. Sube PDF, Word, Excel o imagen (JPG, PNG)." },
         { status: 400 }
       )
     }

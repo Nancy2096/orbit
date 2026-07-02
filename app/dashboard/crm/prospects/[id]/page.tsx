@@ -736,8 +736,16 @@ state_province: prospectData.state_province || "",
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (file.type !== "application/pdf") {
-      toast.error("Solo se permiten archivos PDF")
+    const allowedExtensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp"]
+    const hasAllowedExtension = allowedExtensions.some((ext) => file.name.toLowerCase().endsWith(ext))
+    if (!hasAllowedExtension) {
+      toast.error("Formato no permitido. Sube PDF, Word, Excel o imagen (JPG, PNG).")
+      return
+    }
+
+    const maxSize = 10 * 1024 * 1024
+    if (file.size > maxSize) {
+      toast.error("El archivo es demasiado grande. Máximo 10MB.")
       return
     }
 
@@ -1534,7 +1542,7 @@ state_province: prospectData.state_province || "",
                     <input
                       type="file"
                       id="quotation-upload"
-                      accept=".pdf"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
                       className="hidden"
                       onChange={uploadQuotation}
                       disabled={uploadingQuotation}
@@ -1543,7 +1551,7 @@ state_province: prospectData.state_province || "",
                       {uploadingQuotation ? (
                         <><Spinner className="mr-2 h-4 w-4" /> Subiendo...</>
                       ) : (
-                        <><Upload className="mr-2 h-4 w-4" /> Subir PDF</>
+                        <><Upload className="mr-2 h-4 w-4" /> Subir documento</>
                       )}
                     </Button>
                   </div>
