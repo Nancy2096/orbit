@@ -88,6 +88,29 @@ function parseEstimatedValue(raw) {
   return nums[0]
 }
 
+// Límites de longitud (varchar) en crm_prospects. Se truncan para evitar overflow.
+const maxLen = {
+  status: 20,
+  contact_phone: 50,
+  state_province: 100,
+  country: 100,
+  contact_position: 100,
+  company_name: 255,
+  contact_name: 255,
+  contact_email: 255,
+  social_instagram: 500,
+  social_linkedin: 500,
+  social_twitter: 500,
+  social_facebook: 500,
+  website: 500,
+}
+const clamp = (rec) => {
+  for (const [k, len] of Object.entries(maxLen)) {
+    if (typeof rec[k] === "string" && rec[k].length > len) rec[k] = rec[k].slice(0, len)
+  }
+  return rec
+}
+
 const warnings = []
 const skipped = []
 const records = []
@@ -161,7 +184,7 @@ for (let i = 0; i < rows.length; i++) {
   if (r.notes) notesParts.push(String(r.notes).trim())
   if (notesParts.length) rec.notes = notesParts.join(" | ")
 
-  records.push(rec)
+  records.push(clamp(rec))
 }
 
 console.log("=== RESUMEN PROSPECTOS ===")
@@ -177,10 +200,12 @@ if (DRY_RUN) {
   process.exit(0)
 }
 
-// Inserción por lotes
+// Inserción por lotes. SKIP permite reanudar sin duplicar lo ya insertado.
+const skipArg = process.argv.find((a) => a.startsWith("--skip="))
+const SKIP = skipArg ? Number(skipArg.split("=")[1]) : 0
 let inserted = 0
 const batchSize = 100
-for (let i = 0; i < records.length; i += batchSize) {
+for (let i = SKIP; i < records.length; i += batchSize) {
   const batch = records.slice(i, i + batchSize)
   const { data, error } = await supabase.from("crm_prospects").insert(batch).select("id")
   if (error) {
