@@ -4,29 +4,19 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { createClient } from "@/lib/supabase/client"
 import { useAgency } from "@/contexts/agency-context"
-import { 
-  Target, 
-  UserPlus, 
-  TrendingUp, 
-  TrendingDown,
-  Calendar, 
-  Phone, 
-  Clock,
-  CheckCircle,
-  DollarSign,
+import {
+  Target,
+  UserPlus,
   Users,
   Kanban,
   Settings2,
-  Eye,
-  AlertTriangle,
-  XCircle,
-  ArrowUpRight,
-  ArrowDownRight,
+  DollarSign,
+  Trophy,
+  Layers,
+  Percent,
 } from "lucide-react"
 import {
   PieChart,
@@ -39,155 +29,96 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  BarChart,
-  Bar,
 } from "recharts"
 
-interface DashboardStats {
-  totalLeads: number
-  totalLeadsChange: number
-  newLeads: number
-  newLeadsChange: number
-  contacted: number
-  contactedChange: number
-  qualified: number
-  qualifiedChange: number
-  scheduledAppointments: number
-  scheduledAppointmentsChange: number
-  confirmedAppointments: number
-  confirmedAppointmentsChange: number
-  completedVisits: number
-  completedVisitsChange: number
-  closedSales: number
-  closedSalesChange: number
-  conversionRate: number
-  avgResponseTime: number
-  lostLeads: number
-  noFollowUp: number
-  pipelineValue: number
-  activeProjects: number
-  activeAdvisors: number
-  activeLeads: number
+// Paleta consistente para gráficas (verde primario + apoyos)
+const PALETTE = ["#16a34a", "#0891b2", "#ca8a04", "#7c3aed", "#dc2626", "#2563eb", "#db2777", "#0d9488", "#9ca3af"]
+
+interface Stage {
+  id: string
+  name: string
+  color: string | null
+  is_won: boolean
+  is_lost: boolean
+  sort_order: number | null
 }
 
-interface FunnelData {
+interface Prospect {
+  id: string
+  status: string | null
+  estimated_value: number | null
+  created_at: string | null
+  lost_reason: string | null
+  stage_id: string | null
+  source_id: string | null
+  assigned_to: string | null
+}
+
+interface FunnelItem {
   name: string
   value: number
   color: string
 }
 
-interface SourceData {
+interface NamedValue {
   name: string
   value: number
   color: string
 }
 
-interface TrendData {
+interface TrendItem {
   month: string
   leads: number
-  sales: number
+  ganados: number
 }
 
-interface AdvisorData {
+interface AdvisorItem {
   name: string
-  conversions: number
   total: number
+  won: number
   rate: number
 }
 
-interface LossReason {
+interface LossItem {
   reason: string
+  value: number
   percentage: number
   color: string
 }
 
-interface MonthlyGoal {
-  name: string
-  current: number
-  target: number
-  percentage: number
+interface Stats {
+  total: number
+  active: number
+  inPipeline: number
+  won: number
+  lost: number
+  pipelineValue: number
+  avgTicket: number
+  conversionRate: number
 }
+
+const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
 export default function CRMDashboardPage() {
   const { selectedAgencyId, loading: agencyLoading } = useAgency()
   const [loading, setLoading] = useState(true)
-  const [dateRange, setDateRange] = useState("30")
-  
-  const [stats, setStats] = useState<DashboardStats>({
-    totalLeads: 875,
-    totalLeadsChange: 12,
-    newLeads: 45,
-    newLeadsChange: 8,
-    contacted: 156,
-    contactedChange: 5,
-    qualified: 234,
-    qualifiedChange: 15,
-    scheduledAppointments: 28,
-    scheduledAppointmentsChange: 3,
-    confirmedAppointments: 22,
-    confirmedAppointmentsChange: -2,
-    completedVisits: 18,
-    completedVisitsChange: 10,
-    closedSales: 12,
-    closedSalesChange: 20,
-    conversionRate: 8.5,
-    avgResponseTime: 4.2,
-    lostLeads: 67,
-    noFollowUp: 23,
-    pipelineValue: 156000000,
-    activeProjects: 4,
-    activeAdvisors: 6,
-    activeLeads: 10,
+  const [hasData, setHasData] = useState(false)
+
+  const [stats, setStats] = useState<Stats>({
+    total: 0,
+    active: 0,
+    inPipeline: 0,
+    won: 0,
+    lost: 0,
+    pipelineValue: 0,
+    avgTicket: 0,
+    conversionRate: 0,
   })
-
-  const [funnelData] = useState<FunnelData[]>([
-    { name: "Leads", value: 875, color: "#22c55e" },
-    { name: "Contactados", value: 650, color: "#06b6d4" },
-    { name: "Calificados", value: 234, color: "#eab308" },
-    { name: "Citas", value: 89, color: "#a855f7" },
-    { name: "Visitas", value: 45, color: "#ef4444" },
-    { name: "Ventas", value: 12, color: "#22c55e" },
-  ])
-
-  const [sourceData] = useState<SourceData[]>([
-    { name: "Google Ads", value: 245, color: "#22c55e" },
-    { name: "Meta Ads", value: 312, color: "#06b6d4" },
-    { name: "Landing", value: 156, color: "#eab308" },
-    { name: "Referidos", value: 89, color: "#a855f7" },
-    { name: "WhatsApp", value: 45, color: "#ef4444" },
-    { name: "Otros", value: 28, color: "#d1d5db" },
-  ])
-
-  const [trendData] = useState<TrendData[]>([
-    { month: "Ene", leads: 120, sales: 8 },
-    { month: "Feb", leads: 145, sales: 10 },
-    { month: "Mar", leads: 180, sales: 12 },
-    { month: "Abr", leads: 210, sales: 15 },
-    { month: "May", leads: 195, sales: 14 },
-    { month: "Jun", leads: 245, sales: 18 },
-  ])
-
-  const [advisorData] = useState<AdvisorData[]>([
-    { name: "Laura M.", conversions: 4, total: 28, rate: 14.3 },
-    { name: "Carlos R.", conversions: 5, total: 32, rate: 15.6 },
-    { name: "Sofia T.", conversions: 3, total: 15, rate: 20 },
-    { name: "Miguel H.", conversions: 2, total: 25, rate: 8 },
-    { name: "Andrea L.", conversions: 2, total: 8, rate: 25 },
-  ])
-
-  const [lossReasons] = useState<LossReason[]>([
-    { reason: "Presupuesto", percentage: 35, color: "#22c55e" },
-    { reason: "Competencia", percentage: 25, color: "#06b6d4" },
-    { reason: "Ubicación", percentage: 20, color: "#eab308" },
-    { reason: "Tiempo", percentage: 12, color: "#3b82f6" },
-    { reason: "Otros", percentage: 8, color: "#ef4444" },
-  ])
-
-  const [monthlyGoals] = useState<MonthlyGoal[]>([
-    { name: "Ventas", current: 12, target: 20, percentage: 60 },
-    { name: "Citas", current: 28, target: 40, percentage: 70 },
-    { name: "Leads Calificados", current: 234, target: 300, percentage: 78 },
-  ])
+  const [funnelData, setFunnelData] = useState<FunnelItem[]>([])
+  const [sourceData, setSourceData] = useState<NamedValue[]>([])
+  const [trendData, setTrendData] = useState<TrendItem[]>([])
+  const [advisorData, setAdvisorData] = useState<AdvisorItem[]>([])
+  const [lossReasons, setLossReasons] = useState<LossItem[]>([])
 
   const supabase = createClient()
 
@@ -197,61 +128,144 @@ export default function CRMDashboardPage() {
     } else {
       setLoading(false)
     }
-  }, [selectedAgencyId, dateRange])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAgencyId])
 
   const fetchDashboardData = async () => {
     if (!selectedAgencyId) return
     setLoading(true)
-    
-    // Fetch real data from database
-    const { data: prospects } = await supabase
-      .from("crm_prospects")
-      .select(`
-        id, status, estimated_value, created_at,
-        stage:crm_pipeline_stages(id, name, color, is_won)
-      `)
-      .eq("agency_id", selectedAgencyId)
 
-    if (prospects && prospects.length > 0) {
-      const active = prospects.filter(p => p.status === "active")
-      const won = prospects.filter(p => (p.stage as any)?.is_won)
-      const totalValue = active.reduce((sum, p) => sum + (p.estimated_value || 0), 0)
-      
-      setStats(prev => ({
-        ...prev,
-        totalLeads: prospects.length,
-        pipelineValue: totalValue,
-        closedSales: won.length,
-        activeLeads: active.length,
-      }))
+    const [{ data: prospects }, { data: stages }, { data: sources }, { data: staff }] = await Promise.all([
+      supabase
+        .from("crm_prospects")
+        .select("id, status, estimated_value, created_at, lost_reason, stage_id, source_id, assigned_to")
+        .eq("agency_id", selectedAgencyId),
+      supabase
+        .from("crm_pipeline_stages")
+        .select("id, name, color, is_won, is_lost, sort_order")
+        .eq("agency_id", selectedAgencyId),
+      supabase.from("crm_lead_sources").select("id, name").eq("agency_id", selectedAgencyId),
+      supabase.from("staff").select("id, first_name, last_name").eq("agency_id", selectedAgencyId),
+    ])
+
+    const rows = (prospects || []) as Prospect[]
+    const stageList = (stages || []) as Stage[]
+    const stageMap = new Map(stageList.map((s) => [s.id, s]))
+    const sourceMap = new Map((sources || []).map((s: any) => [s.id, s.name as string]))
+    const staffMap = new Map((staff || []).map((s: any) => [s.id, `${s.first_name} ${s.last_name}`.trim()]))
+
+    setHasData(rows.length > 0)
+
+    // ----- KPIs -----
+    const total = rows.length
+    const wonRows = rows.filter((p) => stageMap.get(p.stage_id || "")?.is_won)
+    const lostRows = rows.filter((p) => p.status === "lost" || stageMap.get(p.stage_id || "")?.is_lost)
+    const won = wonRows.length
+    const lost = lostRows.length
+    const active = rows.filter((p) => p.status === "active").length
+    const inPipeline = rows.filter((p) => {
+      const st = stageMap.get(p.stage_id || "")
+      return !st?.is_won && !st?.is_lost
+    }).length
+    const valued = rows.filter((p) => (p.estimated_value || 0) > 0)
+    const pipelineValue = rows
+      .filter((p) => {
+        const st = stageMap.get(p.stage_id || "")
+        return !st?.is_lost
+      })
+      .reduce((sum, p) => sum + (p.estimated_value || 0), 0)
+    const avgTicket = valued.length ? valued.reduce((s, p) => s + (p.estimated_value || 0), 0) / valued.length : 0
+    const conversionRate = total ? (won / total) * 100 : 0
+
+    setStats({ total, active, inPipeline, won, lost, pipelineValue, avgTicket, conversionRate })
+
+    // ----- Funnel por etapa (ordenado por sort_order) -----
+    const stageCounts = new Map<string, number>()
+    for (const p of rows) {
+      const key = p.stage_id || "none"
+      stageCounts.set(key, (stageCounts.get(key) || 0) + 1)
     }
+    const funnel: FunnelItem[] = stageList
+      .slice()
+      .sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999))
+      .map((s, i) => ({
+        name: s.name,
+        value: stageCounts.get(s.id) || 0,
+        color: s.color || PALETTE[i % PALETTE.length],
+      }))
+      .filter((f) => f.value > 0)
+    setFunnelData(funnel)
+
+    // ----- Fuentes -----
+    const sourceCounts = new Map<string, number>()
+    for (const p of rows) {
+      const name = p.source_id ? sourceMap.get(p.source_id) || "Sin fuente" : "Sin fuente"
+      sourceCounts.set(name, (sourceCounts.get(name) || 0) + 1)
+    }
+    const sourceArr: NamedValue[] = Array.from(sourceCounts.entries())
+      .map(([name, value], i) => ({ name, value, color: PALETTE[i % PALETTE.length] }))
+      .sort((a, b) => b.value - a.value)
+    setSourceData(sourceArr)
+
+    // ----- Tendencia mensual (por created_at) -----
+    const monthCounts = new Map<string, { leads: number; ganados: number }>()
+    for (const p of rows) {
+      if (!p.created_at) continue
+      const d = new Date(p.created_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+      const entry = monthCounts.get(key) || { leads: 0, ganados: 0 }
+      entry.leads += 1
+      if (stageMap.get(p.stage_id || "")?.is_won) entry.ganados += 1
+      monthCounts.set(key, entry)
+    }
+    const trend: TrendItem[] = Array.from(monthCounts.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, v]) => {
+        const [y, m] = key.split("-")
+        return { month: `${MONTHS_ES[Number(m) - 1]} ${y.slice(2)}`, leads: v.leads, ganados: v.ganados }
+      })
+    setTrendData(trend)
+
+    // ----- Rendimiento por asesor -----
+    const advisorCounts = new Map<string, { total: number; won: number }>()
+    for (const p of rows) {
+      const name = p.assigned_to ? staffMap.get(p.assigned_to) || "Sin asignar" : "Sin asignar"
+      const entry = advisorCounts.get(name) || { total: 0, won: 0 }
+      entry.total += 1
+      if (stageMap.get(p.stage_id || "")?.is_won) entry.won += 1
+      advisorCounts.set(name, entry)
+    }
+    const advisors: AdvisorItem[] = Array.from(advisorCounts.entries())
+      .map(([name, v]) => ({ name, total: v.total, won: v.won, rate: v.total ? (v.won / v.total) * 100 : 0 }))
+      .sort((a, b) => b.total - a.total)
+    setAdvisorData(advisors)
+
+    // ----- Razones de pérdida -----
+    const lossCounts = new Map<string, number>()
+    for (const p of lostRows) {
+      const reason = p.lost_reason?.trim() || "Sin especificar"
+      lossCounts.set(reason, (lossCounts.get(reason) || 0) + 1)
+    }
+    const lossTotal = Array.from(lossCounts.values()).reduce((a, b) => a + b, 0)
+    const losses: LossItem[] = Array.from(lossCounts.entries())
+      .map(([reason, value], i) => ({
+        reason,
+        value,
+        percentage: lossTotal ? Math.round((value / lossTotal) * 100) : 0,
+        color: PALETTE[i % PALETTE.length],
+      }))
+      .sort((a, b) => b.value - a.value)
+    setLossReasons(losses)
 
     setLoading(false)
   }
 
   const formatCurrency = (amount: number) => {
-    if (amount >= 1000000) {
-      return `$${(amount / 1000000).toFixed(1)}m MXN`
-    }
-    return new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency: "MXN",
-      maximumFractionDigits: 0,
-    }).format(amount)
-  }
-
-  const renderChangeIndicator = (change: number) => {
-    const isPositive = change >= 0
-    return (
-      <span className={`flex items-center text-xs ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-        {isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-        {isPositive ? '+' : ''}{change}% vs mes anterior
-      </span>
+    if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`
+    if (amount >= 1000) return `$${(amount / 1000).toFixed(1)}K`
+    return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(
+      amount,
     )
-  }
-
-  const getCurrentMonth = () => {
-    return new Date().toLocaleDateString('es-ES', { month: 'long' })
   }
 
   if (loading || agencyLoading) {
@@ -261,9 +275,14 @@ export default function CRMDashboardPage() {
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-10 w-40" />
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <Skeleton key={i} className="h-32" />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-28" />
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {[1, 2].map((i) => (
+            <Skeleton key={i} className="h-72" />
           ))}
         </div>
       </div>
@@ -286,295 +305,287 @@ export default function CRMDashboardPage() {
     )
   }
 
+  const kpis = [
+    { label: "Prospectos totales", value: stats.total.toLocaleString("es-MX"), icon: Users, hint: `${stats.active} activos` },
+    { label: "En pipeline", value: stats.inPipeline.toLocaleString("es-MX"), icon: Layers, hint: "Sin cerrar" },
+    { label: "Ganados", value: stats.won.toLocaleString("es-MX"), icon: Trophy, hint: `${stats.lost} perdidos` },
+    {
+      label: "Tasa de conversión",
+      value: `${stats.conversionRate.toFixed(1)}%`,
+      icon: Percent,
+      hint: "Ganados / total",
+    },
+    {
+      label: "Valor de pipeline",
+      value: formatCurrency(stats.pipelineValue),
+      icon: DollarSign,
+      hint: "Oportunidades abiertas",
+    },
+    {
+      label: "Ticket promedio",
+      value: formatCurrency(stats.avgTicket),
+      icon: Target,
+      hint: "Valor estimado prom.",
+    },
+  ]
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Resumen general de rendimiento comercial
-          </p>
+          <p className="text-muted-foreground">Resumen general basado en tus prospectos reales</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              En vivo
-            </span>
-          </div>
-          <Select value={dateRange} onValueChange={setDateRange}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7">Últimos 7 días</SelectItem>
-              <SelectItem value="30">Últimos 30 días</SelectItem>
-              <SelectItem value="90">Últimos 90 días</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/dashboard/crm/pipeline/settings">
+              <Settings2 className="mr-2 h-4 w-4" />
+              Ajustar Pipeline
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/dashboard/crm/lead-sources">
+              <Target className="mr-2 h-4 w-4" />
+              Fuentes de Lead
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/dashboard/crm/pipeline">
+              <Kanban className="mr-2 h-4 w-4" />
+              Ver Pipeline
+            </Link>
+          </Button>
+          <Button size="sm" asChild>
+            <Link href="/dashboard/crm/prospects/new">
+              <UserPlus className="mr-2 h-4 w-4" />
+              Nuevo Prospecto
+            </Link>
+          </Button>
         </div>
       </div>
 
-      {/* Configuración */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Configuración</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/crm/pipeline/settings">
-                <Settings2 className="mr-2 h-4 w-4" />
-                Ajustar Pipeline
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/crm/lead-sources">
-                <Target className="mr-2 h-4 w-4" />
-                Fuentes de Lead
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/crm/reassign">
-                <Users className="mr-2 h-4 w-4" />
-                Reasignar
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/crm/pipeline">
-                <Kanban className="mr-2 h-4 w-4" />
-                Ver Pipeline
-              </Link>
-            </Button>
-            <Button size="sm" asChild>
-              <Link href="/dashboard/crm/prospects/new">
-                <UserPlus className="mr-2 h-4 w-4" />
-                Nuevo Prospecto
-              </Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Charts Row 1 */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Conversion Funnel */}
+      {!hasData ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Embudo de Conversión</CardTitle>
-            <CardDescription>Progreso de leads a través del pipeline</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {funnelData.map((item, index) => {
-                const maxValue = funnelData[0].value
-                const width = (item.value / maxValue) * 100
-                return (
-                  <div key={item.name} className="flex items-center gap-3">
-                    <div className="w-24 text-sm text-muted-foreground">{item.name}</div>
-                    <div className="flex-1">
-                      <div 
-                        className="h-6 rounded transition-all"
-                        style={{ 
-                          width: `${width}%`, 
-                          backgroundColor: item.color,
-                          minWidth: '20px'
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="rounded-full bg-muted p-4 mb-4">
+              <Users className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h2 className="text-xl font-semibold mb-2">Sin prospectos todavía</h2>
+            <p className="text-muted-foreground max-w-md">
+              Cuando registres o importes prospectos para esta agencia, aquí verás sus métricas en tiempo real.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* KPIs */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            {kpis.map((kpi) => (
+              <Card key={kpi.label}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">{kpi.label}</span>
+                    <kpi.icon className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="mt-2 text-2xl font-bold">{kpi.value}</div>
+                  <p className="text-xs text-muted-foreground mt-1">{kpi.hint}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Charts Row 1 */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Funnel por etapa */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Embudo por Etapa</CardTitle>
+                <CardDescription>Distribución de prospectos en el pipeline</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {funnelData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">Sin datos de etapas.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {funnelData.map((item) => {
+                      const maxValue = Math.max(...funnelData.map((f) => f.value))
+                      const width = maxValue ? (item.value / maxValue) * 100 : 0
+                      return (
+                        <div key={item.name} className="flex items-center gap-3">
+                          <div className="w-32 text-sm text-muted-foreground truncate" title={item.name}>
+                            {item.name}
+                          </div>
+                          <div className="flex-1 bg-muted rounded">
+                            <div
+                              className="h-6 rounded transition-all"
+                              style={{ width: `${width}%`, backgroundColor: item.color, minWidth: "8px" }}
+                            />
+                          </div>
+                          <div className="w-12 text-right text-sm font-medium">{item.value}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Fuentes */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Prospectos por Fuente</CardTitle>
+                <CardDescription>Distribución por canal de adquisición</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  <div className="w-48 h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={sourceData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={80}
+                          paddingAngle={2}
+                          dataKey="value"
+                        >
+                          {sourceData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex-1 grid gap-3">
+                    {sourceData.map((source) => (
+                      <div key={source.name} className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: source.color }} />
+                        <span className="text-sm text-muted-foreground">{source.name}</span>
+                        <span className="text-sm font-medium ml-auto">{source.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Charts Row 2 */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Tendencia */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Tendencia Mensual</CardTitle>
+                <CardDescription>Prospectos creados y ganados por mes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={trendData}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis dataKey="month" className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
+                      <YAxis className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: "8px",
                         }}
                       />
+                      <Area
+                        type="monotone"
+                        dataKey="leads"
+                        name="Prospectos"
+                        stroke="#16a34a"
+                        fill="#16a34a"
+                        fillOpacity={0.2}
+                        strokeWidth={2}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="ganados"
+                        name="Ganados"
+                        stroke="#2563eb"
+                        fill="#2563eb"
+                        fillOpacity={0.1}
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Asesores */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Rendimiento por Asesor</CardTitle>
+                <CardDescription>Prospectos asignados y tasa de conversión</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {advisorData.map((advisor) => {
+                    const maxTotal = Math.max(...advisorData.map((a) => a.total), 1)
+                    return (
+                      <div key={advisor.name} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{advisor.name}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {advisor.won}/{advisor.total} ({advisor.rate.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-green-500 rounded-full transition-all"
+                            style={{ width: `${(advisor.total / maxTotal) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Razones de pérdida */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Razones de Pérdida</CardTitle>
+              <CardDescription>Motivos de prospectos marcados como perdidos</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {lossReasons.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">
+                  No hay prospectos perdidos registrados.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {lossReasons.map((item) => (
+                    <div key={item.reason} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{item.reason}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {item.value} ({item.percentage}%)
+                        </span>
+                      </div>
+                      <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${item.percentage}%`, backgroundColor: item.color }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-16 text-right text-sm font-medium">{item.value}</div>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Leads by Source - Donut Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Leads por Fuente</CardTitle>
-            <CardDescription>Distribución de leads por canal de adquisición</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
-              <div className="w-48 h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={sourceData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {sourceData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="flex-1 grid grid-cols-2 gap-3">
-                {sourceData.map((source) => (
-                  <div key={source.name} className="flex items-center gap-2">
-                    <div 
-                      className="w-3 h-3 rounded-full flex-shrink-0" 
-                      style={{ backgroundColor: source.color }}
-                    />
-                    <span className="text-sm text-muted-foreground">{source.name}</span>
-                    <span className="text-sm font-medium ml-auto">{source.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts Row 2 */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Monthly Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Tendencia Mensual</CardTitle>
-            <CardDescription>Leads y ventas por mes</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis 
-                    dataKey="month" 
-                    className="text-xs" 
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <YAxis 
-                    className="text-xs" 
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="leads"
-                    stroke="#22c55e"
-                    fill="#22c55e"
-                    fillOpacity={0.2}
-                    strokeWidth={2}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="sales"
-                    stroke="#3b82f6"
-                    fill="#3b82f6"
-                    fillOpacity={0.1}
-                    strokeWidth={2}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Advisor Performance */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Rendimiento por Asesor</CardTitle>
-            <CardDescription>Leads activos y tasa de conversión</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {advisorData.map((advisor) => (
-                <div key={advisor.name} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{advisor.name}</span>
-                    <span className="text-sm text-muted-foreground">
-                      {advisor.conversions}/{advisor.total} ({advisor.rate}%)
-                    </span>
-                  </div>
-                  <div className="h-2 w-full bg-green-100 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-green-500 rounded-full transition-all"
-                      style={{ width: `${(advisor.total / 40) * 100}%` }}
-                    />
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Bottom Row */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Loss Reasons */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Razones de Pérdida</CardTitle>
-            <CardDescription>Principales motivos de leads perdidos</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {lossReasons.map((item) => (
-                <div key={item.reason} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{item.reason}</span>
-                    <span className="text-sm text-muted-foreground">{item.percentage}%</span>
-                  </div>
-                  <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                    <div 
-                      className="h-full rounded-full transition-all"
-                      style={{ 
-                        width: `${item.percentage}%`,
-                        backgroundColor: item.color
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Monthly Goals */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Meta Mensual</CardTitle>
-            <CardDescription>Progreso hacia objetivos de {getCurrentMonth()}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-5">
-              {monthlyGoals.map((goal) => (
-                <div key={goal.name} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{goal.name}</span>
-                    <span className="text-sm font-medium">{goal.current} / {goal.target}</span>
-                  </div>
-                  <div className="h-3 w-full bg-green-100 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-green-500 rounded-full transition-all"
-                      style={{ width: `${goal.percentage}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {goal.percentage}% completado - Faltan {goal.target - goal.current} {goal.name.toLowerCase()}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   )
 }
