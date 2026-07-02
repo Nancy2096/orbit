@@ -1987,16 +1987,20 @@ if (isTemplateFormat) {
           continue
         }
 
-        // Handle assigned_to_email -> assigned_to_id
-        if (key === "assigned_to_email" && value) {
-          const cacheKey = String(value).toLowerCase()
-          if (!employeeCache.has(cacheKey)) {
-            const { data } = await supabase.from("staff").select("id").ilike("email", String(value)).limit(1).single()
-            if (data) employeeCache.set(cacheKey, data.id)
-          }
-          const staffId = employeeCache.get(cacheKey)
-          if (staffId) {
-            resolved.assigned_to_id = staffId
+        // Handle assigned_to_email -> assigned_to (nunca se inserta como columna:
+        // crm_prospects tiene la columna assigned_to, no assigned_to_email, por eso
+        // siempre hacemos continue aunque el valor venga vacío).
+        if (key === "assigned_to_email") {
+          if (value) {
+            const cacheKey = String(value).toLowerCase()
+            if (!employeeCache.has(cacheKey)) {
+              const { data } = await supabase.from("staff").select("id").ilike("email", String(value)).limit(1).maybeSingle()
+              if (data) employeeCache.set(cacheKey, data.id)
+            }
+            const staffId = employeeCache.get(cacheKey)
+            if (staffId) {
+              resolved.assigned_to = staffId
+            }
           }
           continue
         }
@@ -2145,7 +2149,28 @@ if (isTemplateFormat) {
           continue
         }
 
-        // Pass through other fields
+        // Pass through other fields.
+        // Los alias de la plantilla (p. ej. assigned_to_email, currency_code) se traducen
+        // a columnas *_id en los handlers de arriba. Cuando vienen vacíos, esos handlers se
+        // saltan y la clave llegaría aquí; nunca deben insertarse como columna porque no
+        // existen en la tabla (causaban errores tipo "Could not find the 'X' column").
+        const nonColumnAliases = new Set([
+          "agency_name",
+          "client_company_name",
+          "client_tax_id",
+          "currency_code",
+          "bank_account_name",
+          "vendor_name",
+          "assigned_to_email",
+          "instructor_email",
+          "department_name",
+          "course_name",
+          "role_name",
+          "service_name",
+        ])
+        if (nonColumnAliases.has(key)) {
+          continue
+        }
         if (value !== undefined && value !== null && value !== "") {
           resolved[key] = value
         }
