@@ -50,13 +50,11 @@ interface Account {
   account_manager_id: string | null
   client: {
     company_name: string
+    country: string | null
+    state: string | null
   } | null
   agency: {
     name: string
-  } | null
-  account_manager: {
-    first_name: string
-    last_name: string
   } | null
 }
 
@@ -69,9 +67,10 @@ interface ColumnDef {
 const defaultColumns: ColumnDef[] = [
   { key: "account_name", label: "Cuenta", visible: true },
   { key: "client", label: "Cliente", visible: true },
+  { key: "country", label: "País", visible: true },
+  { key: "state", label: "Estado (Ubicación)", visible: true },
   { key: "agency", label: "Agencia", visible: true },
   { key: "type", label: "Tipo", visible: true },
-  { key: "manager", label: "Responsable", visible: true },
   { key: "payment_terms", label: "Términos", visible: false },
   { key: "discount", label: "Descuento", visible: false },
   { key: "status", label: "Estado", visible: true },
@@ -95,6 +94,23 @@ const typeLabels: Record<string, string> = {
   project: "Por proyecto",
   retainer: "Retainer",
   mixed: "Mixta",
+}
+
+const countryLabels: Record<string, string> = {
+  MX: "México",
+  US: "Estados Unidos",
+  USA: "Estados Unidos",
+  CA: "Canadá",
+  ES: "España",
+  AR: "Argentina",
+  CO: "Colombia",
+  CL: "Chile",
+  PE: "Perú",
+}
+
+function formatCountry(code: string | null | undefined) {
+  if (!code) return "-"
+  return countryLabels[code.toUpperCase()] || code
 }
 
 export default function AccountsPage() {
@@ -125,7 +141,9 @@ export default function AccountsPage() {
   async function fetchAccounts() {
     setLoading(true)
     
-    // First, get accounts with basic relations
+    // First, get accounts with basic relations.
+    // Cuentas solo muestra cuentas tipo "retainer"; las cuentas tipo "project"
+    // se administran en la sección Proyectos.
     const { data, error } = await supabase
       .from("accounts")
       .select(`
@@ -140,6 +158,7 @@ export default function AccountsPage() {
         agency_id,
         account_manager_id
       `)
+      .eq("account_type", "retainer")
       .order("account_name", { ascending: true })
 
     if (error) {
@@ -156,30 +175,24 @@ export default function AccountsPage() {
     // Get related data
     const clientIds = [...new Set(data.map(a => a.client_id).filter(Boolean))]
     const agencyIds = [...new Set(data.map(a => a.agency_id).filter(Boolean))]
-    const staffIds = [...new Set(data.map(a => a.account_manager_id).filter(Boolean))]
 
-    const [clientsRes, agenciesRes, staffRes] = await Promise.all([
+    const [clientsRes, agenciesRes] = await Promise.all([
       clientIds.length > 0 
-        ? supabase.from("clients").select("id, company_name").in("id", clientIds)
+        ? supabase.from("clients").select("id, company_name, country, state").in("id", clientIds)
         : { data: [] },
       agencyIds.length > 0
         ? supabase.from("agencies").select("id, name").in("id", agencyIds)
-        : { data: [] },
-      staffIds.length > 0
-        ? supabase.from("staff").select("id, first_name, last_name").in("id", staffIds)
         : { data: [] },
     ])
 
     const clientsMap = new Map((clientsRes.data || []).map(c => [c.id, c]))
     const agenciesMap = new Map((agenciesRes.data || []).map(a => [a.id, a]))
-    const staffMap = new Map((staffRes.data || []).map(s => [s.id, s]))
 
     // Map data to expected interface
     const mappedData = data.map(account => ({
       ...account,
       client: account.client_id ? clientsMap.get(account.client_id) || null : null,
       agency: account.agency_id ? agenciesMap.get(account.agency_id) || null : null,
-      account_manager: account.account_manager_id ? staffMap.get(account.account_manager_id) || null : null,
     }))
 
     setAccounts(mappedData as Account[])
@@ -533,6 +546,16 @@ export default function AccountsPage() {
                               {account.client?.company_name || "-"}
                             </div>
                           )}
+                          {column.key === "country" && (
+                            <div className="text-sm">
+                              {formatCountry(account.client?.country)}
+                            </div>
+                          )}
+                          {column.key === "state" && (
+                            <div className="text-sm">
+                              {account.client?.state || "-"}
+                            </div>
+                          )}
                           {column.key === "agency" && (
                             <div className="text-sm">
                               {account.agency?.name || "-"}
@@ -548,13 +571,6 @@ export default function AccountsPage() {
                                   ${account.retainer_amount.toLocaleString("es-MX")}/mes
                                 </div>
                               )}
-                            </div>
-                          )}
-                          {column.key === "manager" && (
-                            <div className="text-sm">
-                              {account.account_manager
-                                ? `${account.account_manager.first_name} ${account.account_manager.last_name}`
-                                : "-"}
                             </div>
                           )}
                           {column.key === "payment_terms" && (

@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
 import {
   Table,
   TableBody,
@@ -36,26 +35,25 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, FolderKanban, Calendar, DollarSign, Settings2, Filter, X } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, FolderKanban, Settings2, Filter, X } from "lucide-react"
 
-interface Project {
+// Los proyectos son cuentas con account_type = "project".
+interface ProjectAccount {
   id: string
-  project_code: string | null
-  name: string
+  account_name: string
+  account_code: string | null
+  account_type: string
   status: string
-  priority: string
-  start_date: string | null
-  end_date: string | null
-  budget_amount: number | null
-  progress_percentage: number
-  account: {
-    account_name: string
-    client: {
-      company_name: string
-    } | null
-    agency: {
-      name: string
-    } | null
+  client_id: string | null
+  agency_id: string | null
+  account_manager_id: string | null
+  client: {
+    company_name: string
+    country: string | null
+    state: string | null
+  } | null
+  agency: {
+    name: string
   } | null
 }
 
@@ -67,49 +65,53 @@ interface ColumnDef {
 
 const defaultColumns: ColumnDef[] = [
   { key: "project", label: "Proyecto", visible: true },
-  { key: "client_account", label: "Cliente / Cuenta", visible: true },
-  { key: "dates", label: "Fechas", visible: true },
-  { key: "budget", label: "Presupuesto", visible: true },
-  { key: "progress", label: "Progreso", visible: true },
-  { key: "priority", label: "Prioridad", visible: false },
+  { key: "client", label: "Cliente", visible: true },
+  { key: "country", label: "País", visible: true },
+  { key: "state", label: "Estado (Ubicación)", visible: true },
+  { key: "agency", label: "Agencia", visible: true },
   { key: "status", label: "Estado", visible: true },
 ]
 
+const countryLabels: Record<string, string> = {
+  MX: "México",
+  US: "Estados Unidos",
+  USA: "Estados Unidos",
+  CA: "Canadá",
+  ES: "España",
+  AR: "Argentina",
+  CO: "Colombia",
+  CL: "Chile",
+  PE: "Perú",
+}
+
+function formatCountry(code: string | null | undefined) {
+  if (!code) return "-"
+  return countryLabels[code.toUpperCase()] || code
+}
+
 interface Filters {
   status: string
-  priority: string
-  agency: string
-  client: string
+  agency_id: string
+  client_id: string
 }
 
 const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  draft: { label: "Borrador", variant: "outline" },
-  quoted: { label: "Cotizado", variant: "secondary" },
-  approved: { label: "Aprobado", variant: "default" },
-  in_progress: { label: "En progreso", variant: "default" },
-  on_hold: { label: "Pausado", variant: "secondary" },
-  completed: { label: "Completado", variant: "default" },
-  cancelled: { label: "Cancelado", variant: "destructive" },
-}
-
-const priorityLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  low: { label: "Baja", variant: "outline" },
-  medium: { label: "Media", variant: "secondary" },
-  high: { label: "Alta", variant: "default" },
-  urgent: { label: "Urgente", variant: "destructive" },
+  active: { label: "Activa", variant: "default" },
+  inactive: { label: "Inactiva", variant: "secondary" },
+  on_hold: { label: "En pausa", variant: "outline" },
+  closed: { label: "Cerrada", variant: "destructive" },
 }
 
 export default function ProjectsPage() {
   const [mounted, setMounted] = useState(false)
-  const [projects, setProjects] = useState<Project[]>([])
+  const [projects, setProjects] = useState<ProjectAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [columns, setColumns] = useState<ColumnDef[]>(defaultColumns)
   const [filters, setFilters] = useState<Filters>({
     status: "all",
-    priority: "all",
-    agency: "all",
-    client: "all",
+    agency_id: "all",
+    client_id: "all",
   })
   const [showFilters, setShowFilters] = useState(false)
   const supabase = createClient()
@@ -126,103 +128,117 @@ export default function ProjectsPage() {
 
   async function fetchProjects() {
     setLoading(true)
+
+    // Proyectos = cuentas tipo "project".
     const { data, error } = await supabase
-      .from("projects")
+      .from("accounts")
       .select(`
         id,
-        project_code,
-        name,
+        account_name,
+        account_code,
+        account_type,
         status,
-        priority,
-        start_date,
-        end_date,
-        budget_amount,
-        progress_percentage,
-        account:accounts(
-          account_name,
-          client:clients(company_name),
-          agency:agencies(name)
-        )
+        client_id,
+        agency_id,
+        account_manager_id
       `)
-      .order("created_at", { ascending: false })
+      .eq("account_type", "project")
+      .order("account_name", { ascending: true })
 
-    if (!error && data) {
-      setProjects(data as Project[])
+    if (error) {
+      setLoading(false)
+      return
     }
+
+    if (!data || data.length === 0) {
+      setProjects([])
+      setLoading(false)
+      return
+    }
+
+    // Get related data
+    const clientIds = [...new Set(data.map((a) => a.client_id).filter(Boolean))]
+    const agencyIds = [...new Set(data.map((a) => a.agency_id).filter(Boolean))]
+
+    const [clientsRes, agenciesRes] = await Promise.all([
+      clientIds.length > 0
+        ? supabase.from("clients").select("id, company_name, country, state").in("id", clientIds)
+        : { data: [] },
+      agencyIds.length > 0
+        ? supabase.from("agencies").select("id, name").in("id", agencyIds)
+        : { data: [] },
+    ])
+
+    const clientsMap = new Map((clientsRes.data || []).map((c) => [c.id, c]))
+    const agenciesMap = new Map((agenciesRes.data || []).map((a) => [a.id, a]))
+
+    const mappedData = data.map((account) => ({
+      ...account,
+      client: account.client_id ? clientsMap.get(account.client_id) || null : null,
+      agency: account.agency_id ? agenciesMap.get(account.agency_id) || null : null,
+    }))
+
+    setProjects(mappedData as ProjectAccount[])
     setLoading(false)
   }
 
   async function handleDelete(id: string) {
     if (!confirm("¿Estás seguro de eliminar este proyecto?")) return
 
-    const { error } = await supabase.from("projects").delete().eq("id", id)
+    const { error } = await supabase.from("accounts").delete().eq("id", id)
     if (!error) {
       setProjects(projects.filter((p) => p.id !== id))
     }
   }
 
   function toggleColumn(key: string) {
-    setColumns(columns.map(col =>
-      col.key === key ? { ...col, visible: !col.visible } : col
-    ))
+    setColumns(columns.map((col) => (col.key === key ? { ...col, visible: !col.visible } : col)))
   }
 
   function clearFilters() {
     setFilters({
       status: "all",
-      priority: "all",
-      agency: "all",
-      client: "all",
+      agency_id: "all",
+      client_id: "all",
     })
   }
 
   const activeFiltersCount = useMemo(() => {
-    return Object.values(filters).filter(v => v !== "" && v !== "all").length
+    return Object.values(filters).filter((v) => v !== "" && v !== "all").length
   }, [filters])
 
   const uniqueAgencies = useMemo(() => {
-    const set = new Set<string>()
-    projects.forEach(p => {
-      if (p.account?.agency?.name) set.add(p.account.agency.name)
+    const map = new Map<string, string>()
+    projects.forEach((p) => {
+      if (p.agency_id && p.agency?.name) map.set(p.agency_id, p.agency.name)
     })
-    return [...set].sort()
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [projects])
 
   const uniqueClients = useMemo(() => {
-    const set = new Set<string>()
-    projects.forEach(p => {
-      if (p.account?.client?.company_name) set.add(p.account.client.company_name)
+    const map = new Map<string, string>()
+    projects.forEach((p) => {
+      if (p.client_id && p.client?.company_name) map.set(p.client_id, p.client.company_name)
     })
-    return [...set].sort()
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [projects])
 
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
       const matchesSearch =
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.project_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.account?.client?.company_name.toLowerCase().includes(searchTerm.toLowerCase())
+        p.account_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.account_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.client?.company_name.toLowerCase().includes(searchTerm.toLowerCase())
 
       const matchesStatus = !filters.status || filters.status === "all" || p.status === filters.status
-      const matchesPriority = !filters.priority || filters.priority === "all" || p.priority === filters.priority
-      const matchesAgency = !filters.agency || filters.agency === "all" || p.account?.agency?.name === filters.agency
-      const matchesClient = !filters.client || filters.client === "all" || p.account?.client?.company_name === filters.client
+      const matchesAgency = !filters.agency_id || filters.agency_id === "all" || p.agency_id === filters.agency_id
+      const matchesClient = !filters.client_id || filters.client_id === "all" || p.client_id === filters.client_id
 
-      return matchesSearch && matchesStatus && matchesPriority && matchesAgency && matchesClient
+      return matchesSearch && matchesStatus && matchesAgency && matchesClient
     })
   }, [projects, searchTerm, filters])
 
-  const visibleColumns = columns.filter(col => col.visible)
-
-  function formatDate(date: string | null) {
-    if (!date) return "-"
-    return new Date(date).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })
-  }
-
-  function formatCurrency(amount: number | null) {
-    if (!amount) return "-"
-    return `$${amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`
-  }
+  const visibleColumns = columns.filter((col) => col.visible)
 
   if (!mounted) {
     return (
@@ -238,11 +254,11 @@ export default function ProjectsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Proyectos</h1>
           <p className="text-muted-foreground">
-            Gestiona todos los proyectos de tus agencias
+            Cuentas por proyecto de tus agencias
           </p>
         </div>
         <Button asChild>
-          <Link href="/dashboard/projects/new">
+          <Link href="/dashboard/accounts/new">
             <Plus className="mr-2 h-4 w-4" />
             Nuevo Proyecto
           </Link>
@@ -315,28 +331,10 @@ export default function ProjectsPage() {
                         </div>
 
                         <div className="space-y-1.5">
-                          <Label className="text-xs">Prioridad</Label>
-                          <Select
-                            value={filters.priority}
-                            onValueChange={(value) => setFilters({ ...filters, priority: value })}
-                          >
-                            <SelectTrigger className="h-8">
-                              <SelectValue placeholder="Todas las prioridades" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">Todas las prioridades</SelectItem>
-                              {Object.entries(priorityLabels).map(([value, { label }]) => (
-                                <SelectItem key={value} value={value}>{label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-1.5">
                           <Label className="text-xs">Agencia</Label>
                           <Select
-                            value={filters.agency}
-                            onValueChange={(value) => setFilters({ ...filters, agency: value })}
+                            value={filters.agency_id}
+                            onValueChange={(value) => setFilters({ ...filters, agency_id: value })}
                           >
                             <SelectTrigger className="h-8">
                               <SelectValue placeholder="Todas las agencias" />
@@ -344,7 +342,7 @@ export default function ProjectsPage() {
                             <SelectContent>
                               <SelectItem value="all">Todas las agencias</SelectItem>
                               {uniqueAgencies.map((agency) => (
-                                <SelectItem key={agency} value={agency}>{agency}</SelectItem>
+                                <SelectItem key={agency.id} value={agency.id}>{agency.name}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -353,8 +351,8 @@ export default function ProjectsPage() {
                         <div className="space-y-1.5">
                           <Label className="text-xs">Cliente</Label>
                           <Select
-                            value={filters.client}
-                            onValueChange={(value) => setFilters({ ...filters, client: value })}
+                            value={filters.client_id}
+                            onValueChange={(value) => setFilters({ ...filters, client_id: value })}
                           >
                             <SelectTrigger className="h-8">
                               <SelectValue placeholder="Todos los clientes" />
@@ -362,7 +360,7 @@ export default function ProjectsPage() {
                             <SelectContent>
                               <SelectItem value="all">Todos los clientes</SelectItem>
                               {uniqueClients.map((client) => (
-                                <SelectItem key={client} value={client}>{client}</SelectItem>
+                                <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -408,30 +406,21 @@ export default function ProjectsPage() {
                     />
                   </Badge>
                 )}
-                {filters.priority && filters.priority !== "all" && (
+                {filters.agency_id && filters.agency_id !== "all" && (
                   <Badge variant="secondary" className="gap-1">
-                    Prioridad: {priorityLabels[filters.priority]?.label || filters.priority}
+                    Agencia: {uniqueAgencies.find((a) => a.id === filters.agency_id)?.name || filters.agency_id}
                     <X
                       className="h-3 w-3 cursor-pointer"
-                      onClick={() => setFilters({ ...filters, priority: "all" })}
+                      onClick={() => setFilters({ ...filters, agency_id: "all" })}
                     />
                   </Badge>
                 )}
-                {filters.agency && filters.agency !== "all" && (
+                {filters.client_id && filters.client_id !== "all" && (
                   <Badge variant="secondary" className="gap-1">
-                    Agencia: {filters.agency}
+                    Cliente: {uniqueClients.find((c) => c.id === filters.client_id)?.name || filters.client_id}
                     <X
                       className="h-3 w-3 cursor-pointer"
-                      onClick={() => setFilters({ ...filters, agency: "all" })}
-                    />
-                  </Badge>
-                )}
-                {filters.client && filters.client !== "all" && (
-                  <Badge variant="secondary" className="gap-1">
-                    Cliente: {filters.client}
-                    <X
-                      className="h-3 w-3 cursor-pointer"
-                      onClick={() => setFilters({ ...filters, client: "all" })}
+                      onClick={() => setFilters({ ...filters, client_id: "all" })}
                     />
                   </Badge>
                 )}
@@ -457,7 +446,7 @@ export default function ProjectsPage() {
               </EmptyDescription>
               {!searchTerm && activeFiltersCount === 0 && (
                 <Button asChild>
-                  <Link href="/dashboard/projects/new">
+                  <Link href="/dashboard/accounts/new">
                     <Plus className="mr-2 h-4 w-4" />
                     Crear Proyecto
                   </Link>
@@ -487,54 +476,37 @@ export default function ProjectsPage() {
                           {column.key === "project" && (
                             <div>
                               <Link
-                                href={`/dashboard/projects/${project.id}`}
+                                href={`/dashboard/accounts/${project.id}`}
                                 className="font-medium hover:underline"
                               >
-                                {project.name}
+                                {project.account_name}
                               </Link>
-                              {project.project_code && (
+                              {project.account_code && (
                                 <div className="text-xs text-muted-foreground">
-                                  {project.project_code}
+                                  {project.account_code}
                                 </div>
                               )}
                             </div>
                           )}
-                          {column.key === "client_account" && (
-                            <div>
-                              <div className="font-medium">
-                                {project.account?.client?.company_name || "-"}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {project.account?.account_name}
-                              </div>
-                            </div>
+                          {column.key === "client" && (
+                            <span className="text-sm">
+                              {project.client?.company_name || "-"}
+                            </span>
                           )}
-                          {column.key === "dates" && (
-                            <div className="flex items-center gap-1 text-sm">
-                              <Calendar className="h-3 w-3 text-muted-foreground" />
-                              <span>{formatDate(project.start_date)}</span>
-                              <span className="text-muted-foreground">-</span>
-                              <span>{formatDate(project.end_date)}</span>
-                            </div>
+                          {column.key === "country" && (
+                            <span className="text-sm">
+                              {formatCountry(project.client?.country)}
+                            </span>
                           )}
-                          {column.key === "budget" && (
-                            <div className="flex items-center gap-1">
-                              <DollarSign className="h-3 w-3 text-muted-foreground" />
-                              {formatCurrency(project.budget_amount)}
-                            </div>
+                          {column.key === "state" && (
+                            <span className="text-sm">
+                              {project.client?.state || "-"}
+                            </span>
                           )}
-                          {column.key === "progress" && (
-                            <div className="w-24 space-y-1">
-                              <Progress value={project.progress_percentage} className="h-2" />
-                              <div className="text-xs text-muted-foreground text-right">
-                                {project.progress_percentage}%
-                              </div>
-                            </div>
-                          )}
-                          {column.key === "priority" && (
-                            <Badge variant={priorityLabels[project.priority]?.variant || "outline"} className="text-xs">
-                              {priorityLabels[project.priority]?.label || project.priority}
-                            </Badge>
+                          {column.key === "agency" && (
+                            <span className="text-sm">
+                              {project.agency?.name || "-"}
+                            </span>
                           )}
                           {column.key === "status" && (
                             <Badge variant={statusLabels[project.status]?.variant || "outline"}>
@@ -552,7 +524,7 @@ export default function ProjectsPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/projects/${project.id}`}>
+                              <Link href={`/dashboard/accounts/${project.id}`}>
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Editar
                               </Link>
