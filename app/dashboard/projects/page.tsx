@@ -265,6 +265,7 @@ export default function ProjectsPage() {
       map.set(code, (map.get(code) || 0) + (p.total_contracted || 0))
     })
     return [...map.entries()]
+      .filter(([code]) => code !== "—")
       .map(([code, total]) => ({ code, total }))
       .sort((a, b) => a.code.localeCompare(b.code))
   }, [filteredProjects])
