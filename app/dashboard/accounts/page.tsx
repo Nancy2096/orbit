@@ -125,7 +125,9 @@ export default function AccountsPage() {
   async function fetchAccounts() {
     setLoading(true)
     
-    // First, get accounts with basic relations
+    // First, get accounts with basic relations.
+    // Cuentas solo muestra cuentas tipo "retainer"; las cuentas tipo "project"
+    // se administran en la sección Proyectos.
     const { data, error } = await supabase
       .from("accounts")
       .select(`
@@ -140,6 +142,7 @@ export default function AccountsPage() {
         agency_id,
         account_manager_id
       `)
+      .eq("account_type", "retainer")
       .order("account_name", { ascending: true })
 
     if (error) {
