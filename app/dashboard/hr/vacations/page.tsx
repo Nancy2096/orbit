@@ -46,6 +46,8 @@ interface Staff {
   position: string
   department: string
   agency_id: string
+  reports_to_id?: string | null
+  user_id?: string | null
 }
 
 interface LeaveType {
@@ -80,15 +82,19 @@ interface LeaveRequest {
   start_date: string
   end_date: string
   total_days: number
+  is_half_day?: boolean
+  half_day_period?: "morning" | "afternoon" | null
   reason: string | null
   status: string
   reviewed_by: string | null
   reviewed_at: string | null
   review_notes: string | null
+  approver_id: string | null
   created_at: string
   staff?: Staff
   leave_type?: LeaveType
   reviewer?: Staff
+  approver?: Staff
 }
 
 interface Holiday {
@@ -111,6 +117,11 @@ export default function VacationsPage() {
   const [holidays, setHolidays] = useState<Holiday[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Empleado correspondiente al usuario logeado en la agencia seleccionada
+  const [currentStaff, setCurrentStaff] = useState<Staff | null>(null)
+  // Posibles aprobadores (jefe directo y niveles superiores) para el empleado actual
+  const [approverOptions, setApproverOptions] = useState<Staff[]>([])
+
   // Filters
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [filterStaff, setFilterStaff] = useState<string>("all")
@@ -130,6 +141,9 @@ export default function VacationsPage() {
     start_date: null as Date | null,
     end_date: null as Date | null,
     reason: "",
+    is_half_day: false,
+    half_day_period: "morning" as "morning" | "afternoon",
+    approver_id: "",
   })
 
   // New leave type form
@@ -173,6 +187,17 @@ export default function VacationsPage() {
     }
   }, [selectedAgency])
 
+  // Al abrir el diálogo, fija el empleado al usuario logeado y su aprobador por defecto (jefe directo)
+  useEffect(() => {
+    if (showRequestDialog && currentStaff) {
+      setNewRequest((prev) => ({
+        ...prev,
+        staff_id: prev.staff_id || currentStaff.id,
+        approver_id: prev.approver_id || approverOptions[0]?.id || "",
+      }))
+    }
+  }, [showRequestDialog, currentStaff, approverOptions])
+
   const fetchAgencies = async () => {
     const { data } = await supabase
       .from("agencies")
@@ -190,7 +215,7 @@ export default function VacationsPage() {
   const fetchStaff = async () => {
     const { data, error } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, position, department, agency_id")
+      .select("id, first_name, last_name, position, department, agency_id, reports_to_id, user_id")
       .eq("agency_id", selectedAgency)
       .eq("is_active", true)
       .order("first_name")
@@ -198,7 +223,35 @@ export default function VacationsPage() {
       console.error("[v0] Error fetching staff:", error.message)
       return
     }
-    setStaff(data ?? [])
+    const list = data ?? []
+    setStaff(list)
+    resolveCurrentStaff(list)
+  }
+
+  // Identifica el empleado del usuario logeado y calcula su cadena de aprobadores
+  const resolveCurrentStaff = async (list: Staff[]) => {
+    const { data: auth } = await supabase.auth.getUser()
+    const userId = auth?.user?.id
+    if (!userId) {
+      setCurrentStaff(null)
+      setApproverOptions([])
+      return
+    }
+    const me = list.find((s) => s.user_id === userId) ?? null
+    setCurrentStaff(me)
+
+    // Construir la cadena jerárquica hacia arriba: jefe directo y superiores
+    const chain: Staff[] = []
+    let current = me
+    const seen = new Set<string>()
+    while (current?.reports_to_id && !seen.has(current.reports_to_id)) {
+      seen.add(current.reports_to_id)
+      const boss = list.find((s) => s.id === current!.reports_to_id)
+      if (!boss) break
+      chain.push(boss)
+      current = boss
+    }
+    setApproverOptions(chain)
   }
 
   const fetchLeaveTypes = async () => {
@@ -218,7 +271,8 @@ export default function VacationsPage() {
         *,
         staff:staff_id(id, first_name, last_name, position, department),
         leave_type:leave_type_id(id, name, color),
-        reviewer:reviewed_by(id, first_name, last_name)
+        reviewer:reviewed_by(id, first_name, last_name),
+        approver:approver_id(id, first_name, last_name, position)
       `)
       .eq("agency_id", selectedAgency)
       .order("created_at", { ascending: false })
@@ -265,7 +319,11 @@ export default function VacationsPage() {
       return
     }
 
-    const totalDays = calculateBusinessDays(newRequest.start_date, newRequest.end_date)
+    // En medio día solo cuenta 0.5 y la solicitud es de un único día.
+    const totalDays = newRequest.is_half_day
+      ? 0.5
+      : calculateBusinessDays(newRequest.start_date, newRequest.end_date)
+    const endDate = newRequest.is_half_day ? newRequest.start_date : newRequest.end_date
 
     const { error } = await supabase
       .from("leave_requests")
@@ -274,10 +332,13 @@ export default function VacationsPage() {
         staff_id: newRequest.staff_id,
         leave_type_id: newRequest.leave_type_id,
         start_date: format(newRequest.start_date, "yyyy-MM-dd"),
-        end_date: format(newRequest.end_date, "yyyy-MM-dd"),
+        end_date: format(endDate, "yyyy-MM-dd"),
         total_days: totalDays,
         reason: newRequest.reason || null,
         status: "pending",
+        is_half_day: newRequest.is_half_day,
+        half_day_period: newRequest.is_half_day ? newRequest.half_day_period : null,
+        approver_id: newRequest.approver_id || null,
       })
 
     if (!error) {
@@ -296,6 +357,9 @@ export default function VacationsPage() {
         start_date: null,
         end_date: null,
         reason: "",
+        is_half_day: false,
+        half_day_period: "morning",
+        approver_id: "",
       })
       fetchLeaveRequests()
       fetchLeaveBalances()
@@ -310,6 +374,7 @@ export default function VacationsPage() {
       .update({
         status: "approved",
         reviewed_at: new Date().toISOString(),
+        reviewed_by: currentStaff?.id ?? null,
         review_notes: reviewNotes || null,
       })
       .eq("id", selectedRequest.id)
@@ -345,6 +410,7 @@ export default function VacationsPage() {
       .update({
         status: "rejected",
         reviewed_at: new Date().toISOString(),
+        reviewed_by: currentStaff?.id ?? null,
         review_notes: reviewNotes || null,
       })
       .eq("id", selectedRequest.id)
@@ -476,6 +542,19 @@ export default function VacationsPage() {
     return true
   })
 
+  // ¿El usuario actual tiene gente a su cargo? (aparece como jefe de alguien)
+  const isManager = !!currentStaff && staff.some((s) => s.reports_to_id === currentStaff.id)
+
+  // Solicitudes que el usuario actual debe revisar: designado como aprobador,
+  // o es el jefe directo del solicitante (si no se designó aprobador).
+  const requestsToApprove = leaveRequests.filter((r) => {
+    if (!currentStaff) return false
+    if (r.staff_id === currentStaff.id) return false
+    if (r.approver_id) return r.approver_id === currentStaff.id
+    return r.staff?.id ? staff.find((s) => s.id === r.staff_id)?.reports_to_id === currentStaff.id : false
+  })
+  const pendingToApprove = requestsToApprove.filter((r) => r.status === "pending")
+
   const pendingRequests = leaveRequests.filter(r => r.status === "pending")
   const approvedThisMonth = leaveRequests.filter(r => 
     r.status === "approved" && 
@@ -566,6 +645,16 @@ export default function VacationsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="solicitudes">Solicitudes</TabsTrigger>
+          {isManager && (
+            <TabsTrigger value="aprobar" className="relative">
+              Por Aprobar
+              {pendingToApprove.length > 0 && (
+                <Badge className="ml-2 h-5 min-w-5 px-1.5 bg-yellow-500 text-white">
+                  {pendingToApprove.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="equipo">Mi Equipo</TabsTrigger>
           <TabsTrigger value="calendario">Calendario</TabsTrigger>
         </TabsList>
@@ -646,7 +735,14 @@ export default function VacationsPage() {
                         </TableCell>
                         <TableCell>{format(new Date(request.start_date), "dd MMM yyyy", { locale: es })}</TableCell>
                         <TableCell>{format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}</TableCell>
-                        <TableCell>{request.total_days} días</TableCell>
+                        <TableCell>
+                          {request.total_days} días
+                          {request.is_half_day && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              (medio día · {request.half_day_period === "afternoon" ? "tarde" : "mañana"})
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>{getStatusBadge(request.status)}</TableCell>
                         <TableCell>{format(new Date(request.created_at), "dd MMM yyyy", { locale: es })}</TableCell>
                         <TableCell className="text-right">
@@ -682,6 +778,98 @@ export default function VacationsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Por Aprobar Tab - solo visible para quienes tienen gente a su cargo */}
+        {isManager && (
+          <TabsContent value="aprobar" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Solicitudes por Aprobar</CardTitle>
+                <CardDescription>
+                  Solicitudes de permiso de las personas a tu cargo que esperan tu aprobación
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Empleado</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Período</TableHead>
+                      <TableHead>Días</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {requestsToApprove.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          No tienes solicitudes por revisar
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      requestsToApprove.map((request) => (
+                        <TableRow key={request.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{request.staff?.first_name} {request.staff?.last_name}</p>
+                              <p className="text-sm text-muted-foreground">{request.staff?.position}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              style={{ borderColor: request.leave_type?.color, color: request.leave_type?.color }}
+                            >
+                              {request.leave_type?.name}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {format(new Date(request.start_date), "dd MMM", { locale: es })} - {format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}
+                          </TableCell>
+                          <TableCell>
+                            {request.total_days} días
+                            {request.is_half_day && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                (medio día · {request.half_day_period === "afternoon" ? "tarde" : "mañana"})
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell>{getStatusBadge(request.status)}</TableCell>
+                          <TableCell className="text-right">
+                            {request.status === "pending" ? (
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedRequest(request)
+                                  setShowReviewDialog(true)
+                                }}
+                              >
+                                Revisar
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedRequest(request)
+                                  setShowReviewDialog(true)
+                                }}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* Equipo Tab */}
         <TabsContent value="equipo" className="space-y-4">
@@ -736,10 +924,7 @@ export default function VacationsPage() {
                         size="sm" 
                         variant="outline" 
                         className="w-full"
-                        onClick={() => {
-                          setNewRequest({ ...newRequest, staff_id: member.id })
-                          setShowRequestDialog(true)
-                        }}
+                        onClick={() => setShowRequestDialog(true)}
                       >
                         <Plus className="w-4 h-4 mr-2" />
                         Solicitar Permiso
@@ -777,7 +962,10 @@ export default function VacationsPage() {
                             {format(new Date(request.start_date), "dd MMM", { locale: es })} - {format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}
                           </p>
                         </div>
-                        <Badge variant="outline">{request.total_days} días</Badge>
+                        <Badge variant="outline">
+                          {request.total_days} días
+                          {request.is_half_day && (request.half_day_period === "afternoon" ? " · tarde" : " · mañana")}
+                        </Badge>
                       </div>
                     ))}
                   {leaveRequests.filter(r => r.status === "approved" && new Date(r.start_date) >= new Date()).length === 0 && (
@@ -853,21 +1041,47 @@ export default function VacationsPage() {
               </div>
             ) : null}
             <div className="space-y-2">
-              <Label>Empleado *</Label>
-              <Select 
-                value={newRequest.staff_id || undefined} 
-                onValueChange={(value) => setNewRequest({ ...newRequest, staff_id: value })}
-                disabled={staff.length === 0}
+              <Label>Empleado</Label>
+              {currentStaff ? (
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
+                    <span className="text-sm font-semibold text-primary">
+                      {currentStaff.first_name[0]}{currentStaff.last_name[0]}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-medium">{currentStaff.first_name} {currentStaff.last_name}</p>
+                    <p className="text-xs text-muted-foreground">{currentStaff.position}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>Tu usuario no está vinculado a un empleado de esta agencia.</span>
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Aprobado por *</Label>
+              <Select
+                value={newRequest.approver_id || undefined}
+                onValueChange={(value) => setNewRequest({ ...newRequest, approver_id: value })}
+                disabled={approverOptions.length === 0}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar empleado" />
+                  <SelectValue placeholder={approverOptions.length === 0 ? "Sin jefe asignado" : "Seleccionar aprobador"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {staff.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.first_name} {s.last_name}</SelectItem>
+                  {approverOptions.map((a, idx) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.first_name} {a.last_name} · {a.position}{idx === 0 ? " (jefe directo)" : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Por defecto es tu jefe directo. Puedes elegir un nivel superior.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Tipo de Permiso *</Label>
@@ -886,9 +1100,48 @@ export default function VacationsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="half-day-switch">Medio día</Label>
+                <p className="text-xs text-muted-foreground">
+                  Solicita solo medio día (0.5). No se descuenta el día completo.
+                </p>
+              </div>
+              <Switch
+                id="half-day-switch"
+                checked={newRequest.is_half_day}
+                onCheckedChange={(checked) =>
+                  setNewRequest({
+                    ...newRequest,
+                    is_half_day: checked,
+                    // Al activar medio día, la fecha fin es la misma que la de inicio.
+                    end_date: checked ? newRequest.start_date : newRequest.end_date,
+                  })
+                }
+              />
+            </div>
+            {newRequest.is_half_day && (
               <div className="space-y-2">
-                <Label>Fecha Inicio *</Label>
+                <Label>Periodo *</Label>
+                <Select
+                  value={newRequest.half_day_period}
+                  onValueChange={(value) =>
+                    setNewRequest({ ...newRequest, half_day_period: value as "morning" | "afternoon" })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar periodo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="morning">Primera mitad (mañana)</SelectItem>
+                    <SelectItem value="afternoon">Segunda mitad (tarde)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className={newRequest.is_half_day ? "" : "grid grid-cols-2 gap-4"}>
+              <div className="space-y-2">
+                <Label>{newRequest.is_half_day ? "Fecha *" : "Fecha Inicio *"}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="w-full justify-start text-left font-normal">
@@ -900,34 +1153,50 @@ export default function VacationsPage() {
                     <Calendar
                       mode="single"
                       selected={newRequest.start_date || undefined}
-                      onSelect={(date) => setNewRequest({ ...newRequest, start_date: date || null })}
+                      onSelect={(date) =>
+                        setNewRequest({
+                          ...newRequest,
+                          start_date: date || null,
+                          // En medio día, la fecha fin sigue a la de inicio.
+                          end_date: newRequest.is_half_day ? date || null : newRequest.end_date,
+                        })
+                      }
                       locale={es}
                     />
                   </PopoverContent>
                 </Popover>
               </div>
-              <div className="space-y-2">
-                <Label>Fecha Fin *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {newRequest.end_date ? format(newRequest.end_date, "dd/MM/yyyy") : "Seleccionar"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={newRequest.end_date || undefined}
-                      onSelect={(date) => setNewRequest({ ...newRequest, end_date: date || null })}
-                      locale={es}
-                      disabled={(date) => newRequest.start_date ? date < newRequest.start_date : false}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
+              {!newRequest.is_half_day && (
+                <div className="space-y-2">
+                  <Label>Fecha Fin *</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {newRequest.end_date ? format(newRequest.end_date, "dd/MM/yyyy") : "Seleccionar"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={newRequest.end_date || undefined}
+                        onSelect={(date) => setNewRequest({ ...newRequest, end_date: date || null })}
+                        locale={es}
+                        disabled={(date) => newRequest.start_date ? date < newRequest.start_date : false}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
             </div>
-            {newRequest.start_date && newRequest.end_date && (
+            {newRequest.is_half_day && newRequest.start_date && (
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="text-sm">
+                  <strong>Días a solicitar:</strong> 0.5 día ({newRequest.half_day_period === "morning" ? "mañana" : "tarde"})
+                </p>
+              </div>
+            )}
+            {!newRequest.is_half_day && newRequest.start_date && newRequest.end_date && (
               <div className="p-3 rounded-lg bg-muted">
                 <p className="text-sm">
                   <strong>Días hábiles:</strong> {calculateBusinessDays(newRequest.start_date, newRequest.end_date)} días
@@ -946,7 +1215,12 @@ export default function VacationsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRequestDialog(false)}>Cancelar</Button>
-            <Button onClick={handleCreateRequest}>Crear Solicitud</Button>
+            <Button
+              onClick={handleCreateRequest}
+              disabled={!currentStaff || !newRequest.approver_id}
+            >
+              Crear Solicitud
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -978,8 +1252,17 @@ export default function VacationsPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Días:</span>
-                  <span className="font-medium">{selectedRequest.total_days} días</span>
+                  <span className="font-medium">
+                    {selectedRequest.total_days} días
+                    {selectedRequest.is_half_day && (selectedRequest.half_day_period === "afternoon" ? " · tarde" : " · mañana")}
+                  </span>
                 </div>
+                {selectedRequest.approver && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Aprobado por:</span>
+                    <span>{selectedRequest.approver.first_name} {selectedRequest.approver.last_name}</span>
+                  </div>
+                )}
                 {selectedRequest.reason && (
                   <div className="pt-2 border-t">
                     <span className="text-muted-foreground">Motivo:</span>
