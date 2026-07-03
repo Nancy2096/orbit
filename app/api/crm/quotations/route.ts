@@ -1,51 +1,48 @@
-import { createClient } from "@/lib/supabase/server"
-import { put, del } from "@vercel/blob"
+import { del } from "@vercel/blob"
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { NextRequest, NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
 
-export async function POST(request: NextRequest) {
+// POST: genera el token para subir el archivo DIRECTO a Vercel Blob desde el
+// cliente. Esto evita el límite de ~4.5MB de los Route Handlers, por lo que la
+// cotización no tiene restricción de peso. El store es privado.
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const body = (await request.json()) as HandleUploadBody
+
   try {
-    const formData = await request.formData()
-    const file = formData.get("file") as File | null
-    const prospectId = formData.get("prospectId") as string | null
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      onBeforeGenerateToken: async () => {
+        return {
+          // Store privado, sin restricción de peso ni de tipo de archivo.
+          access: "private",
+          addRandomSuffix: false,
+        }
+      },
+      // onUploadCompleted no se ejecuta en local/preview, por eso la BD se
+      // actualiza desde el cliente vía PATCH.
+      onUploadCompleted: async () => {},
+    })
 
-    if (!file) {
-      return NextResponse.json({ error: "No se proporcionó archivo" }, { status: 400 })
-    }
+    return NextResponse.json(jsonResponse)
+  } catch (error) {
+    console.error("Token generation error:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Error al subir la cotización" },
+      { status: 400 },
+    )
+  }
+}
 
-    if (!prospectId) {
-      return NextResponse.json({ error: "No se proporcionó el ID del prospecto" }, { status: 400 })
-    }
+// PATCH: guarda en la BD el registro de la cotización ya subida a Blob,
+// calculando el número de versión correspondiente.
+export async function PATCH(request: NextRequest) {
+  try {
+    const { prospectId, url, filename, fileSize } = await request.json()
 
-    // Tipos de documento permitidos para cotizaciones: PDF, Word, Excel e imágenes.
-    const allowedMimeTypes = new Set([
-      "application/pdf",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "application/vnd.ms-excel",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "image/png",
-      "image/jpeg",
-      "image/webp",
-    ])
-    const allowedExtensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp"]
-    const lowerName = (file.name || "").toLowerCase()
-    const hasAllowedExtension = allowedExtensions.some((ext) => lowerName.endsWith(ext))
-    // Algunos navegadores no reportan el MIME type; en ese caso validamos por extensión.
-    const hasAllowedType = file.type ? allowedMimeTypes.has(file.type) : hasAllowedExtension
-    if (!hasAllowedType && !hasAllowedExtension) {
-      return NextResponse.json(
-        { error: "Formato no permitido. Sube PDF, Word, Excel o imagen (JPG, PNG)." },
-        { status: 400 }
-      )
-    }
-
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: "El archivo es demasiado grande. Máximo 10MB." },
-        { status: 400 }
-      )
+    if (!prospectId || !url) {
+      return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 })
     }
 
     const supabase = await createClient()
@@ -58,6 +55,8 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (prospectError || !prospect) {
+      // Si falla, borra el archivo recién subido
+      await del(url).catch(() => {})
       return NextResponse.json({ error: "Prospecto no encontrado" }, { status: 404 })
     }
 
@@ -69,41 +68,28 @@ export async function POST(request: NextRequest) {
 
     const version = (count || 0) + 1
 
-    // Generate unique filename and upload to Vercel Blob
-    const timestamp = Date.now()
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
-    const fileName = `quotations/${prospectId}/${timestamp}-${safeName}`
-
-    // El store de Blob está configurado como privado.
-    const blob = await put(fileName, file, {
-      access: "private",
-      addRandomSuffix: false,
-    })
-
-    // Save quotation record in database
     const { data: newQuotation, error: dbError } = await supabase
       .from("crm_prospect_quotations")
       .insert({
         prospect_id: prospectId,
-        file_name: file.name,
-        file_url: blob.url,
-        file_size: file.size,
+        file_name: filename,
+        file_url: url,
+        file_size: fileSize ?? null,
         version,
       })
       .select()
       .single()
 
     if (dbError) {
+      // Si falla la BD, borra el archivo recién subido
+      await del(url).catch(() => {})
       throw dbError
     }
 
     return NextResponse.json(newQuotation)
   } catch (error) {
-    console.error("Error uploading quotation:", error)
-    return NextResponse.json(
-      { error: "Error al subir la cotización" },
-      { status: 500 }
-    )
+    console.error("Error saving quotation:", error)
+    return NextResponse.json({ error: "Error al guardar la cotización" }, { status: 500 })
   }
 }
 

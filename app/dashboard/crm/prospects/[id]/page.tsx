@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
+import { upload } from "@vercel/blob/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -743,22 +744,28 @@ state_province: prospectData.state_province || "",
       return
     }
 
-    const maxSize = 10 * 1024 * 1024
-    if (file.size > maxSize) {
-      toast.error("El archivo es demasiado grande. Máximo 10MB.")
-      return
-    }
-
     setUploadingQuotation(true)
 
     try {
-      const uploadData = new FormData()
-      uploadData.append("file", file)
-      uploadData.append("prospectId", prospectId)
+      // Sube el archivo DIRECTO a Vercel Blob (store privado), sin pasar por el
+      // servidor, así no aplica el límite de ~4.5MB de los Route Handlers ni
+      // ninguna restricción de peso.
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+      const blob = await upload(`quotations/${prospectId}/${Date.now()}-${safeName}`, file, {
+        access: "private",
+        handleUploadUrl: "/api/crm/quotations",
+      })
 
+      // Guarda el registro de la cotización en la base de datos (con versión).
       const response = await fetch("/api/crm/quotations", {
-        method: "POST",
-        body: uploadData,
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prospectId,
+          url: blob.url,
+          filename: file.name,
+          fileSize: file.size,
+        }),
       })
 
       if (!response.ok) {
