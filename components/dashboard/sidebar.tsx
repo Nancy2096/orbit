@@ -5,7 +5,6 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSystemBranding } from "@/hooks/use-system-branding"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
-import { getModulesForPath } from "@/lib/permission-access"
 import {
   Sidebar,
   SidebarContent,
@@ -301,11 +300,13 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
   const supabase = createClient()
   const { branding, getLogoUrl } = useSystemBranding()
   const { state, toggleSidebar } = useSidebar()
-  const { hasAnyModule } = usePermissions()
+  const { canAccessPath } = usePermissions()
 
   // Filtra los items de navegación según los permisos del rol del usuario.
+  // Usa canAccessPath para que el menú coincida exactamente con las rutas a
+  // las que el usuario realmente puede entrar (deniega por defecto).
   const filterNav = <T extends { url: string }>(items: T[]): T[] =>
-    items.filter((item) => hasAnyModule(getModulesForPath(item.url)))
+    items.filter((item) => canAccessPath(item.url))
 
   const filteredMainNavItems = filterNav(mainNavItems)
   const filteredManagementNavItems = filterNav(managementNavItems)
@@ -363,7 +364,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
     backgroundColor: branding.sidebar_color,
   } as React.CSSProperties : {}
 
-  const isSuperAdmin = user?.role?.name === "super_admin" || user?.role?.display_name === "Super Administrador"
+  const isSuperAdmin = user?.role?.name === "superadmin" || user?.role?.display_name === "Super Administrador"
 
   return (
     <Sidebar collapsible="icon" style={sidebarStyle}>
