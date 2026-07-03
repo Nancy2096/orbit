@@ -65,6 +65,7 @@ import {
   ChevronRight,
   Link as LinkIcon,
   AlertTriangle,
+  Paperclip,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
@@ -114,6 +115,9 @@ interface ActivityItem {
   description: string | null
   activity_date: string
   is_completed: boolean
+  attachment_url: string | null
+  attachment_name: string | null
+  attachment_size: number | null
 }
 
 interface Task {
@@ -246,7 +250,9 @@ export default function ProspectDetailPage() {
     activity_type: "call",
     subject: "",
     description: "",
+    file: null as File | null,
   })
+  const [savingActivity, setSavingActivity] = useState(false)
   
   const [newTask, setNewTask] = useState({
     title: "",
@@ -478,24 +484,108 @@ state_province: prospectData.state_province || "",
       return
     }
 
-    const { error } = await supabase.from("crm_activities").insert({
-      prospect_id: prospectId,
-      activity_type: newActivity.activity_type,
-      subject: newActivity.subject,
-      description: newActivity.description || null,
-      activity_date: new Date().toISOString(),
-      is_completed: true,
-    })
+    setSavingActivity(true)
+
+    try {
+      let attachmentUrl: string | null = null
+      let attachmentName: string | null = null
+      let attachmentSize: number | null = null
+
+      // Si se adjuntó un archivo, súbelo DIRECTO a Vercel Blob (store privado),
+      // reutilizando el endpoint que genera el token de subida.
+      if (newActivity.file) {
+        const file = newActivity.file
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+        const blob = await upload(`activities/${prospectId}/${Date.now()}-${safeName}`, file, {
+          access: "private",
+          handleUploadUrl: "/api/crm/quotations",
+        })
+        attachmentUrl = blob.url
+        attachmentName = file.name
+        attachmentSize = file.size
+      }
+
+      const { error } = await supabase.from("crm_activities").insert({
+        prospect_id: prospectId,
+        activity_type: newActivity.activity_type,
+        subject: newActivity.subject,
+        description: newActivity.description || null,
+        activity_date: new Date().toISOString(),
+        is_completed: true,
+        attachment_url: attachmentUrl,
+        attachment_name: attachmentName,
+        attachment_size: attachmentSize,
+      })
+
+      if (error) {
+        toast.error("Error al registrar la actividad")
+        return
+      }
+
+      toast.success("Actividad registrada")
+      setActivityModalOpen(false)
+      setNewActivity({ activity_type: "call", subject: "", description: "", file: null })
+      fetchData()
+    } catch (error) {
+      console.error(error)
+      toast.error(error instanceof Error ? error.message : "Error al registrar la actividad")
+    } finally {
+      setSavingActivity(false)
+    }
+  }
+
+  // Borra solo el archivo adjunto de una actividad (conserva la actividad)
+  const deleteActivityAttachment = async (activity: ActivityItem) => {
+    if (!activity.attachment_url) return
+    try {
+      await fetch(`/api/crm/activities?blobUrl=${encodeURIComponent(activity.attachment_url)}`, {
+        method: "DELETE",
+      })
+    } catch {
+      console.warn("No se pudo borrar el archivo del blob")
+    }
+
+    const { error } = await supabase
+      .from("crm_activities")
+      .update({ attachment_url: null, attachment_name: null, attachment_size: null })
+      .eq("id", activity.id)
 
     if (error) {
-      toast.error("Error al registrar la actividad")
+      toast.error("Error al eliminar el archivo adjunto")
       return
     }
 
-    toast.success("Actividad registrada")
-    setActivityModalOpen(false)
-    setNewActivity({ activity_type: "call", subject: "", description: "" })
-    fetchData()
+    setActivities((prev) =>
+      prev.map((a) =>
+        a.id === activity.id
+          ? { ...a, attachment_url: null, attachment_name: null, attachment_size: null }
+          : a,
+      ),
+    )
+    toast.success("Archivo adjunto eliminado")
+  }
+
+  // Borra la actividad completa (y su archivo adjunto si existe)
+  const deleteActivity = async (activity: ActivityItem) => {
+    if (activity.attachment_url) {
+      try {
+        await fetch(`/api/crm/activities?blobUrl=${encodeURIComponent(activity.attachment_url)}`, {
+          method: "DELETE",
+        })
+      } catch {
+        console.warn("No se pudo borrar el archivo del blob")
+      }
+    }
+
+    const { error } = await supabase.from("crm_activities").delete().eq("id", activity.id)
+
+    if (error) {
+      toast.error("Error al eliminar la actividad")
+      return
+    }
+
+    setActivities((prev) => prev.filter((a) => a.id !== activity.id))
+    toast.success("Actividad eliminada")
   }
 
   const addTask = async () => {
@@ -1462,14 +1552,47 @@ state_province: prospectData.state_province || "",
                           <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
                             {getActivityIcon(activity.activity_type)}
                           </div>
-                          <div className="flex-1">
+                          <div className="flex-1 min-w-0">
                             <div className="font-medium">{activity.subject}</div>
                             {activity.description && (
                               <p className="text-sm text-muted-foreground mt-1">{activity.description}</p>
                             )}
+                            {activity.attachment_url && activity.attachment_name && (
+                              <a
+                                href={`/api/file?pathname=${encodeURIComponent(
+                                  new URL(activity.attachment_url).pathname.replace(/^\//, "")
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 inline-flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1 text-xs hover:bg-muted transition-colors max-w-full"
+                              >
+                                <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{activity.attachment_name}</span>
+                              </a>
+                            )}
                             <div className="text-xs text-muted-foreground mt-2">
                               {new Date(activity.activity_date).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                             </div>
+                          </div>
+                          <div className="flex items-start gap-1 shrink-0">
+                            {activity.attachment_url && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => deleteActivityAttachment(activity)}
+                                title="Eliminar solo el archivo adjunto"
+                              >
+                                <Paperclip className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteActivity(activity)}
+                              title="Eliminar actividad completa"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
                           </div>
                         </div>
                       ))}
@@ -2073,10 +2196,38 @@ state_province: prospectData.state_province || "",
               <Label>Descripcion</Label>
               <Textarea value={newActivity.description} onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })} rows={3} />
             </div>
+            <div className="space-y-2">
+              <Label>Archivo adjunto (opcional)</Label>
+              {newActivity.file ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg border p-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-sm">{newActivity.file.name}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => setNewActivity({ ...newActivity, file: null })}
+                    title="Quitar archivo"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ) : (
+                <Input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
+                  onChange={(e) => setNewActivity({ ...newActivity, file: e.target.files?.[0] ?? null })}
+                />
+              )}
+            </div>
           </div>
           <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={() => setActivityModalOpen(false)}>Cancelar</Button>
-            <Button onClick={addActivity}>Registrar</Button>
+            <Button variant="outline" onClick={() => setActivityModalOpen(false)} disabled={savingActivity}>Cancelar</Button>
+            <Button onClick={addActivity} disabled={savingActivity}>
+              {savingActivity ? (<><Spinner className="mr-2 h-4 w-4" /> Guardando...</>) : "Registrar"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
