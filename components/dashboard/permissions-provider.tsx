@@ -123,8 +123,9 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
       if (fullAccess) return true
       if (isAlwaysAllowed(pathname)) return true
       const mods = getModulesForPath(pathname)
-      // Rutas sin módulo mapeado se permiten por defecto.
-      if (!mods || mods.length === 0) return true
+      // Denegar por defecto: una ruta sin módulo mapeado se bloquea hasta
+      // que se le asigne explícitamente un módulo en permission-access.ts.
+      if (!mods || mods.length === 0) return false
       return mods.some((m) => modules.has(m))
     },
     [fullAccess, modules],
