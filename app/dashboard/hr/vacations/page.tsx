@@ -80,6 +80,8 @@ interface LeaveRequest {
   start_date: string
   end_date: string
   total_days: number
+  is_half_day?: boolean
+  half_day_period?: "morning" | "afternoon" | null
   reason: string | null
   status: string
   reviewed_by: string | null
@@ -130,6 +132,8 @@ export default function VacationsPage() {
     start_date: null as Date | null,
     end_date: null as Date | null,
     reason: "",
+    is_half_day: false,
+    half_day_period: "morning" as "morning" | "afternoon",
   })
 
   // New leave type form
@@ -265,7 +269,11 @@ export default function VacationsPage() {
       return
     }
 
-    const totalDays = calculateBusinessDays(newRequest.start_date, newRequest.end_date)
+    // En medio día solo cuenta 0.5 y la solicitud es de un único día.
+    const totalDays = newRequest.is_half_day
+      ? 0.5
+      : calculateBusinessDays(newRequest.start_date, newRequest.end_date)
+    const endDate = newRequest.is_half_day ? newRequest.start_date : newRequest.end_date
 
     const { error } = await supabase
       .from("leave_requests")
@@ -274,10 +282,12 @@ export default function VacationsPage() {
         staff_id: newRequest.staff_id,
         leave_type_id: newRequest.leave_type_id,
         start_date: format(newRequest.start_date, "yyyy-MM-dd"),
-        end_date: format(newRequest.end_date, "yyyy-MM-dd"),
+        end_date: format(endDate, "yyyy-MM-dd"),
         total_days: totalDays,
         reason: newRequest.reason || null,
         status: "pending",
+        is_half_day: newRequest.is_half_day,
+        half_day_period: newRequest.is_half_day ? newRequest.half_day_period : null,
       })
 
     if (!error) {
@@ -296,6 +306,8 @@ export default function VacationsPage() {
         start_date: null,
         end_date: null,
         reason: "",
+        is_half_day: false,
+        half_day_period: "morning",
       })
       fetchLeaveRequests()
       fetchLeaveBalances()
@@ -646,7 +658,14 @@ export default function VacationsPage() {
                         </TableCell>
                         <TableCell>{format(new Date(request.start_date), "dd MMM yyyy", { locale: es })}</TableCell>
                         <TableCell>{format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}</TableCell>
-                        <TableCell>{request.total_days} días</TableCell>
+                        <TableCell>
+                          {request.total_days} días
+                          {request.is_half_day && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              (medio día · {request.half_day_period === "afternoon" ? "tarde" : "mañana"})
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>{getStatusBadge(request.status)}</TableCell>
                         <TableCell>{format(new Date(request.created_at), "dd MMM yyyy", { locale: es })}</TableCell>
                         <TableCell className="text-right">
@@ -777,7 +796,10 @@ export default function VacationsPage() {
                             {format(new Date(request.start_date), "dd MMM", { locale: es })} - {format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}
                           </p>
                         </div>
-                        <Badge variant="outline">{request.total_days} días</Badge>
+                        <Badge variant="outline">
+                          {request.total_days} días
+                          {request.is_half_day && (request.half_day_period === "afternoon" ? " · tarde" : " · mañana")}
+                        </Badge>
                       </div>
                     ))}
                   {leaveRequests.filter(r => r.status === "approved" && new Date(r.start_date) >= new Date()).length === 0 && (
@@ -886,9 +908,48 @@ export default function VacationsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="half-day-switch">Medio día</Label>
+                <p className="text-xs text-muted-foreground">
+                  Solicita solo medio día (0.5). No se descuenta el día completo.
+                </p>
+              </div>
+              <Switch
+                id="half-day-switch"
+                checked={newRequest.is_half_day}
+                onCheckedChange={(checked) =>
+                  setNewRequest({
+                    ...newRequest,
+                    is_half_day: checked,
+                    // Al activar medio día, la fecha fin es la misma que la de inicio.
+                    end_date: checked ? newRequest.start_date : newRequest.end_date,
+                  })
+                }
+              />
+            </div>
+            {newRequest.is_half_day && (
               <div className="space-y-2">
-                <Label>Fecha Inicio *</Label>
+                <Label>Periodo *</Label>
+                <Select
+                  value={newRequest.half_day_period}
+                  onValueChange={(value) =>
+                    setNewRequest({ ...newRequest, half_day_period: value as "morning" | "afternoon" })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar periodo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="morning">Primera mitad (mañana)</SelectItem>
+                    <SelectItem value="afternoon">Segunda mitad (tarde)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className={newRequest.is_half_day ? "" : "grid grid-cols-2 gap-4"}>
+              <div className="space-y-2">
+                <Label>{newRequest.is_half_day ? "Fecha *" : "Fecha Inicio *"}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="w-full justify-start text-left font-normal">
@@ -900,34 +961,50 @@ export default function VacationsPage() {
                     <Calendar
                       mode="single"
                       selected={newRequest.start_date || undefined}
-                      onSelect={(date) => setNewRequest({ ...newRequest, start_date: date || null })}
+                      onSelect={(date) =>
+                        setNewRequest({
+                          ...newRequest,
+                          start_date: date || null,
+                          // En medio día, la fecha fin sigue a la de inicio.
+                          end_date: newRequest.is_half_day ? date || null : newRequest.end_date,
+                        })
+                      }
                       locale={es}
                     />
                   </PopoverContent>
                 </Popover>
               </div>
-              <div className="space-y-2">
-                <Label>Fecha Fin *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {newRequest.end_date ? format(newRequest.end_date, "dd/MM/yyyy") : "Seleccionar"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={newRequest.end_date || undefined}
-                      onSelect={(date) => setNewRequest({ ...newRequest, end_date: date || null })}
-                      locale={es}
-                      disabled={(date) => newRequest.start_date ? date < newRequest.start_date : false}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
+              {!newRequest.is_half_day && (
+                <div className="space-y-2">
+                  <Label>Fecha Fin *</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {newRequest.end_date ? format(newRequest.end_date, "dd/MM/yyyy") : "Seleccionar"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={newRequest.end_date || undefined}
+                        onSelect={(date) => setNewRequest({ ...newRequest, end_date: date || null })}
+                        locale={es}
+                        disabled={(date) => newRequest.start_date ? date < newRequest.start_date : false}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
             </div>
-            {newRequest.start_date && newRequest.end_date && (
+            {newRequest.is_half_day && newRequest.start_date && (
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="text-sm">
+                  <strong>Días a solicitar:</strong> 0.5 día ({newRequest.half_day_period === "morning" ? "mañana" : "tarde"})
+                </p>
+              </div>
+            )}
+            {!newRequest.is_half_day && newRequest.start_date && newRequest.end_date && (
               <div className="p-3 rounded-lg bg-muted">
                 <p className="text-sm">
                   <strong>Días hábiles:</strong> {calculateBusinessDays(newRequest.start_date, newRequest.end_date)} días
