@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { upload } from "@vercel/blob/client"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -210,17 +211,24 @@ await Promise.all([
     setUploadingQuotation(true)
     setError(null)
 
-    const formData = new FormData()
-    formData.append("file", file)
-    formData.append("accountId", id)
-    if (quotation?.url) {
-      formData.append("oldUrl", quotation.url)
-    }
-
     try {
+      // Sube el archivo DIRECTO a Vercel Blob (sin pasar por el servidor),
+      // así no aplica el límite de ~4.5MB de los Route Handlers.
+      const blob = await upload(`quotations/${id}/${file.name}`, file, {
+        access: "public",
+        handleUploadUrl: "/api/quotations/upload",
+      })
+
+      // Guarda la URL en la base de datos y borra el archivo anterior.
       const res = await fetch("/api/quotations/upload", {
-        method: "POST",
-        body: formData,
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: id,
+          url: blob.url,
+          filename: file.name,
+          oldUrl: quotation?.url ?? null,
+        }),
       })
 
       if (!res.ok) {
