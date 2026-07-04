@@ -197,6 +197,11 @@ const financeNavItems = [
     icon: BarChart3,
   },
   {
+    title: "Pre-Facturas",
+    url: "/dashboard/pre-invoices",
+    icon: ClipboardList,
+  },
+  {
     title: "Facturas y Pagos",
     url: "/dashboard/invoices",
     icon: Receipt,
