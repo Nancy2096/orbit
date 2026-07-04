@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Search, Settings, GraduationCap, ArrowRight } from "lucide-react"
+import { DepartmentFilter } from "@/components/hr/department-filter"
 import {
   ONBOARDING_STAGES,
   SYSTEMS_TASKS,
@@ -43,10 +44,22 @@ interface ProcessRow {
     last_name: string
     photo_url: string | null
     position: string | null
+    department: { name: string } | null
   } | null
   agency: { name: string } | null
   percentage: number
   completedStages: number
+}
+
+interface Agency {
+  id: string
+  name: string
+}
+
+interface Department {
+  id: string
+  name: string
+  agency_id: string | null
 }
 
 interface EligibleStaff {
@@ -64,7 +77,11 @@ export default function OnboardingPage() {
   const [mounted, setMounted] = useState(false)
   const [loading, setLoading] = useState(true)
   const [processes, setProcesses] = useState<ProcessRow[]>([])
+  const [agencies, setAgencies] = useState<Agency[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [search, setSearch] = useState("")
+  const [agencyFilter, setAgencyFilter] = useState<string>("all")
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all")
 
   const [showStart, setShowStart] = useState(false)
   const [eligible, setEligible] = useState<EligibleStaff[]>([])
@@ -79,10 +96,18 @@ export default function OnboardingPage() {
 
   async function loadProcesses() {
     setLoading(true)
-    const { data: procs } = await supabase
-      .from("onboarding_processes")
-      .select("id, staff_id, agency_id, start_date, status, staff:staff_id(first_name, last_name, photo_url, position), agency:agency_id(name)")
-      .order("created_at", { ascending: false })
+
+    const [{ data: procs }, { data: agenciesData }, { data: departmentsData }] = await Promise.all([
+      supabase
+        .from("onboarding_processes")
+        .select("id, staff_id, agency_id, start_date, status, staff:staff_id(first_name, last_name, photo_url, position, department:departments(name)), agency:agency_id(name)")
+        .order("created_at", { ascending: false }),
+      supabase.from("agencies").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("departments").select("id, name, agency_id").order("name"),
+    ])
+
+    if (agenciesData) setAgencies(agenciesData)
+    if (departmentsData) setDepartments(departmentsData)
 
     if (!procs || procs.length === 0) {
       setProcesses([])
@@ -194,9 +219,11 @@ export default function OnboardingPage() {
   }
 
   const filtered = processes.filter((p) => {
-    if (!search) return true
     const name = `${p.staff?.first_name || ""} ${p.staff?.last_name || ""}`.toLowerCase()
-    return name.includes(search.toLowerCase())
+    const matchesSearch = !search || name.includes(search.toLowerCase())
+    const matchesAgency = agencyFilter === "all" || p.agency_id === agencyFilter
+    const matchesDepartment = departmentFilter === "all" || p.staff?.department?.name === departmentFilter
+    return matchesSearch && matchesAgency && matchesDepartment
   })
 
   if (!mounted) {
@@ -230,13 +257,40 @@ export default function OnboardingPage() {
         </div>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Buscar colaborador..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar colaborador..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select
+          value={agencyFilter}
+          onValueChange={(value) => {
+            setAgencyFilter(value)
+            setDepartmentFilter("all")
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="Agencia" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas las agencias</SelectItem>
+            {agencies.map((agency) => (
+              <SelectItem key={agency.id} value={agency.id}>
+                {agency.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <DepartmentFilter
+          departments={departments}
+          agencyId={agencyFilter}
+          value={departmentFilter}
+          onChange={setDepartmentFilter}
         />
       </div>
 
