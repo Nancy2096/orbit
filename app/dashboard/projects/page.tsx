@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import { usePersistentState } from "@/hooks/use-persistent-state"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -110,9 +111,9 @@ export default function ProjectsPage() {
   const [mounted, setMounted] = useState(false)
   const [projects, setProjects] = useState<ProjectAccount[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState("")
+  const [searchTerm, setSearchTerm] = usePersistentState("projects:searchTerm", "")
   const [columns, setColumns] = useState<ColumnDef[]>(defaultColumns)
-  const [filters, setFilters] = useState<Filters>({
+  const [filters, setFilters] = usePersistentState<Filters>("projects:filters", {
     status: "all",
     agency_id: "all",
     client_id: "all",
