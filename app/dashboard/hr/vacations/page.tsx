@@ -48,6 +48,7 @@ interface Staff {
   agency_id: string
   reports_to_id?: string | null
   user_id?: string | null
+  email?: string | null
 }
 
 interface LeaveType {
@@ -215,7 +216,7 @@ export default function VacationsPage() {
   const fetchStaff = async () => {
     const { data, error } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, position, department, agency_id, reports_to_id, user_id")
+      .select("id, first_name, last_name, position, department, agency_id, reports_to_id, user_id, email")
       .eq("agency_id", selectedAgency)
       .eq("is_active", true)
       .order("first_name")
@@ -232,12 +233,18 @@ export default function VacationsPage() {
   const resolveCurrentStaff = async (list: Staff[]) => {
     const { data: auth } = await supabase.auth.getUser()
     const userId = auth?.user?.id
+    const userEmail = auth?.user?.email?.trim().toLowerCase()
     if (!userId) {
       setCurrentStaff(null)
       setApproverOptions([])
       return
     }
-    const me = list.find((s) => s.user_id === userId) ?? null
+    // 1) Vincular por user_id
+    let me = list.find((s) => s.user_id === userId) ?? null
+    // 2) Respaldo por email: muchos registros de staff no tienen user_id poblado
+    if (!me && userEmail) {
+      me = list.find((s) => (s.email || "").trim().toLowerCase() === userEmail) ?? null
+    }
     setCurrentStaff(me)
     setApproverOptions(me ? computeApproverChain(me.id, list) : [])
   }
