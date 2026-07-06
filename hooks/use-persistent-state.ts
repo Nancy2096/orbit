@@ -5,37 +5,41 @@ import { useEffect, useRef, useState } from "react"
 /**
  * useState que persiste su valor en localStorage bajo `key`.
  *
- * - En el primer render devuelve `defaultValue` para evitar mismatch de
- *   hidratacion (SSR/CSR). Tras montar, lee el valor guardado si existe.
- * - Cada cambio se guarda automaticamente en localStorage, de modo que el
- *   valor sobrevive a la navegacion entre paginas y recargas, hasta que el
- *   usuario lo cambie manualmente.
+ * Lee el valor guardado de forma SINCRONA en el inicializador de useState,
+ * de modo que el valor correcto esta disponible desde el primer render del
+ * cliente. Esto evita la condicion de carrera en la que un efecto de guardado
+ * escribia el valor por defecto sobre el valor almacenado al remontar la
+ * pagina (al navegar entre ventanas).
+ *
+ * Nota: las paginas que lo usan renderizan su contenido real solo despues de
+ * montar (gate `mounted`), por lo que leer localStorage en el inicializador no
+ * provoca mismatch de hidratacion.
  */
 export function usePersistentState<T>(
   key: string,
   defaultValue: T,
 ): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const [value, setValue] = useState<T>(defaultValue)
-  const hydrated = useRef(false)
-
-  // Cargar el valor guardado una sola vez, despues de montar.
-  useEffect(() => {
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === "undefined") return defaultValue
     try {
       const stored = window.localStorage.getItem(key)
-      if (stored !== null) {
-        setValue(JSON.parse(stored) as T)
-      }
+      if (stored !== null) return JSON.parse(stored) as T
     } catch {
       // Ignorar JSON invalido o acceso denegado a localStorage.
     }
-    hydrated.current = true
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+    return defaultValue
+  })
 
-  // Guardar en cada cambio, pero solo despues de haber hidratado, para no
-  // sobrescribir el valor almacenado con el default en el primer render.
+  // Evitar escribir en localStorage durante el primer render/commit; solo
+  // guardamos cuando el valor cambia realmente despues del montaje.
+  const isFirst = useRef(true)
+
   useEffect(() => {
-    if (!hydrated.current) return
+    if (typeof window === "undefined") return
+    if (isFirst.current) {
+      isFirst.current = false
+      return
+    }
     try {
       window.localStorage.setItem(key, JSON.stringify(value))
     } catch {
