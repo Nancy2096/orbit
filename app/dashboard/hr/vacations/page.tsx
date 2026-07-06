@@ -242,11 +242,16 @@ export default function VacationsPage() {
     setApproverOptions(me ? computeApproverChain(me.id, list) : [])
   }
 
-  // Construye la cadena jerárquica hacia arriba (jefe directo y superiores) para un empleado dado
+  // Construye la lista de aprobadores válidos para un empleado:
+  // 1) su cadena jerárquica hacia arriba (jefe directo y superiores)
+  // 2) el personal de Recursos Humanos
+  // Excluye al propio empleado y evita duplicados.
   const computeApproverChain = (staffId: string, list: Staff[]) => {
     const chain: Staff[] = []
+    const seen = new Set<string>([staffId])
+
+    // 1) Cadena jerárquica hacia arriba
     let current = list.find((s) => s.id === staffId) ?? null
-    const seen = new Set<string>()
     while (current?.reports_to_id && !seen.has(current.reports_to_id)) {
       seen.add(current.reports_to_id)
       const boss = list.find((s) => s.id === current!.reports_to_id)
@@ -254,6 +259,16 @@ export default function VacationsPage() {
       chain.push(boss)
       current = boss
     }
+
+    // 2) Personal de Recursos Humanos (puede aprobar cualquier solicitud)
+    for (const s of list) {
+      if (seen.has(s.id)) continue
+      if ((s.department || "").trim().toLowerCase() === "recursos humanos") {
+        seen.add(s.id)
+        chain.push(s)
+      }
+    }
+
     return chain
   }
 
@@ -1101,15 +1116,19 @@ export default function VacationsPage() {
                   <SelectValue placeholder={approverOptions.length === 0 ? "Sin jefe asignado" : "Seleccionar aprobador"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {approverOptions.map((a, idx) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.first_name} {a.last_name} · {a.position}{idx === 0 ? " (jefe directo)" : ""}
-                    </SelectItem>
-                  ))}
+                  {approverOptions.map((a, idx) => {
+                    const isHR = (a.department || "").trim().toLowerCase() === "recursos humanos"
+                    const tag = isHR ? " (Recursos Humanos)" : idx === 0 ? " (jefe directo)" : ""
+                    return (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.first_name} {a.last_name}{a.position ? ` · ${a.position}` : ""}{tag}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Por defecto es tu jefe directo. Puedes elegir un nivel superior.
+                Por defecto es tu jefe directo. Puedes elegir un nivel superior o a Recursos Humanos.
               </p>
             </div>
             <div className="space-y-2">
