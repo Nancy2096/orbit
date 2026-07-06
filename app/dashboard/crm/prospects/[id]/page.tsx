@@ -68,6 +68,8 @@ import {
   AlertTriangle,
   Paperclip,
   UserPlus,
+  Pencil,
+  X,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
@@ -278,12 +280,16 @@ export default function ProspectDetailPage() {
     quantity: number
     currency_id: string
     billing_type: "retainer" | "project"
+    unit_price: number
   }>({
     service_id: "",
     quantity: 1,
     currency_id: "",
     billing_type: "project",
+    unit_price: 0,
   })
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null)
+  const [editingPrice, setEditingPrice] = useState<number>(0)
 
   const supabase = createClient()
 
@@ -946,8 +952,7 @@ state_province: prospectData.state_province || "",
       return
     }
 
-    const service = services.find(s => s.id === newService.service_id)
-    const unitPrice = service?.base_price || 0
+    const unitPrice = newService.unit_price || 0
     const totalPrice = unitPrice * newService.quantity
 
     const { error } = await supabase.from("crm_prospect_services").insert({
@@ -970,7 +975,7 @@ state_province: prospectData.state_province || "",
 
     toast.success("Servicio agregado")
     setServiceModalOpen(false)
-    setNewService({ service_id: "", quantity: 1, currency_id: "", billing_type: "project" })
+    setNewService({ service_id: "", quantity: 1, currency_id: "", billing_type: "project", unit_price: 0 })
     fetchData()
   }
 
@@ -987,6 +992,27 @@ state_province: prospectData.state_province || "",
 
     setProspectServices(prev => prev.filter(s => s.id !== serviceId))
     toast.success("Servicio eliminado")
+  }
+
+  const updateServicePrice = async (ps: ProspectService, newUnitPrice: number) => {
+    const unitPrice = newUnitPrice || 0
+    const totalPrice = unitPrice * ps.quantity
+
+    const { error } = await supabase
+      .from("crm_prospect_services")
+      .update({ unit_price: unitPrice, total_price: totalPrice })
+      .eq("id", ps.id)
+
+    if (error) {
+      toast.error("Error al actualizar el precio")
+      return
+    }
+
+    setProspectServices(prev =>
+      prev.map(s => (s.id === ps.id ? { ...s, unit_price: unitPrice, total_price: totalPrice } : s))
+    )
+    setEditingServiceId(null)
+    toast.success("Precio actualizado")
   }
 
   const uploadQuotation = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1843,15 +1869,54 @@ state_province: prospectData.state_province || "",
                                 {ps.billing_type === "retainer" ? "Retainer" : "Por proyecto"}
                               </Badge>
                             </div>
-                            <div className="text-sm text-muted-foreground">
-                              {ps.quantity} x {formatCurrency(ps.unit_price || 0)} {selectedCurrencyCode}
-                            </div>
+                            {editingServiceId === ps.id ? (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-sm text-muted-foreground">{ps.quantity} x</span>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={editingPrice}
+                                  onChange={(e) => setEditingPrice(parseFloat(e.target.value) || 0)}
+                                  className="h-8 w-32"
+                                />
+                                <span className="text-sm text-muted-foreground">{selectedCurrencyCode}</span>
+                              </div>
+                            ) : (
+                              <div className="text-sm text-muted-foreground">
+                                {ps.quantity} x {formatCurrency(ps.unit_price || 0)} {selectedCurrencyCode}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="font-semibold">{formatCurrency(ps.total_price || 0)} {selectedCurrencyCode}</span>
-                            <Button variant="ghost" size="icon" onClick={() => removeService(ps.id)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {editingServiceId === ps.id ? (
+                              <>
+                                <span className="font-semibold">
+                                  {formatCurrency((editingPrice || 0) * ps.quantity)} {selectedCurrencyCode}
+                                </span>
+                                <Button variant="ghost" size="icon" onClick={() => updateServicePrice(ps, editingPrice)} title="Guardar precio">
+                                  <Save className="h-4 w-4 text-primary" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => setEditingServiceId(null)} title="Cancelar">
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <span className="font-semibold">{formatCurrency(ps.total_price || 0)} {selectedCurrencyCode}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => { setEditingServiceId(ps.id); setEditingPrice(ps.unit_price || 0) }}
+                                  title="Editar precio"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => removeService(ps.id)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2598,7 +2663,7 @@ state_province: prospectData.state_province || "",
       {/* Modal: Agregar Servicio */}
       <Dialog open={serviceModalOpen} onOpenChange={(open) => {
         setServiceModalOpen(open)
-        if (!open) setNewService({ service_id: "", quantity: 1, currency_id: "", billing_type: "project" })
+        if (!open) setNewService({ service_id: "", quantity: 1, currency_id: "", billing_type: "project", unit_price: 0 })
       }}>
         <DialogContent>
           <DialogHeader>
@@ -2634,7 +2699,10 @@ state_province: prospectData.state_province || "",
                     <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
                     Servicio
                   </Label>
-                  <Select value={newService.service_id} onValueChange={(value) => setNewService({ ...newService, service_id: value })}>
+                  <Select value={newService.service_id} onValueChange={(value) => {
+                    const selected = services.find(s => s.id === value)
+                    setNewService({ ...newService, service_id: value, unit_price: selected?.base_price || 0 })
+                  }}>
                     <SelectTrigger><SelectValue placeholder="Selecciona un servicio" /></SelectTrigger>
                     <SelectContent>
                       {services.map((s) => {
@@ -2662,10 +2730,28 @@ state_province: prospectData.state_province || "",
                   <Input type="number" min={1} value={newService.quantity} onChange={(e) => setNewService({ ...newService, quantity: parseInt(e.target.value) || 1 })} />
                 </div>
 
-                {/* Paso 4: Tipo de facturacion */}
+                {/* Paso 4: Precio unitario (editable) */}
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2">
                     <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">4</span>
+                    Precio unitario
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={newService.unit_price}
+                    onChange={(e) => setNewService({ ...newService, unit_price: parseFloat(e.target.value) || 0 })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Se prellena con el precio base del servicio. Ajústalo si este cliente tiene un precio distinto.
+                  </p>
+                </div>
+
+                {/* Paso 5: Tipo de facturacion */}
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">5</span>
                     Tipo de facturacion
                   </Label>
                   <Select
@@ -2692,10 +2778,9 @@ state_province: prospectData.state_province || "",
                       <span className="text-sm text-muted-foreground">Total estimado:</span>
                       <span className="font-bold text-lg">
                         {(() => {
-                          const service = services.find(s => s.id === newService.service_id)
                           const selectedCurrency = currencies.find(c => c.id === newService.currency_id)
                           const currencyCode = selectedCurrency?.code || "MXN"
-                          const total = (service?.base_price || 0) * newService.quantity
+                          const total = (newService.unit_price || 0) * newService.quantity
                           return new Intl.NumberFormat("es-MX", { style: "currency", currency: currencyCode }).format(total)
                         })()}
                       </span>
