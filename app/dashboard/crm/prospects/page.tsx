@@ -47,7 +47,6 @@ import {
   UserPlus, 
   Search,
   MoreHorizontal,
-  Eye,
   Edit,
   Trash2,
   Phone,
@@ -634,12 +633,6 @@ export default function ProspectsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/dashboard/crm/prospects/${prospect.id}`}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Ver Detalle
-                            </Link>
-                          </DropdownMenuItem>
                           <DropdownMenuItem asChild>
                             <Link href={`/dashboard/crm/prospects/${prospect.id}?tab=info`}>
                               <Edit className="mr-2 h-4 w-4" />
