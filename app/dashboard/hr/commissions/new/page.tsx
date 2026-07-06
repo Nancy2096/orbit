@@ -160,11 +160,18 @@ const fetchInitialData = async () => {
           .order("first_name"),
         
         // Prospectos con su tipo de cliente (client_types, no agency_commission_types)
-        supabase
-          .from("crm_prospects")
-          .select("id, contact_name, company_name, client_type_id")
-          .eq("agency_id", selectedAgencyId)
-          .order("contact_name"),
+        // Solo los prospectos asignados al usuario actual
+        (currentUserStaff
+          ? supabase
+              .from("crm_prospects")
+              .select("id, contact_name, company_name, client_type_id")
+              .eq("agency_id", selectedAgencyId)
+              .eq("assigned_to", currentUserStaff.id)
+          : supabase
+              .from("crm_prospects")
+              .select("id, contact_name, company_name, client_type_id")
+              .eq("agency_id", selectedAgencyId)
+        ).order("contact_name"),
         
         // Tipos de cliente (de donde viene la comisión)
         supabase
