@@ -527,9 +527,13 @@ export default function StaffPage() {
                           fallbackClassName="text-sm"
                         />
                         <div>
-                          <div className="font-medium">
+                          <Link
+                            href={`/dashboard/hr/staff/${member.id}`}
+                            className="font-medium hover:text-primary hover:underline underline-offset-4 transition-colors"
+                            title="Editar miembro"
+                          >
                             {member.first_name} {member.last_name}
-                          </div>
+                          </Link>
                           {member.employee_code && (
                             <div className="text-xs text-muted-foreground">
                               {member.employee_code}
