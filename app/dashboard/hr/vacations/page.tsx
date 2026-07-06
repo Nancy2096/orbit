@@ -112,6 +112,8 @@ export default function VacationsPage() {
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("")
   const [staff, setStaff] = useState<Staff[]>([])
+  // Lista completa de staff (todas las agencias) para resolver jefes y Recursos Humanos
+  const [allStaff, setAllStaff] = useState<Staff[]>([])
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([])
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([])
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
@@ -214,23 +216,29 @@ export default function VacationsPage() {
   }
 
   const fetchStaff = async () => {
-    const { data, error } = await supabase
+    // Lista completa (todas las agencias): necesaria porque el jefe de un empleado
+    // puede pertenecer a otra agencia, y también para incluir a Recursos Humanos.
+    const { data: allData, error: allError } = await supabase
       .from("staff")
       .select("id, first_name, last_name, position, department, agency_id, reports_to_id, user_id, email")
-      .eq("agency_id", selectedAgency)
       .eq("is_active", true)
       .order("first_name")
-    if (error) {
-      console.error("[v0] Error fetching staff:", error.message)
+    if (allError) {
+      console.error("[v0] Error fetching staff:", allError.message)
       return
     }
-    const list = data ?? []
+    const full = allData ?? []
+    setAllStaff(full)
+
+    // Lista filtrada por la agencia seleccionada (para el selector de empleado)
+    const list = full.filter((s) => s.agency_id === selectedAgency)
     setStaff(list)
-    resolveCurrentStaff(list)
+    resolveCurrentStaff(list, full)
   }
 
-  // Identifica el empleado del usuario logeado y calcula su cadena de aprobadores
-  const resolveCurrentStaff = async (list: Staff[]) => {
+  // Identifica el empleado del usuario logeado y calcula su cadena de aprobadores.
+  // `list` es el staff de la agencia seleccionada; `full` es todo el staff (para jefes y RH).
+  const resolveCurrentStaff = async (list: Staff[], full: Staff[]) => {
     const { data: auth } = await supabase.auth.getUser()
     const userId = auth?.user?.id
     const userEmail = auth?.user?.email?.trim().toLowerCase()
@@ -239,14 +247,15 @@ export default function VacationsPage() {
       setApproverOptions([])
       return
     }
+    // Buscar en la lista completa (el empleado podría no estar en la agencia seleccionada)
     // 1) Vincular por user_id
-    let me = list.find((s) => s.user_id === userId) ?? null
+    let me = full.find((s) => s.user_id === userId) ?? null
     // 2) Respaldo por email: muchos registros de staff no tienen user_id poblado
     if (!me && userEmail) {
-      me = list.find((s) => (s.email || "").trim().toLowerCase() === userEmail) ?? null
+      me = full.find((s) => (s.email || "").trim().toLowerCase() === userEmail) ?? null
     }
     setCurrentStaff(me)
-    setApproverOptions(me ? computeApproverChain(me.id, list) : [])
+    setApproverOptions(me ? computeApproverChain(me.id, full) : [])
   }
 
   // Construye la lista de aprobadores válidos para un empleado:
@@ -282,7 +291,8 @@ export default function VacationsPage() {
   // Para usuarios "Global" (sin empleado vinculado): elige manualmente el empleado
   // y recalcula su cadena de aprobadores.
   const handleSelectRequestStaff = (staffId: string) => {
-    const chain = computeApproverChain(staffId, staff)
+    // Usar la lista completa para poder resolver jefes de otras agencias y Recursos Humanos
+    const chain = computeApproverChain(staffId, allStaff)
     setApproverOptions(chain)
     setNewRequest((prev) => ({ ...prev, staff_id: staffId, approver_id: chain[0]?.id || "" }))
   }
