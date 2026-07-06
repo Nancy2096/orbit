@@ -239,10 +239,13 @@ export default function VacationsPage() {
     }
     const me = list.find((s) => s.user_id === userId) ?? null
     setCurrentStaff(me)
+    setApproverOptions(me ? computeApproverChain(me.id, list) : [])
+  }
 
-    // Construir la cadena jerárquica hacia arriba: jefe directo y superiores
+  // Construye la cadena jerárquica hacia arriba (jefe directo y superiores) para un empleado dado
+  const computeApproverChain = (staffId: string, list: Staff[]) => {
     const chain: Staff[] = []
-    let current = me
+    let current = list.find((s) => s.id === staffId) ?? null
     const seen = new Set<string>()
     while (current?.reports_to_id && !seen.has(current.reports_to_id)) {
       seen.add(current.reports_to_id)
@@ -251,7 +254,15 @@ export default function VacationsPage() {
       chain.push(boss)
       current = boss
     }
+    return chain
+  }
+
+  // Para usuarios "Global" (sin empleado vinculado): elige manualmente el empleado
+  // y recalcula su cadena de aprobadores.
+  const handleSelectRequestStaff = (staffId: string) => {
+    const chain = computeApproverChain(staffId, staff)
     setApproverOptions(chain)
+    setNewRequest((prev) => ({ ...prev, staff_id: staffId, approver_id: chain[0]?.id || "" }))
   }
 
   const fetchLeaveTypes = async () => {
@@ -1055,10 +1066,28 @@ export default function VacationsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>Tu usuario no está vinculado a un empleado de esta agencia.</span>
-                </div>
+                <>
+                  <Select
+                    value={newRequest.staff_id || undefined}
+                    onValueChange={handleSelectRequestStaff}
+                    disabled={staff.length === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={staff.length === 0 ? "No hay empleados en esta agencia" : "Selecciona un empleado"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staff.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.first_name} {s.last_name}{s.position ? ` · ${s.position}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Tu usuario no está vinculado a un empleado. Selecciona la agencia arriba y elige el empleado
+                    para el que deseas crear la solicitud.
+                  </p>
+                </>
               )}
             </div>
             <div className="space-y-2">
@@ -1217,7 +1246,7 @@ export default function VacationsPage() {
             <Button variant="outline" onClick={() => setShowRequestDialog(false)}>Cancelar</Button>
             <Button
               onClick={handleCreateRequest}
-              disabled={!currentStaff || !newRequest.approver_id}
+              disabled={!newRequest.staff_id || !newRequest.approver_id}
             >
               Crear Solicitud
             </Button>
