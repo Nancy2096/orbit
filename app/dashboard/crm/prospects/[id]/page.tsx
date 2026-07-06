@@ -1015,6 +1015,23 @@ state_province: prospectData.state_province || "",
     toast.success("Precio actualizado")
   }
 
+  const updateServiceBillingType = async (ps: ProspectService, billingType: "retainer" | "project") => {
+    const { error } = await supabase
+      .from("crm_prospect_services")
+      .update({ billing_type: billingType })
+      .eq("id", ps.id)
+
+    if (error) {
+      toast.error("Error al actualizar el tipo de facturacion")
+      return
+    }
+
+    setProspectServices(prev =>
+      prev.map(s => (s.id === ps.id ? { ...s, billing_type: billingType } : s))
+    )
+    toast.success("Tipo de facturacion actualizado")
+  }
+
   const uploadQuotation = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -1865,9 +1882,18 @@ state_province: prospectData.state_province || "",
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{ps.service?.name}</span>
-                              <Badge variant={ps.billing_type === "retainer" ? "default" : "secondary"}>
-                                {ps.billing_type === "retainer" ? "Retainer" : "Por proyecto"}
-                              </Badge>
+                              <Select
+                                value={ps.billing_type}
+                                onValueChange={(value: "retainer" | "project") => updateServiceBillingType(ps, value)}
+                              >
+                                <SelectTrigger className="h-7 w-[150px] text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="retainer">Retainer</SelectItem>
+                                  <SelectItem value="project">Por proyecto</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </div>
                             {editingServiceId === ps.id ? (
                               <div className="flex items-center gap-2 mt-1">
