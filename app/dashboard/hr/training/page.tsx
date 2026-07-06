@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -44,6 +44,7 @@ import {
   Upload
 } from "lucide-react"
 import { upload } from "@vercel/blob/client"
+import { DepartmentFilter } from "@/components/hr/department-filter"
 
 const supabase = createClient()
 
@@ -214,10 +215,31 @@ export default function TrainingPage() {
 
   // Enrollments & Team View
   const [staff, setStaff] = useState<Staff[]>([])
+  const [teamDepartmentFilter, setTeamDepartmentFilter] = useState<string>("all")
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
   const [showEnrollDialog, setShowEnrollDialog] = useState(false)
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([])
   const [enrollCourseId, setEnrollCourseId] = useState("")
+
+  // Departamentos disponibles a partir del personal cargado de la agencia.
+  // Se deduplican por nombre (los departamentos son iguales en todas las agencias).
+  const departmentOptions = useMemo(
+    () =>
+      staff
+        .map((s) => s.department?.name)
+        .filter((name): name is string => Boolean(name))
+        .filter((name, index, arr) => arr.indexOf(name) === index)
+        .map((name) => ({ id: name, name, agency_id: null })),
+    [staff],
+  )
+
+  const filteredStaff = useMemo(
+    () =>
+      teamDepartmentFilter === "all"
+        ? staff
+        : staff.filter((s) => s.department?.name === teamDepartmentFilter),
+    [staff, teamDepartmentFilter],
+  )
 
   useEffect(() => {
     fetchAgencies()
@@ -225,6 +247,7 @@ export default function TrainingPage() {
 
   useEffect(() => {
     if (selectedAgency) {
+      setTeamDepartmentFilter("all")
       fetchCategories()
       fetchCourses()
       fetchStaff()
@@ -1139,8 +1162,8 @@ export default function TrainingPage() {
 
         {/* Team Tab */}
         <TabsContent value="team" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 flex-wrap">
               <Select value={selectedCourse?.id || ""} onValueChange={(value) => {
                 const course = courses.find(c => c.id === value)
                 setSelectedCourse(course || null)
@@ -1155,6 +1178,12 @@ export default function TrainingPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <DepartmentFilter
+                departments={departmentOptions}
+                agencyId="all"
+                value={teamDepartmentFilter}
+                onChange={setTeamDepartmentFilter}
+              />
             </div>
             <Button onClick={() => { setShowEnrollDialog(true); setSelectedStaffIds([]); setEnrollCourseId("") }}>
               <Plus className="mr-2 h-4 w-4" />
@@ -1180,7 +1209,7 @@ export default function TrainingPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {staff.map((member) => {
+                  {filteredStaff.map((member) => {
                     const memberEnrollments = enrollments.filter(e => e.staff_id === member.id)
                     const completed = memberEnrollments.filter(e => e.status === "completed").length
                     const inProgress = memberEnrollments.filter(e => e.status === "in_progress").length

@@ -15,6 +15,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -66,6 +67,7 @@ import {
   Link as LinkIcon,
   AlertTriangle,
   Paperclip,
+  UserPlus,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
@@ -203,6 +205,13 @@ export default function ProspectDetailPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [calendarDate, setCalendarDate] = useState(new Date())
   
+  // Metadatos del prospecto necesarios para la conversión a cliente
+  const [prospectAgencyId, setProspectAgencyId] = useState<string | null>(null)
+  const [convertedClientId, setConvertedClientId] = useState<string | null>(null)
+  const [convertModalOpen, setConvertModalOpen] = useState(false)
+  const [converting, setConverting] = useState(false)
+  const [initialPaymentDone, setInitialPaymentDone] = useState<"yes" | "no" | null>(null)
+
   const [activityModalOpen, setActivityModalOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [serviceModalOpen, setServiceModalOpen] = useState(false)
@@ -321,6 +330,8 @@ state_province: prospectData.state_province || "",
     })
 
     const agencyId = prospectData.agency_id || selectedAgencyId
+    setProspectAgencyId(agencyId)
+    setConvertedClientId(prospectData.converted_to_client_id || null)
 
     // First get Commercial and Direction department IDs
     const { data: commercialDepts } = await supabase
@@ -586,6 +597,80 @@ state_province: prospectData.state_province || "",
 
     setActivities((prev) => prev.filter((a) => a.id !== activity.id))
     toast.success("Actividad eliminada")
+  }
+
+  // Convierte el prospecto (Ganado) en cliente. El registro del prospecto se conserva.
+  const convertToClient = async () => {
+    if (initialPaymentDone === null) {
+      toast.error("Indica si el prospecto ya realizó el pago inicial")
+      return
+    }
+    if (!formData.company_name && !formData.contact_name) {
+      toast.error("El prospecto necesita al menos un nombre de empresa o contacto")
+      return
+    }
+
+    setConverting(true)
+    try {
+      // 1. Crear el cliente con la información del prospecto.
+      // Si ya pagó el inicial => cliente "active"; si no => queda como "prospect".
+      const { data: client, error: clientError } = await supabase
+        .from("clients")
+        .insert({
+          agency_id: prospectAgencyId || selectedAgencyId,
+          company_name: formData.company_name || formData.contact_name,
+          website: formData.website || null,
+          country: formData.country || null,
+          state: formData.state_province || null,
+          primary_contact_name: formData.contact_name || null,
+          primary_contact_email: formData.contact_email || null,
+          primary_contact_phone: formData.contact_phone || null,
+          primary_contact_position: formData.contact_position || null,
+          industry_id: formData.industry_id || null,
+          referral_source_id: formData.source_id || null,
+          instagram: formData.social_instagram || null,
+          facebook: formData.social_facebook || null,
+          linkedin: formData.social_linkedin || null,
+          notes: formData.notes || formData.description || null,
+          source: "Convertido de prospecto",
+          status: initialPaymentDone === "yes" ? "active" : "prospect",
+        })
+        .select("id")
+        .single()
+
+      if (clientError || !client) {
+        console.error(clientError)
+        toast.error("Error al crear el cliente")
+        return
+      }
+
+      // 2. Vincular las cotizaciones del prospecto al nuevo cliente (se conservan en el prospecto).
+      if (quotations.length > 0) {
+        const { error: quotationError } = await supabase
+          .from("crm_prospect_quotations")
+          .update({ client_id: client.id })
+          .eq("prospect_id", prospectId)
+        if (quotationError) console.error("No se pudieron vincular las cotizaciones:", quotationError.message)
+      }
+
+      // 3. Marcar el prospecto como convertido (sin borrarlo).
+      const { error: prospectError } = await supabase
+        .from("crm_prospects")
+        .update({ converted_to_client_id: client.id })
+        .eq("id", prospectId)
+      if (prospectError) console.error("No se pudo marcar el prospecto:", prospectError.message)
+
+      setConvertedClientId(client.id)
+      setConvertModalOpen(false)
+      setInitialPaymentDone(null)
+      toast.success("Prospecto convertido a cliente correctamente")
+      router.push(`/dashboard/clients/${client.id}`)
+    } catch (error) {
+      console.error(error)
+      toast.error("Error al convertir el prospecto")
+    } finally {
+      setConverting(false)
+    }
   }
 
   const addTask = async () => {
@@ -1047,6 +1132,9 @@ state_province: prospectData.state_province || "",
     )
   }
 
+  // ¿El prospecto está en una etapa "Ganado"? Habilita la conversión a cliente.
+  const isWonStage = stages.find((s) => s.id === formData.stage_id)?.is_won ?? false
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -1098,19 +1186,43 @@ state_province: prospectData.state_province || "",
             </div>
           </div>
         </div>
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? (
-            <>
-              <Spinner className="mr-2 h-4 w-4" />
-              Guardando...
-            </>
+        <div className="flex flex-wrap items-center gap-2">
+          {convertedClientId ? (
+            <Button variant="outline" asChild>
+              <Link href={`/dashboard/clients/${convertedClientId}`}>
+                <User className="mr-2 h-4 w-4" />
+                Ver Cliente
+              </Link>
+            </Button>
           ) : (
-            <>
-              <Save className="mr-2 h-4 w-4" />
-              Guardar Cambios
-            </>
+            isWonStage && (
+              <Button
+                variant="default"
+                className="bg-green-600 hover:bg-green-700 text-white"
+                onClick={() => {
+                  setInitialPaymentDone(null)
+                  setConvertModalOpen(true)
+                }}
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                Pasar a Clientes
+              </Button>
+            )
           )}
-        </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? (
+              <>
+                <Spinner className="mr-2 h-4 w-4" />
+                Guardando...
+              </>
+            ) : (
+              <>
+                <Save className="mr-2 h-4 w-4" />
+                Guardar Cambios
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -2488,6 +2600,64 @@ state_province: prospectData.state_province || "",
             <Button variant="outline" onClick={() => setServiceModalOpen(false)}>Cancelar</Button>
             <Button onClick={addService} disabled={!newService.currency_id || !newService.service_id}>Agregar</Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Convertir a Cliente */}
+      <Dialog open={convertModalOpen} onOpenChange={(open) => { setConvertModalOpen(open); if (!open) setInitialPaymentDone(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-green-600" />
+              Pasar a Clientes
+            </DialogTitle>
+            <DialogDescription>
+              Se creará un cliente con la información de <strong>{formData.company_name || formData.contact_name || "este prospecto"}</strong> y se adjuntarán sus cotizaciones. El registro del prospecto se conserva.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border p-4 space-y-3">
+              <p className="text-sm font-medium">¿Este prospecto ya realizó el pago inicial para convertirlo a cliente?</p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={initialPaymentDone === "yes" ? "default" : "outline"}
+                  className={initialPaymentDone === "yes" ? "bg-green-600 hover:bg-green-700 text-white flex-1" : "flex-1"}
+                  onClick={() => setInitialPaymentDone("yes")}
+                >
+                  {initialPaymentDone === "yes" && <CheckCircle className="mr-2 h-4 w-4" />}
+                  Sí, ya pagó
+                </Button>
+                <Button
+                  type="button"
+                  variant={initialPaymentDone === "no" ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setInitialPaymentDone("no")}
+                >
+                  {initialPaymentDone === "no" && <CheckCircle className="mr-2 h-4 w-4" />}
+                  Aún no
+                </Button>
+              </div>
+              {initialPaymentDone === "yes" && (
+                <p className="text-xs text-muted-foreground">El cliente se registrará con estado <strong>Activo</strong>.</p>
+              )}
+              {initialPaymentDone === "no" && (
+                <p className="text-xs text-muted-foreground">El cliente se registrará con estado <strong>Prospecto</strong> hasta confirmar el pago.</p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConvertModalOpen(false)} disabled={converting}>Cancelar</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={convertToClient}
+              disabled={converting || initialPaymentDone === null}
+            >
+              {converting ? (<><Spinner className="mr-2 h-4 w-4" /> Convirtiendo...</>) : "Confirmar y crear cliente"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

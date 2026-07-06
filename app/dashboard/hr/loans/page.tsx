@@ -26,6 +26,7 @@ import {
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import { Plus, Search, HandCoins, DollarSign, Clock, CheckCircle, Eye, AlertTriangle } from "lucide-react"
+import { DepartmentFilter } from "@/components/hr/department-filter"
 
 interface Loan {
   id: string
@@ -48,6 +49,7 @@ interface Loan {
     id: string
     first_name: string
     last_name: string
+    department: { name: string } | null
   }
   agency: {
     id: string
@@ -58,6 +60,12 @@ interface Loan {
 interface Agency {
   id: string
   name: string
+}
+
+interface Department {
+  id: string
+  name: string
+  agency_id: string | null
 }
 
 const statusLabels: Record<string, string> = {
@@ -90,11 +98,13 @@ const typeLabels: Record<string, string> = {
 export default function LoansPage() {
   const [loans, setLoans] = useState<Loan[]>([])
   const [agencies, setAgencies] = useState<Agency[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [agencyFilter, setAgencyFilter] = useState<string>("all")
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all")
   const supabase = createClient()
 
   useEffect(() => {
@@ -103,12 +113,12 @@ export default function LoansPage() {
 
   const fetchData = async () => {
     try {
-      const [loansRes, agenciesRes] = await Promise.all([
+      const [loansRes, agenciesRes, departmentsRes] = await Promise.all([
         supabase
           .from("loans")
           .select(`
             *,
-            staff:staff(id, first_name, last_name),
+            staff:staff(id, first_name, last_name, department:departments(name)),
             agency:agencies(id, name)
           `)
           .order("created_at", { ascending: false }),
@@ -117,10 +127,15 @@ export default function LoansPage() {
           .select("id, name")
           .eq("is_active", true)
           .order("name"),
+        supabase
+          .from("departments")
+          .select("id, name, agency_id")
+          .order("name"),
       ])
 
       if (loansRes.data) setLoans(loansRes.data)
       if (agenciesRes.data) setAgencies(agenciesRes.data)
+      if (departmentsRes.data) setDepartments(departmentsRes.data)
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
@@ -136,7 +151,8 @@ export default function LoansPage() {
     const matchesStatus = statusFilter === "all" || loan.status === statusFilter
     const matchesType = typeFilter === "all" || loan.loan_type === typeFilter
     const matchesAgency = agencyFilter === "all" || loan.agency?.id === agencyFilter
-    return matchesSearch && matchesStatus && matchesType && matchesAgency
+    const matchesDepartment = departmentFilter === "all" || loan.staff?.department?.name === departmentFilter
+    return matchesSearch && matchesStatus && matchesType && matchesAgency && matchesDepartment
   })
 
   const formatDate = (dateString: string) => {
@@ -251,7 +267,13 @@ export default function LoansPage() {
                 className="pl-9"
               />
             </div>
-            <Select value={agencyFilter} onValueChange={setAgencyFilter}>
+            <Select
+              value={agencyFilter}
+              onValueChange={(value) => {
+                setAgencyFilter(value)
+                setDepartmentFilter("all")
+              }}
+            >
               <SelectTrigger className="w-full sm:w-[200px]">
                 <SelectValue placeholder="Agencia" />
               </SelectTrigger>
@@ -264,6 +286,12 @@ export default function LoansPage() {
                 ))}
               </SelectContent>
             </Select>
+            <DepartmentFilter
+              departments={departments}
+              agencyId={agencyFilter}
+              value={departmentFilter}
+              onChange={setDepartmentFilter}
+            />
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="w-full sm:w-[160px]">
                 <SelectValue placeholder="Tipo" />
@@ -305,11 +333,11 @@ export default function LoansPage() {
               </EmptyMedia>
               <EmptyTitle>No hay préstamos</EmptyTitle>
               <EmptyDescription>
-                {searchTerm || statusFilter !== "all" || typeFilter !== "all" || agencyFilter !== "all"
+                {searchTerm || statusFilter !== "all" || typeFilter !== "all" || agencyFilter !== "all" || departmentFilter !== "all"
                   ? "No se encontraron resultados para tu búsqueda"
                   : "Comienza registrando el primer préstamo"}
               </EmptyDescription>
-              {!searchTerm && statusFilter === "all" && typeFilter === "all" && agencyFilter === "all" && (
+              {!searchTerm && statusFilter === "all" && typeFilter === "all" && agencyFilter === "all" && departmentFilter === "all" && (
                 <Button asChild className="mt-4">
                   <Link href="/dashboard/hr/loans/new">
                     <Plus className="mr-2 h-4 w-4" />

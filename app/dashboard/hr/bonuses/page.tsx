@@ -25,6 +25,7 @@ import {
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye } from "lucide-react"
+import { DepartmentFilter } from "@/components/hr/department-filter"
 
 interface Bonus {
   id: string
@@ -37,6 +38,7 @@ interface Bonus {
     id: string
     first_name: string
     last_name: string
+    department: { name: string } | null
   }
   agency: {
     id: string
@@ -47,6 +49,12 @@ interface Bonus {
 interface Agency {
   id: string
   name: string
+}
+
+interface Department {
+  id: string
+  name: string
+  agency_id: string | null
 }
 
 const statusLabels: Record<string, string> = {
@@ -76,11 +84,13 @@ const typeLabels: Record<string, string> = {
 export default function BonusesPage() {
   const [bonuses, setBonuses] = useState<Bonus[]>([])
   const [agencies, setAgencies] = useState<Agency[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [agencyFilter, setAgencyFilter] = useState<string>("all")
+  const [departmentFilter, setDepartmentFilter] = useState<string>("all")
   const supabase = createClient()
 
   useEffect(() => {
@@ -89,12 +99,12 @@ export default function BonusesPage() {
 
   const fetchData = async () => {
     try {
-      const [bonusesRes, agenciesRes] = await Promise.all([
+      const [bonusesRes, agenciesRes, departmentsRes] = await Promise.all([
         supabase
           .from("bonuses")
           .select(`
             *,
-            staff:staff(id, first_name, last_name),
+            staff:staff(id, first_name, last_name, department:departments(name)),
             agency:agencies(id, name)
           `)
           .order("created_at", { ascending: false }),
@@ -103,10 +113,15 @@ export default function BonusesPage() {
           .select("id, name")
           .eq("is_active", true)
           .order("name"),
+        supabase
+          .from("departments")
+          .select("id, name, agency_id")
+          .order("name"),
       ])
 
       if (bonusesRes.data) setBonuses(bonusesRes.data)
       if (agenciesRes.data) setAgencies(agenciesRes.data)
+      if (departmentsRes.data) setDepartments(departmentsRes.data)
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
@@ -121,7 +136,8 @@ export default function BonusesPage() {
     const matchesStatus = statusFilter === "all" || bonus.status === statusFilter
     const matchesType = typeFilter === "all" || bonus.bonus_type === typeFilter
     const matchesAgency = agencyFilter === "all" || bonus.agency?.id === agencyFilter
-    return matchesSearch && matchesStatus && matchesType && matchesAgency
+    const matchesDepartment = departmentFilter === "all" || bonus.staff?.department?.name === departmentFilter
+    return matchesSearch && matchesStatus && matchesType && matchesAgency && matchesDepartment
   })
 
   const formatDate = (dateString: string) => {
@@ -229,7 +245,13 @@ export default function BonusesPage() {
                 className="pl-9"
               />
             </div>
-            <Select value={agencyFilter} onValueChange={setAgencyFilter}>
+            <Select
+              value={agencyFilter}
+              onValueChange={(value) => {
+                setAgencyFilter(value)
+                setDepartmentFilter("all")
+              }}
+            >
               <SelectTrigger className="w-full sm:w-[200px]">
                 <SelectValue placeholder="Agencia" />
               </SelectTrigger>
@@ -242,6 +264,12 @@ export default function BonusesPage() {
                 ))}
               </SelectContent>
             </Select>
+            <DepartmentFilter
+              departments={departments}
+              agencyId={agencyFilter}
+              value={departmentFilter}
+              onChange={setDepartmentFilter}
+            />
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="w-full sm:w-[160px]">
                 <SelectValue placeholder="Tipo" />
@@ -282,11 +310,11 @@ export default function BonusesPage() {
               </EmptyMedia>
               <EmptyTitle>No hay bonos</EmptyTitle>
               <EmptyDescription>
-                {searchTerm || statusFilter !== "all" || typeFilter !== "all" || agencyFilter !== "all"
+                {searchTerm || statusFilter !== "all" || typeFilter !== "all" || agencyFilter !== "all" || departmentFilter !== "all"
                   ? "No se encontraron resultados para tu búsqueda"
                   : "Comienza registrando el primer bono"}
               </EmptyDescription>
-              {!searchTerm && statusFilter === "all" && typeFilter === "all" && agencyFilter === "all" && (
+              {!searchTerm && statusFilter === "all" && typeFilter === "all" && agencyFilter === "all" && departmentFilter === "all" && (
                 <Button asChild className="mt-4">
                   <Link href="/dashboard/hr/bonuses/new">
                     <Plus className="mr-2 h-4 w-4" />
