@@ -77,6 +77,14 @@ interface Department {
   name: string
 }
 
+interface Quotation {
+  id: string
+  url: string
+  filename: string | null
+  label: string | null
+  uploaded_at: string
+}
+
 interface AccountTeamMember {
   id?: string
   department_id: string
@@ -131,8 +139,9 @@ export default function EditAccountPage({ params }: { params: Promise<{ id: stri
     notes: "",
   })
   const [error, setError] = useState<string | null>(null)
-  const [quotation, setQuotation] = useState<{ url: string; filename: string; uploadedAt: string } | null>(null)
+  const [quotations, setQuotations] = useState<Quotation[]>([])
   const [uploadingQuotation, setUploadingQuotation] = useState(false)
+  const [deletingQuotationId, setDeletingQuotationId] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -178,14 +187,8 @@ export default function EditAccountPage({ params }: { params: Promise<{ id: stri
         notes: a.notes || "",
       })
 
-      // Load quotation if exists
-      if (a.quotation_url) {
-        setQuotation({
-          url: a.quotation_url,
-          filename: a.quotation_filename || "Cotización",
-          uploadedAt: a.quotation_uploaded_at || "",
-        })
-      }
+      // Cargar el historial de cotizaciones
+      await fetchQuotations()
 
 // Fetch agency-specific data
         if (a.agency_id) {
@@ -204,6 +207,17 @@ await Promise.all([
     setFetching(false)
   }
 
+  async function fetchQuotations() {
+    const { data } = await supabase
+      .from("entity_quotations")
+      .select("id, url, filename, label, uploaded_at")
+      .eq("owner_type", "account")
+      .eq("owner_id", id)
+      .order("uploaded_at", { ascending: false })
+
+    setQuotations((data as Quotation[]) || [])
+  }
+
   async function handleQuotationUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -219,7 +233,7 @@ await Promise.all([
         handleUploadUrl: "/api/quotations/upload",
       })
 
-      // Guarda la URL en la base de datos y borra el archivo anterior.
+      // Agrega la cotización al historial (nunca borra las anteriores).
       const res = await fetch("/api/quotations/upload", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -227,7 +241,6 @@ await Promise.all([
           accountId: id,
           url: blob.url,
           filename: file.name,
-          oldUrl: quotation?.url ?? null,
         }),
       })
 
@@ -236,12 +249,8 @@ await Promise.all([
         throw new Error(data.error || "Error al subir archivo")
       }
 
-      const data = await res.json()
-      setQuotation({
-        url: data.url,
-        filename: data.filename,
-        uploadedAt: data.uploadedAt,
-      })
+      const data = (await res.json()) as Quotation
+      setQuotations((prev) => [data, ...prev])
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al subir archivo")
     } finally {
@@ -251,17 +260,15 @@ await Promise.all([
     }
   }
 
-  async function handleQuotationDelete() {
-    if (!quotation?.url) return
-
-    setUploadingQuotation(true)
+  async function handleQuotationDelete(quotationId: string, url: string) {
+    setDeletingQuotationId(quotationId)
     setError(null)
 
     try {
       const res = await fetch("/api/quotations/upload", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: id, url: quotation.url }),
+        body: JSON.stringify({ quotationId, url }),
       })
 
       if (!res.ok) {
@@ -269,11 +276,11 @@ await Promise.all([
         throw new Error(data.error || "Error al eliminar archivo")
       }
 
-      setQuotation(null)
+      setQuotations((prev) => prev.filter((q) => q.id !== quotationId))
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al eliminar archivo")
     } finally {
-      setUploadingQuotation(false)
+      setDeletingQuotationId(null)
     }
   }
 
@@ -1335,93 +1342,98 @@ setClients([])
                 Cotización
               </CardTitle>
               <CardDescription>
-                Documento de cotización para consulta (solo lectura)
+                Historial de cotizaciones. Cada archivo que subas se conserva; puedes agregar nuevas cada año
+                y solo se elimina la que borres manualmente.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              {quotation ? (
-                <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-8 w-8 text-primary" />
-                    <div>
-                      <p className="font-medium">{quotation.filename}</p>
-                      {quotation.uploadedAt && (
-                        <p className="text-sm text-muted-foreground">
-                          Subido: {new Date(quotation.uploadedAt).toLocaleDateString("es-MX", {
-                            year: "numeric",
-                            month: "long",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      asChild
-                    >
-                      <a href={quotation.url} target="_blank" rel="noopener noreferrer">
-                        <Download className="h-4 w-4 mr-2" />
-                        Ver / Descargar
-                      </a>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleQuotationDelete}
-                      disabled={uploadingQuotation}
-                      className="text-destructive hover:text-destructive"
-                    >
+            <CardContent className="space-y-4">
+              {/* Botón para subir una nueva cotización (siempre disponible) */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm text-muted-foreground">
+                  {quotations.length > 0
+                    ? `${quotations.length} cotización${quotations.length === 1 ? "" : "es"} en el historial`
+                    : "No hay cotizaciones cargadas"}
+                </p>
+                <label htmlFor="quotation-upload">
+                  <Button type="button" variant="outline" disabled={uploadingQuotation} asChild>
+                    <span>
                       {uploadingQuotation ? (
-                        <Spinner className="h-4 w-4" />
+                        <>
+                          <Spinner className="h-4 w-4 mr-2" />
+                          Subiendo...
+                        </>
                       ) : (
-                        <X className="h-4 w-4" />
+                        <>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Subir Cotización
+                        </>
                       )}
-                    </Button>
-                  </div>
+                    </span>
+                  </Button>
+                </label>
+                <input
+                  id="quotation-upload"
+                  type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                  onChange={handleQuotationUpload}
+                  className="hidden"
+                />
+              </div>
+
+              {quotations.length > 0 ? (
+                <div className="space-y-2">
+                  {quotations.map((q) => (
+                    <div
+                      key={q.id}
+                      className="flex items-center justify-between p-4 border rounded-lg bg-muted/30 gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="h-8 w-8 text-primary shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{q.filename || "Cotización"}</p>
+                          {q.uploaded_at && (
+                            <p className="text-sm text-muted-foreground">
+                              Subido: {new Date(q.uploaded_at).toLocaleDateString("es-MX", {
+                                year: "numeric",
+                                month: "long",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button type="button" variant="outline" size="sm" asChild>
+                          <a href={q.url} target="_blank" rel="noopener noreferrer">
+                            <Download className="h-4 w-4 mr-2" />
+                            Ver / Descargar
+                          </a>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleQuotationDelete(q.id, q.url)}
+                          disabled={deletingQuotationId === q.id}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          {deletingQuotationId === q.id ? (
+                            <Spinner className="h-4 w-4" />
+                          ) : (
+                            <X className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg">
-                  <Upload className="h-10 w-10 text-muted-foreground mb-3" />
-                  <p className="text-muted-foreground mb-3">No hay cotización cargada</p>
-                  <label htmlFor="quotation-upload">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={uploadingQuotation}
-                      asChild
-                    >
-                      <span>
-                        {uploadingQuotation ? (
-                          <>
-                            <Spinner className="h-4 w-4 mr-2" />
-                            Subiendo...
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="h-4 w-4 mr-2" />
-                            Subir Cotización
-                          </>
-                        )}
-                      </span>
-                    </Button>
-                  </label>
-                  <input
-                    id="quotation-upload"
-                    type="file"
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
-                    onChange={handleQuotationUpload}
-                    className="hidden"
-                  />
-                  <p className="text-xs text-muted-foreground mt-2">
-                    PDF, Word, Excel o imágenes
-                  </p>
+                  <Upload className="h-10 w-10 text-muted-foreground mb-2" />
+                  <p className="text-muted-foreground">Aún no hay cotizaciones cargadas</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDF, Word, Excel o imágenes</p>
                 </div>
               )}
             </CardContent>

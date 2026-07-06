@@ -433,7 +433,7 @@ export default function WorkloadPage() {
 
     function filterByDepartment(nodes: OrgNode[]): OrgNode[] {
       return nodes
-        .filter((node) => node.department_id === selectedDepartment)
+        .filter((node) => (node.departments?.name || node.department) === selectedDepartment)
         .map((node) => ({
           ...node,
           children: filterByDepartment(node.children),
@@ -442,7 +442,7 @@ export default function WorkloadPage() {
 
     // Also include top-level managers that might not be in the department
     const departmentStaff = workloadData.filter(
-      (s) => s.department_id === selectedDepartment
+      (s) => (s.departments?.name || s.department) === selectedDepartment
     )
     const departmentIds = new Set(departmentStaff.map((s) => s.id))
 
@@ -758,7 +758,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
 
   const filteredWorkload = selectedDepartment === "all"
     ? workloadData
-    : workloadData.filter((s) => s.department_id === selectedDepartment)
+    : workloadData.filter((s) => (s.departments?.name || s.department) === selectedDepartment)
 
   const overloadedCount = filteredWorkload.filter((s) => getWorkloadStatus(s) === "over").length
   const underloadedCount = filteredWorkload.filter((s) => getWorkloadStatus(s) === "under").length
@@ -802,11 +802,13 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas las áreas</SelectItem>
-              {departments.map((dept) => (
-                <SelectItem key={dept.id} value={dept.id}>
-                  {dept.name}
-                </SelectItem>
-              ))}
+              {Array.from(new Map(departments.map((d) => [d.name, d])).values())
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((dept) => (
+                  <SelectItem key={dept.name} value={dept.name}>
+                    {dept.name}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
 

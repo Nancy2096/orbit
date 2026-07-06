@@ -366,9 +366,13 @@ export default function StaffPage() {
       const staffAgencyId = (s.agency as unknown as { id?: string })?.id
       if (staffAgencyId !== selectedAgency) return false
     }
-    // Filter by department
+    // Filter by department.
+    // selectedDepartment holds a department name (departments repeat across
+    // agencies with different ids), so we match on the department name to
+    // include staff from every agency in that department.
     if (selectedDepartment !== "all") {
-      if (s.department_id !== selectedDepartment) return false
+      const staffDepartmentName = s.department_info?.name || s.department
+      if (staffDepartmentName !== selectedDepartment) return false
     }
     // Filter by search term
     if (searchTerm) {
@@ -382,10 +386,17 @@ export default function StaffPage() {
     return true
   })
 
-  // Filter departments based on selected agency
-  const filteredDepartments = selectedAgency === "all" 
-    ? departments 
-    : departments.filter(d => d.agency_id === selectedAgency)
+  // Filter departments based on selected agency.
+  // Departments repeat across agencies (same name, different id), so we
+  // dedupe by name to show each department only once.
+  const agencyDepartments =
+    selectedAgency === "all"
+      ? departments
+      : departments.filter((d) => d.agency_id === selectedAgency)
+
+  const filteredDepartments = Array.from(
+    new Map(agencyDepartments.map((d) => [d.name, d])).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name))
 
   if (!mounted) {
     return (
@@ -443,7 +454,7 @@ export default function StaffPage() {
             <SelectContent>
               <SelectItem value="all">Todos los departamentos</SelectItem>
               {filteredDepartments.map((dept) => (
-                <SelectItem key={dept.id} value={dept.id}>
+                <SelectItem key={dept.name} value={dept.name}>
                   {dept.name}
                 </SelectItem>
               ))}
@@ -527,9 +538,13 @@ export default function StaffPage() {
                           fallbackClassName="text-sm"
                         />
                         <div>
-                          <div className="font-medium">
+                          <Link
+                            href={`/dashboard/hr/staff/${member.id}`}
+                            className="font-medium hover:text-primary hover:underline underline-offset-4 transition-colors"
+                            title="Editar miembro"
+                          >
                             {member.first_name} {member.last_name}
-                          </div>
+                          </Link>
                           {member.employee_code && (
                             <div className="text-xs text-muted-foreground">
                               {member.employee_code}

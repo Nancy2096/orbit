@@ -100,11 +100,24 @@ export default function NewCommissionPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: staffData } = await supabase
+    // 1) Intentar vincular el staff por user_id
+    let { data: staffData } = await supabase
       .from("staff")
       .select("id, first_name, last_name, email, agency_id, reports_to_id")
       .eq("user_id", user.id)
-      .single()
+      .maybeSingle()
+
+    // 2) Respaldo: muchos registros de staff no tienen user_id poblado,
+    //    así que buscamos por email (que sí coincide con el usuario autenticado)
+    if (!staffData && user.email) {
+      const { data: staffByEmail } = await supabase
+        .from("staff")
+        .select("id, first_name, last_name, email, agency_id, reports_to_id")
+        .ilike("email", user.email)
+        .eq("is_active", true)
+        .maybeSingle()
+      staffData = staffByEmail
+    }
 
     if (staffData) {
       setCurrentUserStaff(staffData as Staff)
@@ -160,18 +173,26 @@ const fetchInitialData = async () => {
           .order("first_name"),
         
         // Prospectos con su tipo de cliente (client_types, no agency_commission_types)
-        supabase
-          .from("crm_prospects")
-          .select("id, contact_name, company_name, client_type_id")
-          .eq("agency_id", selectedAgencyId)
-          .order("contact_name"),
+        // Solo los prospectos asignados al usuario actual
+        (currentUserStaff
+          ? supabase
+              .from("crm_prospects")
+              .select("id, contact_name, company_name, client_type_id")
+              .eq("agency_id", selectedAgencyId)
+              .eq("assigned_to", currentUserStaff.id)
+          : supabase
+              .from("crm_prospects")
+              .select("id, contact_name, company_name, client_type_id")
+              .eq("agency_id", selectedAgencyId)
+        ).order("contact_name"),
         
-        // Tipos de cliente (de donde viene la comisión)
+        // Tipos de comisión configurados por agencia (de donde viene la comisión)
         supabase
-          .from("client_types")
+          .from("agency_commission_types")
           .select("id, name, amount")
           .eq("agency_id", selectedAgencyId)
-          .order("name"),
+          .eq("is_active", true)
+          .order("display_order"),
       ])
 
       if (commercialStaffRes.data) setStaff(commercialStaffRes.data)

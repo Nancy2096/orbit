@@ -48,6 +48,7 @@ interface Staff {
   agency_id: string
   reports_to_id?: string | null
   user_id?: string | null
+  email?: string | null
 }
 
 interface LeaveType {
@@ -111,6 +112,8 @@ export default function VacationsPage() {
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("")
   const [staff, setStaff] = useState<Staff[]>([])
+  // Lista completa de staff (todas las agencias) para resolver jefes y Recursos Humanos
+  const [allStaff, setAllStaff] = useState<Staff[]>([])
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([])
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([])
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
@@ -213,37 +216,58 @@ export default function VacationsPage() {
   }
 
   const fetchStaff = async () => {
-    const { data, error } = await supabase
+    // Lista completa (todas las agencias): necesaria porque el jefe de un empleado
+    // puede pertenecer a otra agencia, y también para incluir a Recursos Humanos.
+    const { data: allData, error: allError } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, position, department, agency_id, reports_to_id, user_id")
-      .eq("agency_id", selectedAgency)
+      .select("id, first_name, last_name, position, department, agency_id, reports_to_id, user_id, email")
       .eq("is_active", true)
       .order("first_name")
-    if (error) {
-      console.error("[v0] Error fetching staff:", error.message)
+    if (allError) {
+      console.error("[v0] Error fetching staff:", allError.message)
       return
     }
-    const list = data ?? []
+    const full = allData ?? []
+    setAllStaff(full)
+
+    // Lista filtrada por la agencia seleccionada (para el selector de empleado)
+    const list = full.filter((s) => s.agency_id === selectedAgency)
     setStaff(list)
-    resolveCurrentStaff(list)
+    resolveCurrentStaff(list, full)
   }
 
-  // Identifica el empleado del usuario logeado y calcula su cadena de aprobadores
-  const resolveCurrentStaff = async (list: Staff[]) => {
+  // Identifica el empleado del usuario logeado y calcula su cadena de aprobadores.
+  // `list` es el staff de la agencia seleccionada; `full` es todo el staff (para jefes y RH).
+  const resolveCurrentStaff = async (list: Staff[], full: Staff[]) => {
     const { data: auth } = await supabase.auth.getUser()
     const userId = auth?.user?.id
+    const userEmail = auth?.user?.email?.trim().toLowerCase()
     if (!userId) {
       setCurrentStaff(null)
       setApproverOptions([])
       return
     }
-    const me = list.find((s) => s.user_id === userId) ?? null
+    // Buscar en la lista completa (el empleado podría no estar en la agencia seleccionada)
+    // 1) Vincular por user_id
+    let me = full.find((s) => s.user_id === userId) ?? null
+    // 2) Respaldo por email: muchos registros de staff no tienen user_id poblado
+    if (!me && userEmail) {
+      me = full.find((s) => (s.email || "").trim().toLowerCase() === userEmail) ?? null
+    }
     setCurrentStaff(me)
+    setApproverOptions(me ? computeApproverChain(me.id, full) : [])
+  }
 
-    // Construir la cadena jerárquica hacia arriba: jefe directo y superiores
+  // Construye la lista de aprobadores válidos para un empleado:
+  // 1) su cadena jerárquica hacia arriba (jefe directo y superiores)
+  // 2) el personal de Recursos Humanos
+  // Excluye al propio empleado y evita duplicados.
+  const computeApproverChain = (staffId: string, list: Staff[]) => {
     const chain: Staff[] = []
-    let current = me
-    const seen = new Set<string>()
+    const seen = new Set<string>([staffId])
+
+    // 1) Cadena jerárquica hacia arriba
+    let current = list.find((s) => s.id === staffId) ?? null
     while (current?.reports_to_id && !seen.has(current.reports_to_id)) {
       seen.add(current.reports_to_id)
       const boss = list.find((s) => s.id === current!.reports_to_id)
@@ -251,7 +275,26 @@ export default function VacationsPage() {
       chain.push(boss)
       current = boss
     }
+
+    // 2) Personal de Recursos Humanos (puede aprobar cualquier solicitud)
+    for (const s of list) {
+      if (seen.has(s.id)) continue
+      if ((s.department || "").trim().toLowerCase() === "recursos humanos") {
+        seen.add(s.id)
+        chain.push(s)
+      }
+    }
+
+    return chain
+  }
+
+  // Para usuarios "Global" (sin empleado vinculado): elige manualmente el empleado
+  // y recalcula su cadena de aprobadores.
+  const handleSelectRequestStaff = (staffId: string) => {
+    // Usar la lista completa para poder resolver jefes de otras agencias y Recursos Humanos
+    const chain = computeApproverChain(staffId, allStaff)
     setApproverOptions(chain)
+    setNewRequest((prev) => ({ ...prev, staff_id: staffId, approver_id: chain[0]?.id || "" }))
   }
 
   const fetchLeaveTypes = async () => {
@@ -1055,10 +1098,28 @@ export default function VacationsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>Tu usuario no está vinculado a un empleado de esta agencia.</span>
-                </div>
+                <>
+                  <Select
+                    value={newRequest.staff_id || undefined}
+                    onValueChange={handleSelectRequestStaff}
+                    disabled={staff.length === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={staff.length === 0 ? "No hay empleados en esta agencia" : "Selecciona un empleado"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staff.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.first_name} {s.last_name}{s.position ? ` · ${s.position}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Tu usuario no está vinculado a un empleado. Selecciona la agencia arriba y elige el empleado
+                    para el que deseas crear la solicitud.
+                  </p>
+                </>
               )}
             </div>
             <div className="space-y-2">
@@ -1072,15 +1133,19 @@ export default function VacationsPage() {
                   <SelectValue placeholder={approverOptions.length === 0 ? "Sin jefe asignado" : "Seleccionar aprobador"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {approverOptions.map((a, idx) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.first_name} {a.last_name} · {a.position}{idx === 0 ? " (jefe directo)" : ""}
-                    </SelectItem>
-                  ))}
+                  {approverOptions.map((a, idx) => {
+                    const isHR = (a.department || "").trim().toLowerCase() === "recursos humanos"
+                    const tag = isHR ? " (Recursos Humanos)" : idx === 0 ? " (jefe directo)" : ""
+                    return (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.first_name} {a.last_name}{a.position ? ` · ${a.position}` : ""}{tag}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Por defecto es tu jefe directo. Puedes elegir un nivel superior.
+                Por defecto es tu jefe directo. Puedes elegir un nivel superior o a Recursos Humanos.
               </p>
             </div>
             <div className="space-y-2">
@@ -1217,7 +1282,7 @@ export default function VacationsPage() {
             <Button variant="outline" onClick={() => setShowRequestDialog(false)}>Cancelar</Button>
             <Button
               onClick={handleCreateRequest}
-              disabled={!currentStaff || !newRequest.approver_id}
+              disabled={!newRequest.staff_id || !newRequest.approver_id}
             >
               Crear Solicitud
             </Button>

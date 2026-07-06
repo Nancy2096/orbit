@@ -68,6 +68,8 @@ import {
   AlertTriangle,
   Paperclip,
   UserPlus,
+  Pencil,
+  X,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
@@ -145,6 +147,7 @@ interface ProspectService {
   quantity: number
   unit_price: number | null
   total_price: number | null
+  billing_type: "retainer" | "project"
 }
 
 interface Quotation {
@@ -272,11 +275,21 @@ export default function ProspectDetailPage() {
     priority: "medium",
   })
 
-  const [newService, setNewService] = useState({
+  const [newService, setNewService] = useState<{
+    service_id: string
+    quantity: number
+    currency_id: string
+    billing_type: "retainer" | "project"
+    unit_price: number
+  }>({
     service_id: "",
     quantity: 1,
     currency_id: "",
+    billing_type: "project",
+    unit_price: 0,
   })
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null)
+  const [editingPrice, setEditingPrice] = useState<number>(0)
 
   const supabase = createClient()
 
@@ -367,7 +380,7 @@ state_province: prospectData.state_province || "",
       supabase.from("crm_activities").select("*").eq("prospect_id", prospectId).order("activity_date", { ascending: false }),
       supabase.from("crm_tasks").select("*").eq("prospect_id", prospectId).order("due_date", { ascending: true }),
       supabase.from("services").select("id, name, description, base_price").eq("agency_id", agencyId).eq("is_active", true).order("name"),
-      supabase.from("crm_prospect_services").select(`id, quantity, unit_price, total_price, service:services(id, name, description, base_price)`).eq("prospect_id", prospectId),
+      supabase.from("crm_prospect_services").select(`id, quantity, unit_price, total_price, billing_type, service:services(id, name, description, base_price)`).eq("prospect_id", prospectId),
       supabase.from("crm_prospect_quotations").select("*").eq("prospect_id", prospectId).order("created_at", { ascending: false }),
       supabase.from("crm_prospect_contacts").select("id, contact_name, contact_email, contact_phone, contact_position").eq("prospect_id", prospectId),
     ])
@@ -644,6 +657,79 @@ state_province: prospectData.state_province || "",
         return
       }
 
+      // 1.5 Crear la cuenta y los proyectos a partir de los servicios del prospecto.
+      // projects.account_id es obligatorio, por lo que SIEMPRE creamos una cuenta
+      // para el cliente y de ella cuelgan tanto los servicios retainer como los proyectos.
+      if (prospectServices.length > 0) {
+        const agencyForAccount = prospectAgencyId || selectedAgencyId
+        const retainerServices = prospectServices.filter((s) => s.billing_type === "retainer")
+        const projectServices = prospectServices.filter((s) => s.billing_type === "project")
+        const retainerTotal = retainerServices.reduce((sum, s) => sum + (s.total_price || 0), 0)
+
+        const { data: account, error: accountError } = await supabase
+          .from("accounts")
+          .insert({
+            client_id: client.id,
+            agency_id: agencyForAccount,
+            account_name: formData.company_name || formData.contact_name,
+            account_type: retainerServices.length > 0 ? "retainer" : "project",
+            retainer_amount: retainerServices.length > 0 ? retainerTotal : null,
+            status: "active",
+            notes: "Creada automaticamente al convertir el prospecto",
+          })
+          .select("id")
+          .single()
+
+        if (accountError || !account) {
+          console.error(accountError)
+          toast.error("Cliente creado, pero no se pudo crear la cuenta automaticamente")
+        } else {
+          // Servicios retainer -> account_services (recurrentes en la cuenta)
+          if (retainerServices.length > 0) {
+            const accountServicesToInsert = retainerServices.map((s) => ({
+              account_id: account.id,
+              service_id: s.service.id,
+              quantity: s.quantity,
+              unit_price: s.unit_price || 0,
+              final_price: s.total_price || 0,
+              frequency: "monthly",
+              is_active: true,
+            }))
+            const { error: accSvcError } = await supabase.from("account_services").insert(accountServicesToInsert)
+            if (accSvcError) console.error("No se pudieron crear los servicios de la cuenta:", accSvcError.message)
+          }
+
+          // Servicios por proyecto -> un proyecto por servicio + su project_service
+          for (const s of projectServices) {
+            const { data: project, error: projectError } = await supabase
+              .from("projects")
+              .insert({
+                account_id: account.id,
+                name: s.service?.name || "Proyecto",
+                project_type: "standard",
+                status: "draft",
+                budget_amount: s.total_price || null,
+              })
+              .select("id")
+              .single()
+
+            if (projectError || !project) {
+              console.error("No se pudo crear el proyecto:", projectError?.message)
+              continue
+            }
+
+            const { error: projSvcError } = await supabase.from("project_services").insert({
+              project_id: project.id,
+              service_id: s.service.id,
+              quantity: s.quantity,
+              unit_price: s.unit_price || 0,
+              total_price: s.total_price || 0,
+            })
+            if (projSvcError) console.error("No se pudo agregar el servicio al proyecto:", projSvcError.message)
+          }
+        }
+      }
+
       // 2. Vincular las cotizaciones del prospecto al nuevo cliente (se conservan en el prospecto).
       if (quotations.length > 0) {
         const { error: quotationError } = await supabase
@@ -866,8 +952,7 @@ state_province: prospectData.state_province || "",
       return
     }
 
-    const service = services.find(s => s.id === newService.service_id)
-    const unitPrice = service?.base_price || 0
+    const unitPrice = newService.unit_price || 0
     const totalPrice = unitPrice * newService.quantity
 
     const { error } = await supabase.from("crm_prospect_services").insert({
@@ -876,6 +961,7 @@ state_province: prospectData.state_province || "",
       quantity: newService.quantity,
       unit_price: unitPrice,
       total_price: totalPrice,
+      billing_type: newService.billing_type,
     })
 
     if (error) {
@@ -889,7 +975,7 @@ state_province: prospectData.state_province || "",
 
     toast.success("Servicio agregado")
     setServiceModalOpen(false)
-    setNewService({ service_id: "", quantity: 1, currency_id: "" })
+    setNewService({ service_id: "", quantity: 1, currency_id: "", billing_type: "project", unit_price: 0 })
     fetchData()
   }
 
@@ -906,6 +992,44 @@ state_province: prospectData.state_province || "",
 
     setProspectServices(prev => prev.filter(s => s.id !== serviceId))
     toast.success("Servicio eliminado")
+  }
+
+  const updateServicePrice = async (ps: ProspectService, newUnitPrice: number) => {
+    const unitPrice = newUnitPrice || 0
+    const totalPrice = unitPrice * ps.quantity
+
+    const { error } = await supabase
+      .from("crm_prospect_services")
+      .update({ unit_price: unitPrice, total_price: totalPrice })
+      .eq("id", ps.id)
+
+    if (error) {
+      toast.error("Error al actualizar el precio")
+      return
+    }
+
+    setProspectServices(prev =>
+      prev.map(s => (s.id === ps.id ? { ...s, unit_price: unitPrice, total_price: totalPrice } : s))
+    )
+    setEditingServiceId(null)
+    toast.success("Precio actualizado")
+  }
+
+  const updateServiceBillingType = async (ps: ProspectService, billingType: "retainer" | "project") => {
+    const { error } = await supabase
+      .from("crm_prospect_services")
+      .update({ billing_type: billingType })
+      .eq("id", ps.id)
+
+    if (error) {
+      toast.error("Error al actualizar el tipo de facturacion")
+      return
+    }
+
+    setProspectServices(prev =>
+      prev.map(s => (s.id === ps.id ? { ...s, billing_type: billingType } : s))
+    )
+    toast.success("Tipo de facturacion actualizado")
   }
 
   const uploadQuotation = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1756,16 +1880,69 @@ state_province: prospectData.state_province || "",
                       {prospectServices.map((ps) => (
                         <div key={ps.id} className="flex items-center justify-between p-3 rounded-lg border">
                           <div>
-                            <div className="font-medium">{ps.service?.name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {ps.quantity} x {formatCurrency(ps.unit_price || 0)} {selectedCurrencyCode}
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{ps.service?.name}</span>
+                              <Select
+                                value={ps.billing_type}
+                                onValueChange={(value: "retainer" | "project") => updateServiceBillingType(ps, value)}
+                              >
+                                <SelectTrigger className="h-7 w-[150px] text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="retainer">Retainer</SelectItem>
+                                  <SelectItem value="project">Por proyecto</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </div>
+                            {editingServiceId === ps.id ? (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-sm text-muted-foreground">{ps.quantity} x</span>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={editingPrice}
+                                  onChange={(e) => setEditingPrice(parseFloat(e.target.value) || 0)}
+                                  className="h-8 w-32"
+                                />
+                                <span className="text-sm text-muted-foreground">{selectedCurrencyCode}</span>
+                              </div>
+                            ) : (
+                              <div className="text-sm text-muted-foreground">
+                                {ps.quantity} x {formatCurrency(ps.unit_price || 0)} {selectedCurrencyCode}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="font-semibold">{formatCurrency(ps.total_price || 0)} {selectedCurrencyCode}</span>
-                            <Button variant="ghost" size="icon" onClick={() => removeService(ps.id)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {editingServiceId === ps.id ? (
+                              <>
+                                <span className="font-semibold">
+                                  {formatCurrency((editingPrice || 0) * ps.quantity)} {selectedCurrencyCode}
+                                </span>
+                                <Button variant="ghost" size="icon" onClick={() => updateServicePrice(ps, editingPrice)} title="Guardar precio">
+                                  <Save className="h-4 w-4 text-primary" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => setEditingServiceId(null)} title="Cancelar">
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <span className="font-semibold">{formatCurrency(ps.total_price || 0)} {selectedCurrencyCode}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => { setEditingServiceId(ps.id); setEditingPrice(ps.unit_price || 0) }}
+                                  title="Editar precio"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => removeService(ps.id)}>
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2512,7 +2689,7 @@ state_province: prospectData.state_province || "",
       {/* Modal: Agregar Servicio */}
       <Dialog open={serviceModalOpen} onOpenChange={(open) => {
         setServiceModalOpen(open)
-        if (!open) setNewService({ service_id: "", quantity: 1, currency_id: "" })
+        if (!open) setNewService({ service_id: "", quantity: 1, currency_id: "", billing_type: "project", unit_price: 0 })
       }}>
         <DialogContent>
           <DialogHeader>
@@ -2548,7 +2725,10 @@ state_province: prospectData.state_province || "",
                     <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">2</span>
                     Servicio
                   </Label>
-                  <Select value={newService.service_id} onValueChange={(value) => setNewService({ ...newService, service_id: value })}>
+                  <Select value={newService.service_id} onValueChange={(value) => {
+                    const selected = services.find(s => s.id === value)
+                    setNewService({ ...newService, service_id: value, unit_price: selected?.base_price || 0 })
+                  }}>
                     <SelectTrigger><SelectValue placeholder="Selecciona un servicio" /></SelectTrigger>
                     <SelectContent>
                       {services.map((s) => {
@@ -2575,6 +2755,47 @@ state_province: prospectData.state_province || "",
                   </Label>
                   <Input type="number" min={1} value={newService.quantity} onChange={(e) => setNewService({ ...newService, quantity: parseInt(e.target.value) || 1 })} />
                 </div>
+
+                {/* Paso 4: Precio unitario (editable) */}
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">4</span>
+                    Precio unitario
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={newService.unit_price}
+                    onChange={(e) => setNewService({ ...newService, unit_price: parseFloat(e.target.value) || 0 })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Se prellena con el precio base del servicio. Ajústalo si este cliente tiene un precio distinto.
+                  </p>
+                </div>
+
+                {/* Paso 5: Tipo de facturacion */}
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold">5</span>
+                    Tipo de facturacion
+                  </Label>
+                  <Select
+                    value={newService.billing_type}
+                    onValueChange={(value: "retainer" | "project") => setNewService({ ...newService, billing_type: value })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Selecciona el tipo" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="retainer">Retainer (mensual / cuenta)</SelectItem>
+                      <SelectItem value="project">Por proyecto</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {newService.billing_type === "retainer"
+                      ? "Al convertir, se agrega a la cuenta del cliente como servicio recurrente."
+                      : "Al convertir, genera un proyecto independiente para el cliente."}
+                  </p>
+                </div>
                 
                 {/* Resumen del precio */}
                 {newService.service_id && (
@@ -2583,10 +2804,9 @@ state_province: prospectData.state_province || "",
                       <span className="text-sm text-muted-foreground">Total estimado:</span>
                       <span className="font-bold text-lg">
                         {(() => {
-                          const service = services.find(s => s.id === newService.service_id)
                           const selectedCurrency = currencies.find(c => c.id === newService.currency_id)
                           const currencyCode = selectedCurrency?.code || "MXN"
-                          const total = (service?.base_price || 0) * newService.quantity
+                          const total = (newService.unit_price || 0) * newService.quantity
                           return new Intl.NumberFormat("es-MX", { style: "currency", currency: currencyCode }).format(total)
                         })()}
                       </span>
@@ -2646,6 +2866,29 @@ state_province: prospectData.state_province || "",
                 <p className="text-xs text-muted-foreground">El cliente se registrará con estado <strong>Prospecto</strong> hasta confirmar el pago.</p>
               )}
             </div>
+
+            {prospectServices.length > 0 && (
+              <div className="rounded-lg border p-4 space-y-2">
+                <p className="text-sm font-medium">Al convertir se crearán automáticamente:</p>
+                <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
+                  {prospectServices.some((s) => s.billing_type === "retainer") && (
+                    <li>
+                      Una <strong>cuenta</strong> con{" "}
+                      {prospectServices.filter((s) => s.billing_type === "retainer").length} servicio(s) tipo retainer.
+                    </li>
+                  )}
+                  {prospectServices.some((s) => s.billing_type === "project") && (
+                    <li>
+                      {prospectServices.filter((s) => s.billing_type === "project").length}{" "}
+                      <strong>proyecto(s)</strong> (uno por cada servicio por proyecto).
+                    </li>
+                  )}
+                  {!prospectServices.some((s) => s.billing_type === "retainer") && (
+                    <li>Una <strong>cuenta</strong> base para asociar los proyectos.</li>
+                  )}
+                </ul>
+              </div>
+            )}
           </div>
 
           <DialogFooter>
