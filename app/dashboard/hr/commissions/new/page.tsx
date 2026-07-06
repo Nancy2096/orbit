@@ -100,11 +100,24 @@ export default function NewCommissionPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: staffData } = await supabase
+    // 1) Intentar vincular el staff por user_id
+    let { data: staffData } = await supabase
       .from("staff")
       .select("id, first_name, last_name, email, agency_id, reports_to_id")
       .eq("user_id", user.id)
-      .single()
+      .maybeSingle()
+
+    // 2) Respaldo: muchos registros de staff no tienen user_id poblado,
+    //    así que buscamos por email (que sí coincide con el usuario autenticado)
+    if (!staffData && user.email) {
+      const { data: staffByEmail } = await supabase
+        .from("staff")
+        .select("id, first_name, last_name, email, agency_id, reports_to_id")
+        .ilike("email", user.email)
+        .eq("is_active", true)
+        .maybeSingle()
+      staffData = staffByEmail
+    }
 
     if (staffData) {
       setCurrentUserStaff(staffData as Staff)
