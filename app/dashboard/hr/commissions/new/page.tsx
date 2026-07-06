@@ -173,12 +173,13 @@ const fetchInitialData = async () => {
               .eq("agency_id", selectedAgencyId)
         ).order("contact_name"),
         
-        // Tipos de cliente (de donde viene la comisión)
+        // Tipos de comisión configurados por agencia (de donde viene la comisión)
         supabase
-          .from("client_types")
+          .from("agency_commission_types")
           .select("id, name, amount")
           .eq("agency_id", selectedAgencyId)
-          .order("name"),
+          .eq("is_active", true)
+          .order("display_order"),
       ])
 
       if (commercialStaffRes.data) setStaff(commercialStaffRes.data)
