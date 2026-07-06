@@ -34,72 +34,68 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-// PATCH: guarda en la BD la URL de la cotización ya subida y borra la anterior.
+// PATCH: agrega la cotización subida al HISTORIAL de la cuenta.
+// Nunca borra las cotizaciones anteriores: cada subida es un registro nuevo.
 export async function PATCH(request: NextRequest) {
   try {
-    const { accountId, url, filename, oldUrl } = await request.json()
+    const { accountId, url, filename, label } = await request.json()
 
     if (!accountId || !url) {
       return NextResponse.json({ error: "Missing parameters" }, { status: 400 })
     }
 
-    // Borra el archivo anterior si existe
-    if (oldUrl) {
-      try {
-        await del(oldUrl)
-      } catch (e) {
-        console.error("Error deleting old file:", e)
-      }
-    }
-
-    const uploadedAt = new Date().toISOString()
     const supabase = await createClient()
-    const { error } = await supabase
-      .from("accounts")
-      .update({
-        quotation_url: url,
-        quotation_filename: filename,
-        quotation_uploaded_at: uploadedAt,
+    const { data, error } = await supabase
+      .from("entity_quotations")
+      .insert({
+        owner_type: "account",
+        owner_id: accountId,
+        url,
+        filename,
+        label: label || null,
       })
-      .eq("id", accountId)
+      .select()
+      .single()
 
     if (error) {
       // Si falla la BD, borra el archivo recién subido
       await del(url)
-      return NextResponse.json({ error: "Failed to update account" }, { status: 500 })
+      return NextResponse.json({ error: "Failed to save quotation" }, { status: 500 })
     }
 
-    return NextResponse.json({ url, filename, uploadedAt })
+    return NextResponse.json(data)
   } catch (error) {
     console.error("Save error:", error)
     return NextResponse.json({ error: "Save failed" }, { status: 500 })
   }
 }
 
+// DELETE: elimina UNA cotización específica del historial (por su id).
 export async function DELETE(request: NextRequest) {
   try {
-    const { accountId, url } = await request.json()
+    const { quotationId, url } = await request.json()
 
-    if (!accountId || !url) {
+    if (!quotationId) {
       return NextResponse.json({ error: "Missing parameters" }, { status: 400 })
     }
 
-    // Delete file from blob storage
-    await del(url)
-
-    // Update account in database
     const supabase = await createClient()
     const { error } = await supabase
-      .from("accounts")
-      .update({
-        quotation_url: null,
-        quotation_filename: null,
-        quotation_uploaded_at: null,
-      })
-      .eq("id", accountId)
+      .from("entity_quotations")
+      .delete()
+      .eq("id", quotationId)
 
     if (error) {
-      return NextResponse.json({ error: "Failed to update account" }, { status: 500 })
+      return NextResponse.json({ error: "Failed to delete quotation" }, { status: 500 })
+    }
+
+    // Borra el archivo del blob storage solo tras eliminar el registro
+    if (url) {
+      try {
+        await del(url)
+      } catch (e) {
+        console.error("Error deleting blob file:", e)
+      }
     }
 
     return NextResponse.json({ success: true })
