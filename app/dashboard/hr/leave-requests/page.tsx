@@ -76,23 +76,13 @@ interface StaffFull {
   agency_id: string | null
 }
 
-interface LeaveBalance {
-  id: string
-  staff_id: string
-  leave_type_id: string
-  agency_id: string | null
-  year: number
-  days_entitled: number
-  days_taken: number
-  days_pending: number
-  days_available: number
-}
-
 interface LeaveTypeFull {
   id: string
   name: string
   color: string | null
   days_per_year: number | null
+  is_paid: boolean | null
+  agency_id: string | null
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -123,7 +113,6 @@ export default function LeaveRequestsOverviewPage() {
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [requests, setRequests] = useState<LeaveRequest[]>([])
   const [staff, setStaff] = useState<StaffFull[]>([])
-  const [balances, setBalances] = useState<LeaveBalance[]>([])
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeFull[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -139,7 +128,6 @@ export default function LeaveRequestsOverviewPage() {
         { data: agencyData },
         { data: requestData },
         { data: staffData },
-        { data: balanceData },
         { data: typeData },
       ] = await Promise.all([
         supabase.from("agencies").select("id, name").order("name"),
@@ -161,20 +149,16 @@ export default function LeaveRequestsOverviewPage() {
           .select("id, first_name, last_name, position, department, agency_id")
           .eq("is_active", true)
           .order("first_name"),
-        supabase
-          .from("leave_balances")
-          .select("id, staff_id, leave_type_id, agency_id, year, days_entitled, days_taken, days_pending, days_available")
-          .eq("year", currentYear),
+        // Los tipos de permiso se definen por agencia en Agencias > Configuración > Permisos
         supabase
           .from("leave_types")
-          .select("id, name, color, days_per_year")
+          .select("id, name, color, days_per_year, is_paid, agency_id")
           .eq("is_active", true)
           .order("name"),
       ])
       if (agencyData) setAgencies(agencyData)
       if (requestData) setRequests(requestData as LeaveRequest[])
       if (staffData) setStaff(staffData as StaffFull[])
-      if (balanceData) setBalances(balanceData as LeaveBalance[])
       if (typeData) setLeaveTypes(typeData as LeaveTypeFull[])
       setLoading(false)
     }
@@ -297,9 +281,27 @@ export default function LeaveRequestsOverviewPage() {
     return Math.max(0, diff)
   }, [yearEnd])
 
-  // Saldos del personal (respetan filtros de agencia/depto/búsqueda)
+  // Uso de días por empleado+tipo, calculado desde las solicitudes reales del año en curso.
+  // Aprobadas => días usados; Pendientes => días reservados.
+  const usageMap = useMemo(() => {
+    const map = new Map<string, { taken: number; pending: number }>()
+    requests.forEach((r) => {
+      const year = r.start_date ? new Date(r.start_date).getFullYear() : null
+      if (year !== currentYear) return
+      if (!r.staff_id || !r.leave_type_id) return
+      const key = `${r.staff_id}::${r.leave_type_id}`
+      const entry = map.get(key) || { taken: 0, pending: 0 }
+      const days = Number(r.total_days || 0)
+      if (r.status === "approved") entry.taken += days
+      else if (r.status === "pending") entry.pending += days
+      map.set(key, entry)
+    })
+    return map
+  }, [requests, currentYear])
+
+  // Saldos del personal (respetan filtros de agencia/depto/búsqueda).
+  // Los tipos y días/año provienen de la configuración de permisos de cada agencia.
   const staffBalances = useMemo(() => {
-    const typeMap = new Map(leaveTypes.map((t) => [t.id, t]))
     return staff
       .filter((s) => {
         if (filterAgency !== "all" && s.agency_id !== filterAgency) return false
@@ -313,19 +315,20 @@ export default function LeaveRequestsOverviewPage() {
       })
       .map((s) => {
         const agencyName = agencies.find((a) => a.id === s.agency_id)?.name || "-"
-        const rows = balances
-          .filter((b) => b.staff_id === s.id)
-          .map((b) => {
-            const t = typeMap.get(b.leave_type_id)
-            const entitled = Number(b.days_entitled || 0)
-            const taken = Number(b.days_taken || 0)
-            const pending = Number(b.days_pending || 0)
-            const available =
-              b.days_available != null ? Number(b.days_available) : Math.max(0, entitled - taken - pending)
+        // Tipos de permiso definidos para la agencia del empleado
+        const rows = leaveTypes
+          .filter((t) => t.agency_id === s.agency_id)
+          .map((t) => {
+            const usage = usageMap.get(`${s.id}::${t.id}`) || { taken: 0, pending: 0 }
+            const entitled = Number(t.days_per_year || 0)
+            const taken = usage.taken
+            const pending = usage.pending
+            const available = Math.max(0, entitled - taken - pending)
             return {
-              typeId: b.leave_type_id,
-              typeName: t?.name || "Permiso",
-              color: t?.color || "#64748b",
+              typeId: t.id,
+              typeName: t.name || "Permiso",
+              color: t.color || "#64748b",
+              isPaid: t.is_paid !== false, // por defecto con goce si no se especifica
               entitled,
               taken,
               pending,
@@ -338,7 +341,7 @@ export default function LeaveRequestsOverviewPage() {
         return { staff: s, agencyName, rows, totalAvailable, totalTaken }
       })
       .sort((a, b) => `${a.staff.first_name} ${a.staff.last_name}`.localeCompare(`${b.staff.first_name} ${b.staff.last_name}`))
-  }, [staff, balances, leaveTypes, agencies, filterAgency, filterDepartment, search])
+  }, [staff, usageMap, leaveTypes, agencies, filterAgency, filterDepartment, search])
 
   // Indicadores de saldos
   const balanceKpis = useMemo(() => {
@@ -688,6 +691,7 @@ export default function LeaveRequestsOverviewPage() {
                       <TableHead>Empleado</TableHead>
                       <TableHead>Agencia</TableHead>
                       <TableHead>Categoría</TableHead>
+                      <TableHead className="text-center">Goce</TableHead>
                       <TableHead className="text-center">Otorgados</TableHead>
                       <TableHead className="text-center">Usados</TableHead>
                       <TableHead className="text-center">Pendientes</TableHead>
@@ -698,7 +702,7 @@ export default function LeaveRequestsOverviewPage() {
                   <TableBody>
                     {staffBalances.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                           No hay personal que coincida con los filtros
                         </TableCell>
                       </TableRow>
@@ -713,8 +717,8 @@ export default function LeaveRequestsOverviewPage() {
                               <p className="text-sm text-muted-foreground">{sb.staff.position}</p>
                             </TableCell>
                             <TableCell>{sb.agencyName}</TableCell>
-                            <TableCell colSpan={6} className="text-muted-foreground text-sm">
-                              Sin saldos registrados para {currentYear}
+                            <TableCell colSpan={7} className="text-muted-foreground text-sm">
+                              Sin tipos de permiso configurados para su agencia
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -741,6 +745,13 @@ export default function LeaveRequestsOverviewPage() {
                                   />
                                   {r.typeName}
                                 </span>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {r.isPaid ? (
+                                  <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Con goce</Badge>
+                                ) : (
+                                  <Badge variant="secondary">Sin goce</Badge>
+                                )}
                               </TableCell>
                               <TableCell className="text-center">{r.entitled}</TableCell>
                               <TableCell className="text-center text-red-600">{r.taken}</TableCell>
