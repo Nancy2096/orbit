@@ -131,31 +131,35 @@ export default function ProfilePage() {
       `
 
     let staffData: any = null
-    const { data: staffByUserId } = await supabase
+    const { data: staffByUserId, error: staffByUserIdError } = await supabase
       .from("staff")
       .select(staffSelect)
       .eq("user_id", authUser.id)
       .maybeSingle()
 
     staffData = staffByUserId
+    console.log("[v0] staff by user_id:", staffByUserId, "error:", staffByUserIdError)
 
     const emailToMatch = userData?.email || authUser.email
+    console.log("[v0] emailToMatch:", emailToMatch)
     if (!staffData && emailToMatch) {
       // Usar limit(1) en vez de maybeSingle() para que, aunque existiera más de
       // una ficha con el mismo email, no falle la carga del perfil (importante
       // para el personal Global, que suele no tener user_id asignado).
-      const { data: staffByEmail } = await supabase
+      const { data: staffByEmail, error: staffByEmailError } = await supabase
         .from("staff")
         .select(staffSelect)
         .ilike("email", emailToMatch)
         .limit(1)
       staffData = staffByEmail?.[0] ?? null
+      console.log("[v0] staff by email:", staffByEmail, "error:", staffByEmailError)
 
       // Vincular la ficha al usuario para futuras cargas (no bloquea la UI).
       if (staffData && !staffData.user_id) {
         await supabase.from("staff").update({ user_id: authUser.id }).eq("id", staffData.id)
       }
     }
+    console.log("[v0] final staffData id:", staffData?.id)
 
     if (staffData) {
       setStaff(staffData)
