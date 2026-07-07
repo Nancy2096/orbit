@@ -121,16 +121,38 @@ export default function ProfilePage() {
       setUser(userData)
     }
 
-    // Get staff profile linked to this user
-    const { data: staffData } = await supabase
-      .from("staff")
-      .select(`
+    // Buscar la ficha de Personal vinculada a este usuario.
+    // Primero por user_id; si no existe (muchas fichas no tienen user_id
+    // asignado), se intenta por email como respaldo.
+    const staffSelect = `
         *,
         agency:agencies(name),
         role:roles(display_name)
-      `)
+      `
+
+    let staffData: any = null
+    const { data: staffByUserId } = await supabase
+      .from("staff")
+      .select(staffSelect)
       .eq("user_id", authUser.id)
-      .single()
+      .maybeSingle()
+
+    staffData = staffByUserId
+
+    const emailToMatch = userData?.email || authUser.email
+    if (!staffData && emailToMatch) {
+      const { data: staffByEmail } = await supabase
+        .from("staff")
+        .select(staffSelect)
+        .ilike("email", emailToMatch)
+        .maybeSingle()
+      staffData = staffByEmail
+
+      // Vincular la ficha al usuario para futuras cargas (no bloquea la UI).
+      if (staffData && !staffData.user_id) {
+        await supabase.from("staff").update({ user_id: authUser.id }).eq("id", staffData.id)
+      }
+    }
 
     if (staffData) {
       setStaff(staffData)
