@@ -31,9 +31,26 @@ import {
   Eye,
   History,
   Pencil,
-  Trash2
+  Trash2,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react"
-import { format, differenceInBusinessDays, addDays, isWeekend } from "date-fns"
+import {
+  format,
+  differenceInBusinessDays,
+  addDays,
+  isWeekend,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  isSameMonth,
+  isSameDay,
+  isWithinInterval,
+  addMonths,
+  subMonths,
+} from "date-fns"
 import { es } from "date-fns/locale"
 
 interface Agency {
@@ -111,6 +128,7 @@ interface Holiday {
 export default function VacationsPage() {
   const supabase = createClient()
   const [activeTab, setActiveTab] = useState("solicitudes")
+  const [calendarMonth, setCalendarMonth] = useState(new Date())
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("")
   const [staff, setStaff] = useState<Staff[]>([])
@@ -770,6 +788,40 @@ export default function VacationsPage() {
     })
   }
 
+  // --- Datos para el calendario de ausencias ---
+  // Solicitudes vigentes (aprobadas o pendientes) con fechas válidas.
+  const calendarRequests = leaveRequests.filter(
+    (r) => (r.status === "approved" || r.status === "pending") && r.start_date && r.end_date,
+  )
+
+  const parseDay = (d: string) => new Date(`${d}T00:00:00`)
+
+  // Ausencias que caen en un día concreto.
+  const absencesOnDay = (day: Date) =>
+    calendarRequests.filter((r) =>
+      isWithinInterval(day, { start: parseDay(r.start_date), end: parseDay(r.end_date) }),
+    )
+
+  // Grilla del mes visible (semanas completas de lunes a domingo).
+  const monthStart = startOfMonth(calendarMonth)
+  const monthEnd = endOfMonth(calendarMonth)
+  const calendarDays = eachDayOfInterval({
+    start: startOfWeek(monthStart, { weekStartsOn: 1 }),
+    end: endOfWeek(monthEnd, { weekStartsOn: 1 }),
+  })
+
+  // Personal que toma días dentro del mes visible (una entrada por solicitud que se
+  // solapa con el mes), ordenado por fecha de inicio.
+  const monthAbsences = calendarRequests
+    .filter((r) =>
+      isWithinInterval(monthStart, { start: parseDay(r.start_date), end: parseDay(r.end_date) }) ||
+      isWithinInterval(monthEnd, { start: parseDay(r.start_date), end: parseDay(r.end_date) }) ||
+      isWithinInterval(parseDay(r.start_date), { start: monthStart, end: monthEnd }),
+    )
+    .sort((a, b) => parseDay(a.start_date).getTime() - parseDay(b.start_date).getTime())
+
+  const weekDayLabels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -1171,77 +1223,119 @@ export default function VacationsPage() {
 
         {/* Calendario Tab */}
         <TabsContent value="calendario" className="space-y-4">
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Próximas Ausencias</CardTitle>
-                <CardDescription>Solicitudes aprobadas próximas</CardDescription>
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Calendario mensual de ausencias */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Calendario de Ausencias</CardTitle>
+                  <CardDescription>Personal de la agencia con permisos o vacaciones</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="icon" onClick={() => setCalendarMonth((m) => subMonths(m, 1))}>
+                    <ChevronLeft className="h-4 w-4" />
+                    <span className="sr-only">Mes anterior</span>
+                  </Button>
+                  <span className="min-w-[140px] text-center text-sm font-medium capitalize">
+                    {format(calendarMonth, "MMMM yyyy", { locale: es })}
+                  </span>
+                  <Button variant="outline" size="icon" onClick={() => setCalendarMonth((m) => addMonths(m, 1))}>
+                    <ChevronRight className="h-4 w-4" />
+                    <span className="sr-only">Mes siguiente</span>
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setCalendarMonth(new Date())}>
+                    Hoy
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {leaveRequests
-                    .filter(r => r.status === "approved" && new Date(r.start_date) >= new Date())
-                    .slice(0, 5)
-                    .map((request) => (
-                      <div key={request.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                        <div 
-                          className="w-2 h-12 rounded-full" 
-                          style={{ backgroundColor: request.leave_type?.color }}
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium">{request.staff?.first_name} {request.staff?.last_name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {format(new Date(request.start_date), "dd MMM", { locale: es })} - {format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}
-                          </p>
+                <div className="grid grid-cols-7 gap-1">
+                  {weekDayLabels.map((d) => (
+                    <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground">
+                      {d}
+                    </div>
+                  ))}
+                  {calendarDays.map((day) => {
+                    const dayAbsences = absencesOnDay(day)
+                    const inMonth = isSameMonth(day, calendarMonth)
+                    const isToday = isSameDay(day, new Date())
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className={`min-h-[76px] rounded-md border p-1 ${
+                          inMonth ? "bg-card" : "bg-muted/30 text-muted-foreground"
+                        } ${isToday ? "border-primary ring-1 ring-primary" : "border-border"}`}
+                      >
+                        <div className="mb-1 text-right text-xs font-medium">{format(day, "d")}</div>
+                        <div className="space-y-0.5">
+                          {dayAbsences.slice(0, 3).map((r) => (
+                            <div
+                              key={r.id}
+                              className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-tight"
+                              style={{ backgroundColor: `${r.leave_type?.color || "#64748b"}22` }}
+                              title={`${r.staff?.first_name} ${r.staff?.last_name} · ${r.leave_type?.name || ""}${
+                                r.status === "pending" ? " (pendiente)" : ""
+                              }`}
+                            >
+                              <span
+                                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: r.leave_type?.color || "#64748b" }}
+                              />
+                              <span className="truncate">
+                                {r.staff?.first_name} {r.staff?.last_name?.[0] || ""}.
+                              </span>
+                            </div>
+                          ))}
+                          {dayAbsences.length > 3 && (
+                            <div className="px-1 text-[10px] text-muted-foreground">
+                              +{dayAbsences.length - 3} más
+                            </div>
+                          )}
                         </div>
-                        <Badge variant="outline">
-                          {request.total_days} días
-                          {request.is_half_day && (request.half_day_period === "afternoon" ? " · tarde" : " · mañana")}
-                        </Badge>
                       </div>
-                    ))}
-                  {leaveRequests.filter(r => r.status === "approved" && new Date(r.start_date) >= new Date()).length === 0 && (
-                    <p className="text-center text-muted-foreground py-4">No hay ausencias próximas</p>
-                  )}
+                    )
+                  })}
                 </div>
               </CardContent>
             </Card>
 
+            {/* Personal que toma días en el mes visible */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Días Festivos</CardTitle>
-                  <CardDescription>Días no laborables configurados</CardDescription>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => setShowHolidayDialog(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Agregar
-                </Button>
+              <CardHeader>
+                <CardTitle className="capitalize">
+                  {format(calendarMonth, "MMMM", { locale: es })}
+                </CardTitle>
+                <CardDescription>Personal que tomará días este mes</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {holidays.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-4">No hay días festivos configurados</p>
+                <div className="space-y-3">
+                  {monthAbsences.length === 0 ? (
+                    <p className="py-4 text-center text-muted-foreground">
+                      Nadie tomará días este mes
+                    </p>
                   ) : (
-                    holidays.map((holiday) => (
-                      <div key={holiday.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
-                        <div className="flex items-center gap-3">
-                          <CalendarDays className="w-4 h-4 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">{holiday.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {format(new Date(holiday.date), "dd MMMM yyyy", { locale: es })}
-                              {holiday.is_recurring && " (Anual)"}
-                            </p>
-                          </div>
+                    monthAbsences.map((request) => (
+                      <div key={request.id} className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
+                        <div
+                          className="h-12 w-2 rounded-full"
+                          style={{ backgroundColor: request.leave_type?.color || "#64748b" }}
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium">
+                            {request.staff?.first_name} {request.staff?.last_name}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {format(parseDay(request.start_date), "dd MMM", { locale: es })} -{" "}
+                            {format(parseDay(request.end_date), "dd MMM", { locale: es })} ·{" "}
+                            {request.leave_type?.name}
+                          </p>
                         </div>
-                        <Button 
-                          size="sm" 
-                          variant="ghost"
-                          onClick={() => handleDeleteHoliday(holiday.id)}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge variant="outline">{request.total_days} días</Badge>
+                          {request.status === "pending" && (
+                            <span className="text-[10px] text-amber-600">Pendiente</span>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
