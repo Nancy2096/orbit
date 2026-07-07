@@ -222,9 +222,15 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
     if (staffRes.data) {
       const s = staffRes.data
       
-      // Fetch agency-specific data
-      if (s.agency_id) {
+      // Fetch agency-specific data, o datos de todas las agencias si es global.
+      // Los empleados globales no tienen agency_id, así que sin esto los
+      // selectores de departamento y puesto quedan vacíos.
+      if (s.is_global) {
+        await fetchGlobalData()
+      } else if (s.agency_id) {
         await fetchAgencyData(s.agency_id)
+      } else if (Array.isArray(s.agency_ids) && s.agency_ids.length > 0) {
+        await fetchAgencyData(s.agency_ids[0])
       }
       
       setFormData({
