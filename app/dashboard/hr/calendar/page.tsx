@@ -114,6 +114,7 @@ export default function CalendarPage() {
   // Diálogo para agregar/eliminar fechas importantes
   const [showDialog, setShowDialog] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: "",
@@ -244,6 +245,7 @@ export default function CalendarPage() {
   async function handleSave() {
     if (!form.name.trim() || !form.date) return
     setSaving(true)
+    setSaveError(null)
     // La fecha de fin es opcional; si es anterior al inicio, se ignora
     const endDate = form.end_date && form.end_date >= form.date ? form.end_date : null
     const { error } = await supabase.from("holidays").insert({
@@ -256,11 +258,13 @@ export default function CalendarPage() {
       agency_id: null, // global para toda la organización
     })
     setSaving(false)
-    if (!error) {
-      setShowDialog(false)
-      setForm({ name: "", date: "", end_date: "", type: "holiday", description: "", is_recurring: false })
-      load()
+    if (error) {
+      setSaveError(error.message || "No se pudo guardar la fecha. Intenta de nuevo.")
+      return
     }
+    setShowDialog(false)
+    setForm({ name: "", date: "", end_date: "", type: "holiday", description: "", is_recurring: false })
+    load()
   }
 
   async function handleDelete(id: string) {
@@ -582,6 +586,11 @@ export default function CalendarPage() {
                 onCheckedChange={(v) => setForm({ ...form, is_recurring: v })}
               />
             </div>
+            {saveError && (
+              <p className="text-sm text-red-600" role="alert">
+                {saveError}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDialog(false)}>
