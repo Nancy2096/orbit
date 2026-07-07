@@ -12,6 +12,7 @@ import type { LucideIcon } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
 import { StaffAvatar } from "@/components/staff-avatar"
+import { StaffEditForm } from "@/components/hr/staff-edit-form"
 import { toast } from "sonner"
 
 interface StaffProfile {
@@ -120,16 +121,44 @@ export default function ProfilePage() {
       setUser(userData)
     }
 
-    // Get staff profile linked to this user
-    const { data: staffData } = await supabase
-      .from("staff")
-      .select(`
+    // Buscar la ficha de Personal vinculada a este usuario.
+    // Primero por user_id; si no existe (muchas fichas no tienen user_id
+    // asignado), se intenta por email como respaldo.
+    // staff tiene DOS FKs hacia agencies (agency_id y payroll_agency_id), por lo
+    // que hay que desambiguar el join indicando el nombre de la constraint;
+    // de lo contrario PostgREST devuelve error y la ficha no se carga.
+    const staffSelect = `
         *,
-        agency:agencies(name),
+        agency:agencies!staff_agency_id_fkey(name),
         role:roles(display_name)
-      `)
+      `
+
+    let staffData: any = null
+    const { data: staffByUserId } = await supabase
+      .from("staff")
+      .select(staffSelect)
       .eq("user_id", authUser.id)
-      .single()
+      .maybeSingle()
+
+    staffData = staffByUserId
+
+    const emailToMatch = userData?.email || authUser.email
+    if (!staffData && emailToMatch) {
+      // Usar limit(1) en vez de maybeSingle() para que, aunque existiera más de
+      // una ficha con el mismo email, no falle la carga del perfil (importante
+      // para el personal Global, que suele no tener user_id asignado).
+      const { data: staffByEmail } = await supabase
+        .from("staff")
+        .select(staffSelect)
+        .ilike("email", emailToMatch)
+        .limit(1)
+      staffData = staffByEmail?.[0] ?? null
+
+      // Vincular la ficha al usuario para futuras cargas (no bloquea la UI).
+      if (staffData && !staffData.user_id) {
+        await supabase.from("staff").update({ user_id: authUser.id }).eq("id", staffData.id)
+      }
+    }
 
     if (staffData) {
       setStaff(staffData)
@@ -347,12 +376,10 @@ export default function ProfilePage() {
             <Lock className="h-4 w-4" />
             Seguridad
           </TabsTrigger>
-          {staff && (
-            <TabsTrigger value="info" className="gap-2">
-              <Info className="h-4 w-4" />
-              Información
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="info" className="gap-2">
+            <Info className="h-4 w-4" />
+            Información
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -771,78 +798,37 @@ export default function ProfilePage() {
           </Card>
         </TabsContent>
 
-        {staff && (
-          <TabsContent value="info">
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="h-5 w-5" />
-                    Información Laboral
-                  </CardTitle>
-                  <CardDescription>
-                    Datos de tu registro en Personal. Esta información es de solo lectura; si algo es incorrecto,
-                    contacta a Recursos Humanos.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <InfoItem icon={User} label="Nombre completo" value={`${staff.first_name} ${staff.last_name}`} />
-                    <InfoItem icon={Briefcase} label="Puesto" value={staff.position} />
-                    <InfoItem icon={Building2} label="Departamento" value={staff.department} />
-                    <InfoItem
-                      icon={Shield}
-                      label="Rol"
-                      value={staff.role?.display_name || user.role?.display_name || null}
-                    />
-                    <InfoItem
-                      icon={Building2}
-                      label="Agencia"
-                      value={
-                        staff.is_global || user.is_global_access
-                          ? "Acceso Global"
-                          : staff.agency?.name || staff.agencies?.map((a) => a.name).join(", ") || null
-                      }
-                    />
-                    <InfoItem
-                      icon={FileText}
-                      label="Tipo de contrato"
-                      value={CONTRACT_TYPE_LABELS[staff.contract_type] || staff.contract_type || null}
-                    />
-                    <InfoItem
-                      icon={Calendar}
-                      label="Fecha de ingreso"
-                      value={
-                        staff.hire_date
-                          ? new Date(staff.hire_date).toLocaleDateString("es-MX", {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                            })
-                          : null
-                      }
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Mail className="h-5 w-5" />
-                    Contacto Corporativo
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <InfoItem icon={Mail} label="Correo corporativo" value={staff.email} />
-                    <InfoItem icon={Phone} label="Teléfono" value={staff.phone} />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        )}
+        <TabsContent value="info">
+          {staff?.id ? (
+            <StaffEditForm
+              staffId={staff.id}
+              redirectTo="/dashboard/profile"
+              cancelHref="/dashboard/profile"
+              showHeader={false}
+              laborReadOnly
+              hideNotes
+            />
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Briefcase className="h-5 w-5" />
+                  Informaci��n Laboral
+                </CardTitle>
+                <CardDescription>Datos de tu registro en Personal.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    Tu cuenta no tiene un registro vinculado en Personal, por lo que no hay información editable.
+                    Contacta a Recursos Humanos si crees que esto es un error.
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
       </Tabs>
     </div>
   )
