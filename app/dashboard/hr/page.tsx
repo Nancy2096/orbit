@@ -821,6 +821,12 @@ export default function HRDashboardPage() {
               </Link>
             </Button>
             <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
+              <Link href="/dashboard/hr/leave-requests">
+                <Calendar className="h-5 w-5 text-teal-500" />
+                <span>Panorama Permisos</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
               <Link href="/dashboard/hr/payroll">
                 <Wallet className="h-5 w-5 text-purple-500" />
                 <span>Nómina</span>

@@ -17,7 +17,7 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
-import { Clock, Check, X, CalendarDays, Building2, Search, TrendingUp } from "lucide-react"
+import { Clock, Check, X, CalendarDays, Building2, Search, TrendingUp, AlertTriangle } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -67,6 +67,34 @@ interface LeaveRequest {
   approver?: { id: string; first_name: string; last_name: string } | null
 }
 
+interface StaffFull {
+  id: string
+  first_name: string
+  last_name: string
+  position: string | null
+  department: string | null
+  agency_id: string | null
+}
+
+interface LeaveBalance {
+  id: string
+  staff_id: string
+  leave_type_id: string
+  agency_id: string | null
+  year: number
+  days_entitled: number
+  days_taken: number
+  days_pending: number
+  days_available: number
+}
+
+interface LeaveTypeFull {
+  id: string
+  name: string
+  color: string | null
+  days_per_year: number | null
+}
+
 const STATUS_LABEL: Record<string, string> = {
   pending: "Pendiente",
   approved: "Aprobada",
@@ -90,8 +118,13 @@ function StatusBadge({ status }: { status: string }) {
 export default function LeaveRequestsOverviewPage() {
   const supabase = createClient()
 
+  const currentYear = new Date().getFullYear()
+
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [requests, setRequests] = useState<LeaveRequest[]>([])
+  const [staff, setStaff] = useState<StaffFull[]>([])
+  const [balances, setBalances] = useState<LeaveBalance[]>([])
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeFull[]>([])
   const [loading, setLoading] = useState(true)
 
   // Filtros
@@ -102,7 +135,13 @@ export default function LeaveRequestsOverviewPage() {
 
   useEffect(() => {
     const load = async () => {
-      const [{ data: agencyData }, { data: requestData }] = await Promise.all([
+      const [
+        { data: agencyData },
+        { data: requestData },
+        { data: staffData },
+        { data: balanceData },
+        { data: typeData },
+      ] = await Promise.all([
         supabase.from("agencies").select("id, name").order("name"),
         supabase
           .from("leave_requests")
@@ -117,9 +156,26 @@ export default function LeaveRequestsOverviewPage() {
           `,
           )
           .order("created_at", { ascending: false }),
+        supabase
+          .from("staff")
+          .select("id, first_name, last_name, position, department, agency_id")
+          .eq("is_active", true)
+          .order("first_name"),
+        supabase
+          .from("leave_balances")
+          .select("id, staff_id, leave_type_id, agency_id, year, days_entitled, days_taken, days_pending, days_available")
+          .eq("year", currentYear),
+        supabase
+          .from("leave_types")
+          .select("id, name, color, days_per_year")
+          .eq("is_active", true)
+          .order("name"),
       ])
       if (agencyData) setAgencies(agencyData)
       if (requestData) setRequests(requestData as LeaveRequest[])
+      if (staffData) setStaff(staffData as StaffFull[])
+      if (balanceData) setBalances(balanceData as LeaveBalance[])
+      if (typeData) setLeaveTypes(typeData as LeaveTypeFull[])
       setLoading(false)
     }
     load()
@@ -231,6 +287,95 @@ export default function LeaveRequestsOverviewPage() {
     Pendiente: { label: "Pendiente", color: "hsl(45 93% 47%)" },
     Aprobada: { label: "Aprobada", color: "hsl(142 71% 45%)" },
     Rechazada: { label: "Rechazada", color: "hsl(0 84% 60%)" },
+  }
+
+  // Fin del año calendario: los saldos vencen el 31 de diciembre
+  const yearEnd = useMemo(() => new Date(currentYear, 11, 31), [currentYear])
+  const daysUntilYearEnd = useMemo(() => {
+    const today = new Date()
+    const diff = Math.ceil((yearEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    return Math.max(0, diff)
+  }, [yearEnd])
+
+  // Saldos del personal (respetan filtros de agencia/depto/búsqueda)
+  const staffBalances = useMemo(() => {
+    const typeMap = new Map(leaveTypes.map((t) => [t.id, t]))
+    return staff
+      .filter((s) => {
+        if (filterAgency !== "all" && s.agency_id !== filterAgency) return false
+        if (filterDepartment !== "all" && (s.department || "") !== filterDepartment) return false
+        if (search.trim()) {
+          const q = search.trim().toLowerCase()
+          const name = `${s.first_name} ${s.last_name}`.toLowerCase()
+          if (!name.includes(q)) return false
+        }
+        return true
+      })
+      .map((s) => {
+        const agencyName = agencies.find((a) => a.id === s.agency_id)?.name || "-"
+        const rows = balances
+          .filter((b) => b.staff_id === s.id)
+          .map((b) => {
+            const t = typeMap.get(b.leave_type_id)
+            const entitled = Number(b.days_entitled || 0)
+            const taken = Number(b.days_taken || 0)
+            const pending = Number(b.days_pending || 0)
+            const available =
+              b.days_available != null ? Number(b.days_available) : Math.max(0, entitled - taken - pending)
+            return {
+              typeId: b.leave_type_id,
+              typeName: t?.name || "Permiso",
+              color: t?.color || "#64748b",
+              entitled,
+              taken,
+              pending,
+              available,
+            }
+          })
+          .sort((a, b) => a.typeName.localeCompare(b.typeName))
+        const totalAvailable = rows.reduce((sum, r) => sum + r.available, 0)
+        const totalTaken = rows.reduce((sum, r) => sum + r.taken, 0)
+        return { staff: s, agencyName, rows, totalAvailable, totalTaken }
+      })
+      .sort((a, b) => `${a.staff.first_name} ${a.staff.last_name}`.localeCompare(`${b.staff.first_name} ${b.staff.last_name}`))
+  }, [staff, balances, leaveTypes, agencies, filterAgency, filterDepartment, search])
+
+  // Indicadores de saldos
+  const balanceKpis = useMemo(() => {
+    let entitled = 0
+    let taken = 0
+    let pending = 0
+    let available = 0
+    staffBalances.forEach((sb) => {
+      sb.rows.forEach((r) => {
+        entitled += r.entitled
+        taken += r.taken
+        pending += r.pending
+        available += r.available
+      })
+    })
+    return { entitled, taken, pending, available }
+  }, [staffBalances])
+
+  // Gráfico: días otorgados vs usados vs disponibles por tipo de permiso
+  const balanceByType = useMemo(() => {
+    const map = new Map<string, { name: string; Otorgados: number; Usados: number; Disponibles: number }>()
+    staffBalances.forEach((sb) => {
+      sb.rows.forEach((r) => {
+        const entry = map.get(r.typeName) || { name: r.typeName, Otorgados: 0, Usados: 0, Disponibles: 0 }
+        entry.Otorgados += r.entitled
+        entry.Usados += r.taken
+        entry.Disponibles += r.available
+        map.set(r.typeName, entry)
+      })
+    })
+    return Array.from(map.values()).sort((a, b) => b.Otorgados - a.Otorgados)
+  }, [staffBalances])
+
+  const balanceChartConfig = {
+    Otorgados: { label: "Otorgados", color: "hsl(217 91% 60%)" },
+    Usados: { label: "Usados", color: "hsl(0 84% 60%)" },
+    Disponibles: { label: "Disponibles", color: "hsl(142 71% 45%)" },
   }
 
   if (loading) {
@@ -360,6 +505,7 @@ export default function LeaveRequestsOverviewPage() {
       <Tabs defaultValue="detalle" className="space-y-4">
         <TabsList>
           <TabsTrigger value="detalle">Detalle</TabsTrigger>
+          <TabsTrigger value="saldos">Saldos del Personal</TabsTrigger>
           <TabsTrigger value="agencias">Por Agencia</TabsTrigger>
           <TabsTrigger value="tipos">Por Tipo</TabsTrigger>
         </TabsList>
@@ -442,6 +588,171 @@ export default function LeaveRequestsOverviewPage() {
                           </TableCell>
                         </TableRow>
                       ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Saldos del personal: días por categoría, usados, disponibles y vencimiento */}
+        <TabsContent value="saldos" className="space-y-4">
+          {/* Indicadores de saldos */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Días Otorgados {currentYear}</CardTitle>
+                <CalendarDays className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{balanceKpis.entitled}</div>
+                <p className="text-xs text-muted-foreground">Total del personal en alcance</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Días Usados</CardTitle>
+                <Check className="h-4 w-4 text-red-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{balanceKpis.taken}</div>
+                <p className="text-xs text-muted-foreground">
+                  {balanceKpis.entitled > 0 ? Math.round((balanceKpis.taken / balanceKpis.entitled) * 100) : 0}% de lo otorgado
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">Días Disponibles</CardTitle>
+                <TrendingUp className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{balanceKpis.available}</div>
+                <p className="text-xs text-muted-foreground">Saldo sin usar</p>
+              </CardContent>
+            </Card>
+            <Card className="border-amber-200 bg-amber-50">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-amber-800">Vencen el 31 dic {currentYear}</CardTitle>
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-amber-800">{balanceKpis.available}</div>
+                <p className="text-xs text-amber-700">
+                  En {daysUntilYearEnd} día{daysUntilYearEnd === 1 ? "" : "s"} · los saldos se reinician cada año
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Gráfico: otorgados vs usados vs disponibles por tipo */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Días por Tipo de Permiso</CardTitle>
+              <CardDescription>Comparativo de días otorgados, usados y disponibles ({currentYear})</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {balanceByType.length === 0 ? (
+                <p className="text-center py-8 text-muted-foreground">Sin saldos registrados para el año en curso</p>
+              ) : (
+                <ChartContainer config={balanceChartConfig} className="h-[320px] w-full">
+                  <BarChart accessibilityLayer data={balanceByType}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="name" tickLine={false} tickMargin={10} axisLine={false} />
+                    <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={30} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <ChartLegend content={<ChartLegendContent />} />
+                    <Bar dataKey="Otorgados" fill="var(--color-Otorgados)" radius={4} />
+                    <Bar dataKey="Usados" fill="var(--color-Usados)" radius={4} />
+                    <Bar dataKey="Disponibles" fill="var(--color-Disponibles)" radius={4} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Tabla: lista completa del personal con saldos por categoría */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Saldos por Empleado</CardTitle>
+              <CardDescription>
+                Días restantes por categoría, días usados y fecha de vencimiento (31 dic {currentYear})
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Empleado</TableHead>
+                      <TableHead>Agencia</TableHead>
+                      <TableHead>Categoría</TableHead>
+                      <TableHead className="text-center">Otorgados</TableHead>
+                      <TableHead className="text-center">Usados</TableHead>
+                      <TableHead className="text-center">Pendientes</TableHead>
+                      <TableHead className="text-center">Disponibles</TableHead>
+                      <TableHead className="whitespace-nowrap">Vence</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {staffBalances.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          No hay personal que coincida con los filtros
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      staffBalances.map((sb) =>
+                        sb.rows.length === 0 ? (
+                          <TableRow key={sb.staff.id}>
+                            <TableCell>
+                              <p className="font-medium">
+                                {sb.staff.first_name} {sb.staff.last_name}
+                              </p>
+                              <p className="text-sm text-muted-foreground">{sb.staff.position}</p>
+                            </TableCell>
+                            <TableCell>{sb.agencyName}</TableCell>
+                            <TableCell colSpan={6} className="text-muted-foreground text-sm">
+                              Sin saldos registrados para {currentYear}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          sb.rows.map((r, idx) => (
+                            <TableRow key={`${sb.staff.id}-${r.typeId}`}>
+                              {idx === 0 ? (
+                                <>
+                                  <TableCell rowSpan={sb.rows.length} className="align-top">
+                                    <p className="font-medium">
+                                      {sb.staff.first_name} {sb.staff.last_name}
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">{sb.staff.position}</p>
+                                  </TableCell>
+                                  <TableCell rowSpan={sb.rows.length} className="align-top">
+                                    {sb.agencyName}
+                                  </TableCell>
+                                </>
+                              ) : null}
+                              <TableCell>
+                                <span className="flex items-center gap-2">
+                                  <span
+                                    className="inline-block h-3 w-3 rounded-full"
+                                    style={{ backgroundColor: r.color }}
+                                  />
+                                  {r.typeName}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-center">{r.entitled}</TableCell>
+                              <TableCell className="text-center text-red-600">{r.taken}</TableCell>
+                              <TableCell className="text-center text-yellow-600">{r.pending}</TableCell>
+                              <TableCell className="text-center font-semibold text-green-600">{r.available}</TableCell>
+                              <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                                31 dic {currentYear}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ),
+                      )
                     )}
                   </TableBody>
                 </Table>
