@@ -43,6 +43,7 @@ export const sectionCategories: Record<string, SectionCategory> = {
       "staff_all",
       "organigrama",
       "workload",
+      "salaries",
       "payroll_own",
       "payroll_subordinates",
       "payroll_all",
@@ -109,6 +110,7 @@ export const moduleLabels: Record<string, string> = {
   staff_all: "Todo el Personal",
   organigrama: "Organigrama",
   workload: "Cargas de Trabajo",
+  salaries: "Sueldos y Salarios",
 
   // Recursos Humanos - Nomina y Compensaciones
   payroll_own: "Mi Nomina",

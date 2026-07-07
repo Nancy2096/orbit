@@ -170,6 +170,17 @@ interface RecognitionSettings {
   min_redemption_points: number
 }
 
+// Formatea un costo por hora de ejemplo (salario ÷ horas) en pesos.
+function formatCurrencyExample(salary: number, hours: number) {
+  const perHour = hours > 0 ? salary / hours : 0
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(perHour)
+}
+
 const LEVELS = [
   { value: "junior", label: "Junior" },
   { value: "mid", label: "Mid-Level" },
@@ -300,6 +311,10 @@ const [positions, setPositions] = useState<Position[]>([])
     is_active: true,
   })
 
+  // Horas laborables al mes: factor para calcular el costo por hora
+  // (costo por hora = salario mensual ÷ horas laborables al mes).
+  const [workingHoursPerMonth, setWorkingHoursPerMonth] = useState("160")
+
   // Configuración de correos para onboarding (encuestas de satisfacción)
   const [emailConfig, setEmailConfig] = useState({
     sender_name: "",
@@ -341,6 +356,9 @@ const [positions, setPositions] = useState<Position[]>([])
             ...prev,
             ...agency.settings.onboarding_email,
           }))
+        }
+        if (agency.settings?.working_hours_per_month != null) {
+          setWorkingHoursPerMonth(String(agency.settings.working_hours_per_month))
         }
       }
 
@@ -975,6 +993,7 @@ const [positions, setPositions] = useState<Position[]>([])
               tagline: branding.tagline,
             },
             onboarding_email: emailConfig,
+            working_hours_per_month: Number.parseFloat(workingHoursPerMonth) || 160,
           },
           updated_at: new Date().toISOString(),
         })
@@ -1377,6 +1396,10 @@ const [positions, setPositions] = useState<Position[]>([])
                 <Mail className="h-4 w-4 mr-2" />
                 Correos Onboarding
               </TabsTrigger>
+              <TabsTrigger value="working-hours" className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md px-4 py-2">
+                <Clock className="h-4 w-4 mr-2" />
+                Horas Laborables
+              </TabsTrigger>
             </TabsList>
 
           {/* Tab Correos Onboarding */}
@@ -1464,6 +1487,55 @@ const [positions, setPositions] = useState<Position[]>([])
                     Estos datos se usan para personalizar los correos de las encuestas de satisfacción del onboarding.
                     El disparo automático (día 7 y día 30) usará esta configuración una vez se conecte el proveedor de correo.
                   </p>
+                </FieldGroup>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab Horas Laborables */}
+          <TabsContent value="working-hours">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Horas Laborables
+                </CardTitle>
+                <CardDescription>
+                  Número de horas laborables al mes de esta agencia. Es el factor por el que se divide automáticamente
+                  el salario mensual para determinar el costo por hora en Sueldos y Salarios y en Personal.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FieldGroup>
+                  <div className="grid gap-2 max-w-xs">
+                    <Label htmlFor="working_hours_per_month">Horas laborables al mes</Label>
+                    <Input
+                      id="working_hours_per_month"
+                      type="number"
+                      step="1"
+                      min="1"
+                      inputMode="numeric"
+                      value={workingHoursPerMonth}
+                      onChange={(e) => setWorkingHoursPerMonth(e.target.value)}
+                      placeholder="160"
+                    />
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/40 p-4">
+                    <p className="text-sm text-muted-foreground">
+                      Ejemplo: con{" "}
+                      <span className="font-medium text-foreground">
+                        {Number.parseFloat(workingHoursPerMonth) > 0
+                          ? Number.parseFloat(workingHoursPerMonth)
+                          : 160}
+                      </span>{" "}
+                      horas al mes, un salario mensual de{" "}
+                      <span className="font-medium text-foreground">$16,000</span> equivale a un costo por hora de{" "}
+                      <span className="font-medium text-foreground">
+                        {formatCurrencyExample(16000, Number.parseFloat(workingHoursPerMonth) || 160)}
+                      </span>
+                      .
+                    </p>
+                  </div>
                 </FieldGroup>
               </CardContent>
             </Card>

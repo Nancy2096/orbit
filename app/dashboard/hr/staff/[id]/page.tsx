@@ -22,7 +22,10 @@ import { EMPLOYMENT_STATUSES } from "@/app/dashboard/hr/staff/page"
 interface Agency {
   id: string
   name: string
+  settings?: { working_hours_per_month?: number } | null
 }
+
+const DEFAULT_WORKING_HOURS = 160
 
 interface Currency {
   id: string
@@ -126,10 +129,30 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [staffDocuments, setStaffDocuments] = useState<StaffDocument[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
   const [canEditBilling, setCanEditBilling] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+
+  // Horas laborables al mes de la agencia del colaborador. El personal Global
+  // (sin agencia) usa el valor de cualquier agencia que lo tenga configurado,
+  // pues es igual para todas. Si nadie lo tiene, se usa el valor por defecto.
+  const workingHoursForStaff = () => {
+    const agencyId = formData.is_global ? null : formData.agency_id
+    if (agencyId) {
+      const h = Number(agencies.find((a) => a.id === agencyId)?.settings?.working_hours_per_month)
+      if (h > 0) return h
+    }
+    const found = agencies.find((a) => Number(a.settings?.working_hours_per_month) > 0)
+    return Number(found?.settings?.working_hours_per_month) || DEFAULT_WORKING_HOURS
+  }
+
+  // Costo por hora = salario mensual ÷ horas laborables al mes (automático).
+  const computedHourlyCost = (() => {
+    const salary = Number.parseFloat(formData.monthly_salary) || 0
+    const hours = workingHoursForStaff()
+    if (!(salary > 0) || !(hours > 0)) return 0
+    return salary / hours
+  })()
 
   useEffect(() => {
     setMounted(true)
@@ -169,49 +192,13 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
   async function fetchData() {
     setFetching(true)
     
-    // Verificar el rol del usuario actual para permisos de edición de Costos y Facturación
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: currentStaff } = await supabase
-        .from("staff")
-        .select("position, position_id, role_id, positions(name, level), roles(name)")
-        .eq("user_id", user.id)
-        .single()
-      
-      if (currentStaff) {
-        const positionName = (currentStaff.position || currentStaff.positions?.name || "").toLowerCase()
-        const positionLevel = (currentStaff.positions?.level || "").toLowerCase()
-        const roleName = (currentStaff.roles?.name || "").toLowerCase()
-        
-        // Permitir edición a: Super Admin, Dirección, RRHH, Finanzas, Gerentes RH
-        const canEdit = 
-          roleName === "superadmin" ||
-          roleName === "direccion_general" ||
-          roleName === "direccion_agencia" ||
-          roleName === "rrhh" ||
-          roleName === "finanzas" ||
-          positionName.includes("gerente") && positionName.includes("rh") ||
-          positionName.includes("gerente") && positionName.includes("recursos humanos") ||
-          positionName.includes("director") ||
-          positionLevel === "director" ||
-          positionLevel === "c-level" ||
-          positionName.includes("ceo") ||
-          positionName.includes("cfo") ||
-          positionName.includes("coo")
-        
-        setCanEditBilling(canEdit)
-        setCurrentUserRole(positionName)
-      } else {
-        // Si no hay registro de staff para este usuario, permitir edición (probablemente es super admin)
-        setCanEditBilling(true)
-      }
-    } else {
-      // Si no hay usuario autenticado, no permitir edición
-      setCanEditBilling(false)
-    }
+    // La sección de Costos y Facturación es solo de lectura en Personal para
+    // todos los usuarios. Los sueldos y comisiones únicamente se editan desde
+    // la sección de Sueldos y Salarios (con confirmación y bitácora de cambios).
+    setCanEditBilling(false)
     
     const [agenciesRes, currenciesRes, staffRes] = await Promise.all([
-      supabase.from("agencies").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("agencies").select("id, name, settings").eq("is_active", true).order("name"),
       supabase.from("currencies").select("id, code, name, symbol").eq("is_active", true).order("code"),
       supabase.from("staff").select("*").eq("id", id).single(),
     ])
@@ -222,9 +209,15 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
     if (staffRes.data) {
       const s = staffRes.data
       
-      // Fetch agency-specific data
-      if (s.agency_id) {
+      // Fetch agency-specific data, o datos de todas las agencias si es global.
+      // Los empleados globales no tienen agency_id, así que sin esto los
+      // selectores de departamento y puesto quedan vacíos.
+      if (s.is_global) {
+        await fetchGlobalData()
+      } else if (s.agency_id) {
         await fetchAgencyData(s.agency_id)
+      } else if (Array.isArray(s.agency_ids) && s.agency_ids.length > 0) {
+        await fetchAgencyData(s.agency_ids[0])
       }
       
       setFormData({
@@ -442,7 +435,7 @@ hire_date: formData.hire_date || null,
   birth_date: formData.birth_date || null,
   contract_type: formData.contract_type,
   contract_type_id: formData.contract_type_id || null,
-  hourly_cost: formData.contract_type === "commission" ? 0 : (parseFloat(formData.hourly_cost) || 0),
+        hourly_cost: formData.contract_type === "commission" ? 0 : computedHourlyCost,
       monthly_salary: formData.contract_type === "commission" ? 0 : (parseFloat(formData.monthly_salary) || 0),
       currency_id: formData.currency_id || null,
       commission_percentage: (formData.contract_type === "commission" || formData.contract_type === "full_time_variable") ? (parseFloat(formData.commission_percentage) || 0) : 0,
@@ -990,7 +983,7 @@ hire_date: formData.hire_date || null,
                 {!canEditBilling && (
                   <div className="flex items-center gap-2 text-amber-600 bg-amber-100 px-3 py-1.5 rounded-md text-xs font-medium">
                     <AlertCircle className="h-3.5 w-3.5" />
-                    Solo lectura - Requiere permisos de Gerente RH o Director
+                    Solo lectura - Edítalo desde Sueldos y Salarios
                   </div>
                 )}
               </div>
@@ -1085,20 +1078,6 @@ hire_date: formData.hire_date || null,
                     <>
                       <div className="grid grid-cols-2 gap-4">
                         <Field>
-                          <FieldLabel htmlFor="hourly_cost">Costo por hora</FieldLabel>
-                          <Input
-                            id="hourly_cost"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={formData.hourly_cost}
-                            onChange={(e) => setFormData({ ...formData, hourly_cost: e.target.value })}
-                            placeholder="Ej: 150.00"
-                            disabled={!canEditBilling}
-                            className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}
-                          />
-                        </Field>
-                        <Field>
                           <FieldLabel htmlFor="monthly_salary">Salario Mensual</FieldLabel>
                           <Input
                             id="monthly_salary"
@@ -1159,20 +1138,6 @@ hire_date: formData.hire_date || null,
                     </>
                   ) : (
                   <div className="grid grid-cols-2 gap-4">
-                    <Field>
-                      <FieldLabel htmlFor="hourly_cost">Costo por hora</FieldLabel>
-                      <Input
-                        id="hourly_cost"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formData.hourly_cost}
-                        onChange={(e) => setFormData({ ...formData, hourly_cost: e.target.value })}
-                        placeholder="0.00"
-                        disabled={!canEditBilling}
-                        className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}
-                      />
-                    </Field>
                     <Field>
                       <FieldLabel htmlFor="monthly_salary">Salario mensual</FieldLabel>
                       <Input
