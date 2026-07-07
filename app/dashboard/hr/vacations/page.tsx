@@ -420,10 +420,12 @@ export default function VacationsPage() {
   }
 
   const fetchHolidays = async () => {
+    // Incluye los festivos/eventos de la agencia y los globales (agency_id null)
+    // definidos en el Calendario de RH.
     const { data } = await supabase
       .from("holidays")
       .select("*")
-      .eq("agency_id", selectedAgency)
+      .or(`agency_id.eq.${selectedAgency},agency_id.is.null`)
       .order("date")
     if (data) setHolidays(data)
   }
@@ -701,16 +703,20 @@ export default function VacationsPage() {
     return true
   })
 
-  // ¿El usuario actual tiene gente a su cargo? (aparece como jefe de alguien)
-  const isManager = !!currentStaff && staff.some((s) => s.reports_to_id === currentStaff.id)
+  // ¿El usuario actual puede aprobar solicitudes? Es jefe (tiene gente a su cargo,
+  // incluso de otras agencias) o pertenece a Recursos Humanos.
+  const isManager =
+    !!currentStaff &&
+    (allStaff.some((s) => s.reports_to_id === currentStaff.id) ||
+      (currentStaff.department || "").trim().toLowerCase() === "recursos humanos")
 
-  // Solicitudes que el usuario actual debe revisar: designado como aprobador,
-  // o es el jefe directo del solicitante (si no se designó aprobador).
+  // Solicitudes que el usuario actual debe revisar: designado explícitamente como
+  // aprobador, o forma parte de la cadena de aprobación (jefe directo/superiores o RH).
   const requestsToApprove = leaveRequests.filter((r) => {
     if (!currentStaff) return false
     if (r.staff_id === currentStaff.id) return false
     if (r.approver_id) return r.approver_id === currentStaff.id
-    return r.staff?.id ? staff.find((s) => s.id === r.staff_id)?.reports_to_id === currentStaff.id : false
+    return canReviewRequest(r)
   })
   const pendingToApprove = requestsToApprove.filter((r) => r.status === "pending")
 
@@ -720,8 +726,48 @@ export default function VacationsPage() {
     new Date(r.created_at).getMonth() === new Date().getMonth()
   )
 
-  const getStaffBalance = (staffId: string) => {
-    return leaveBalances.filter(b => b.staff_id === staffId)
+  // Equipo del usuario actual: sus reportes directos. Si no tiene reportes
+  // (o no está vinculado a un empleado), se muestra todo el personal de la agencia.
+  const myTeam =
+    currentStaff && staff.some((s) => s.reports_to_id === currentStaff.id)
+      ? staff.filter((s) => s.reports_to_id === currentStaff.id)
+      : staff
+
+  // Saldos por empleado calculados con datos reales: los días otorgados provienen
+  // de la configuración de permisos de la agencia (days_per_year) o de un balance
+  // asignado manualmente; los tomados/pendientes se derivan de las solicitudes del año.
+  const getStaffBalance = (staffId: string): LeaveBalance[] => {
+    return leaveTypes.map((t) => {
+      const stored = leaveBalances.find(
+        (b) => b.staff_id === staffId && b.leave_type_id === t.id,
+      )
+      const reqs = leaveRequests.filter(
+        (r) =>
+          r.staff_id === staffId &&
+          r.leave_type_id === t.id &&
+          r.start_date &&
+          new Date(r.start_date).getFullYear() === currentYear,
+      )
+      const taken = reqs
+        .filter((r) => r.status === "approved")
+        .reduce((sum, r) => sum + Number(r.total_days || 0), 0)
+      const pending = reqs
+        .filter((r) => r.status === "pending")
+        .reduce((sum, r) => sum + Number(r.total_days || 0), 0)
+      const entitled = stored ? Number(stored.days_entitled || 0) : Number(t.days_per_year || 0)
+      const available = Math.max(0, entitled - taken - pending)
+      return {
+        id: stored?.id || `${staffId}-${t.id}`,
+        staff_id: staffId,
+        leave_type_id: t.id,
+        year: currentYear,
+        days_entitled: entitled,
+        days_taken: taken,
+        days_pending: pending,
+        days_available: available,
+        leave_type: t,
+      }
+    })
   }
 
   if (loading) {
@@ -1063,7 +1109,10 @@ export default function VacationsPage() {
             </Button>
           </div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {staff.map((member) => {
+            {myTeam.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No hay personal para mostrar</p>
+            ) : null}
+            {myTeam.map((member) => {
               const balances = getStaffBalance(member.id)
               return (
                 <Card key={member.id}>
@@ -1091,7 +1140,7 @@ export default function VacationsPage() {
                             <span className="font-medium">{balance.days_available} disponibles</span>
                           </div>
                           <Progress 
-                            value={(balance.days_taken / balance.days_entitled) * 100} 
+                            value={balance.days_entitled > 0 ? (balance.days_taken / balance.days_entitled) * 100 : 0} 
                             className="h-2"
                           />
                           <div className="flex justify-between text-xs text-muted-foreground">
