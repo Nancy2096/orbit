@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Plus, Pencil, Factory, Megaphone } from "lucide-react"
+import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift } from "lucide-react"
 import Link from "next/link"
 
 const supabase = createClient()
@@ -33,6 +33,13 @@ interface ReferralSource {
   is_active: boolean
 }
 
+interface BonusType {
+  id: string
+  name: string
+  description: string | null
+  is_active: boolean
+}
+
 const sourceTypeLabels: Record<string, string> = {
   advertising: "Publicidad",
   referral: "Referido",
@@ -48,6 +55,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   const [agency, setAgency] = useState<{ id: string; name: string } | null>(null)
   const [industries, setIndustries] = useState<Industry[]>([])
   const [referralSources, setReferralSources] = useState<ReferralSource[]>([])
+  const [bonusTypes, setBonusTypes] = useState<BonusType[]>([])
   const [loading, setLoading] = useState(true)
 
   // Industry dialog state
@@ -62,6 +70,12 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   const [sourceForm, setSourceForm] = useState({ name: "", description: "", source_type: "other", is_active: true })
   const [savingSource, setSavingSource] = useState(false)
 
+  // Bonus type dialog state
+  const [bonusDialogOpen, setBonusDialogOpen] = useState(false)
+  const [editingBonus, setEditingBonus] = useState<BonusType | null>(null)
+  const [bonusForm, setBonusForm] = useState({ name: "", description: "", is_active: true })
+  const [savingBonus, setSavingBonus] = useState(false)
+
   useEffect(() => {
     fetchData()
   }, [id])
@@ -69,15 +83,17 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   async function fetchData() {
     setLoading(true)
 
-    const [agencyRes, industriesRes, sourcesRes] = await Promise.all([
+    const [agencyRes, industriesRes, sourcesRes, bonusTypesRes] = await Promise.all([
       supabase.from("agencies").select("id, name").eq("id", id).single(),
       supabase.from("industries").select("*").eq("agency_id", id).order("name"),
       supabase.from("referral_sources").select("*").eq("agency_id", id).order("name"),
+      supabase.from("bonus_types").select("*").eq("agency_id", id).order("name"),
     ])
 
     if (agencyRes.data) setAgency(agencyRes.data)
     if (industriesRes.data) setIndustries(industriesRes.data)
     if (sourcesRes.data) setReferralSources(sourcesRes.data)
+    if (bonusTypesRes.data) setBonusTypes(bonusTypesRes.data)
 
     setLoading(false)
   }
@@ -175,6 +191,51 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
     fetchData()
   }
 
+  // Bonus type handlers
+  function openNewBonus() {
+    setEditingBonus(null)
+    setBonusForm({ name: "", description: "", is_active: true })
+    setBonusDialogOpen(true)
+  }
+
+  function openEditBonus(bonus: BonusType) {
+    setEditingBonus(bonus)
+    setBonusForm({
+      name: bonus.name,
+      description: bonus.description || "",
+      is_active: bonus.is_active,
+    })
+    setBonusDialogOpen(true)
+  }
+
+  async function saveBonus() {
+    if (!bonusForm.name.trim()) return
+    setSavingBonus(true)
+
+    if (editingBonus) {
+      await supabase
+        .from("bonus_types")
+        .update({
+          name: bonusForm.name,
+          description: bonusForm.description || null,
+          is_active: bonusForm.is_active,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editingBonus.id)
+    } else {
+      await supabase.from("bonus_types").insert({
+        agency_id: id,
+        name: bonusForm.name,
+        description: bonusForm.description || null,
+        is_active: bonusForm.is_active,
+      })
+    }
+
+    setSavingBonus(false)
+    setBonusDialogOpen(false)
+    fetchData()
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -193,7 +254,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
         </Button>
         <div>
           <h1 className="text-2xl font-bold">Catálogos de {agency?.name}</h1>
-          <p className="text-muted-foreground">Administra los tipos de cliente y fuentes de referencia</p>
+          <p className="text-muted-foreground">Administra los tipos de cliente, fuentes de referencia y tipos de bono</p>
         </div>
       </div>
 
@@ -206,6 +267,10 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
           <TabsTrigger value="sources" className="gap-2">
             <Megaphone className="h-4 w-4" />
             Fuentes/Referencias
+          </TabsTrigger>
+          <TabsTrigger value="bonuses" className="gap-2">
+            <Gift className="h-4 w-4" />
+            Bonos
           </TabsTrigger>
         </TabsList>
 
@@ -437,6 +502,113 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                         </TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon" onClick={() => openEditSource(source)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Bonus Types Tab */}
+        <TabsContent value="bonuses">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Tipos de Bono</CardTitle>
+                <CardDescription>
+                  Define los tipos de bono que se pueden otorgar al personal de esta agencia
+                </CardDescription>
+              </div>
+              <Dialog open={bonusDialogOpen} onOpenChange={setBonusDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={openNewBonus}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuevo Tipo de Bono
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>
+                      {editingBonus ? "Editar Tipo de Bono" : "Nuevo Tipo de Bono"}
+                    </DialogTitle>
+                    <DialogDescription>
+                      {editingBonus ? "Modifica los datos del tipo de bono" : "Agrega un nuevo tipo de bono al catálogo"}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="bonus_name">Nombre *</FieldLabel>
+                      <Input
+                        id="bonus_name"
+                        value={bonusForm.name}
+                        onChange={(e) => setBonusForm({ ...bonusForm, name: e.target.value })}
+                        placeholder="Ej: Desempeño, Productividad, Aguinaldo..."
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="bonus_description">Descripción</FieldLabel>
+                      <Textarea
+                        id="bonus_description"
+                        value={bonusForm.description}
+                        onChange={(e) => setBonusForm({ ...bonusForm, description: e.target.value })}
+                        placeholder="Descripción opcional..."
+                        rows={3}
+                      />
+                    </Field>
+                    <div className="flex items-center justify-between">
+                      <FieldLabel htmlFor="bonus_active">Activo</FieldLabel>
+                      <Switch
+                        id="bonus_active"
+                        checked={bonusForm.is_active}
+                        onCheckedChange={(checked) => setBonusForm({ ...bonusForm, is_active: checked })}
+                      />
+                    </div>
+                  </FieldGroup>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setBonusDialogOpen(false)}>
+                      Cancelar
+                    </Button>
+                    <Button onClick={saveBonus} disabled={savingBonus || !bonusForm.name.trim()}>
+                      {savingBonus ? "Guardando..." : "Guardar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+            <CardContent>
+              {bonusTypes.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No hay tipos de bono definidos. Agrega uno para comenzar.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nombre</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="w-[100px]">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bonusTypes.map((bonus) => (
+                      <TableRow key={bonus.id}>
+                        <TableCell className="font-medium">{bonus.name}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {bonus.description || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={bonus.is_active ? "default" : "secondary"}>
+                            {bonus.is_active ? "Activo" : "Inactivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" onClick={() => openEditBonus(bonus)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
                         </TableCell>
