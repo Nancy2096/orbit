@@ -805,6 +805,8 @@ export default function ProfilePage() {
               redirectTo="/dashboard/profile"
               cancelHref="/dashboard/profile"
               showHeader={false}
+              laborReadOnly
+              hideNotes
             />
           ) : (
             <Card>

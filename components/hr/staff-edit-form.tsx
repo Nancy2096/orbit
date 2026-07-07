@@ -66,6 +66,10 @@ interface StaffEditFormProps {
   cancelHref?: string
   /** Muestra la flecha/encabezado "Editar Miembro". Por defecto true. */
   showHeader?: boolean
+  /** Hace la sección "Información Laboral" visible pero no editable. Por defecto false. */
+  laborReadOnly?: boolean
+  /** Oculta la sección "Notas Adicionales". Por defecto false. */
+  hideNotes?: boolean
 }
 
 export function StaffEditForm({
@@ -73,6 +77,8 @@ export function StaffEditForm({
   redirectTo = "/dashboard/hr/staff",
   cancelHref = "/dashboard/hr/staff",
   showHeader = true,
+  laborReadOnly = false,
+  hideNotes = false,
 }: StaffEditFormProps) {
   const id = staffId
   const [mounted, setMounted] = useState(false)
@@ -758,12 +764,21 @@ hire_date: formData.hire_date || null,
           </Card>
 
           {/* Información laboral */}
-          <Card>
+          <Card className={laborReadOnly ? "border-amber-200 bg-amber-50/30" : ""}>
             <CardHeader>
               <CardTitle>Información Laboral</CardTitle>
               <CardDescription>Puesto, departamento y estructura organizacional</CardDescription>
+              {laborReadOnly && (
+                <div className="flex items-start gap-2 mt-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>
+                    Esta información es de solo lectura. Solo puede modificarse desde la sección de Personal.
+                  </span>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
+              <fieldset disabled={laborReadOnly} className={laborReadOnly ? "opacity-70" : ""}>
               <FieldGroup>
                 {formData.agency_id && !hasPredefinedData && (
                   <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm">
@@ -986,6 +1001,7 @@ hire_date: formData.hire_date || null,
                   </Select>
                 </Field>
               </FieldGroup>
+              </fieldset>
             </CardContent>
           </Card>
 
@@ -1434,6 +1450,7 @@ hire_date: formData.hire_date || null,
           />
   
   {/* Notas */}
+  {!hideNotes && (
   <Card>
   <CardHeader>
   <CardTitle>Notas Adicionales</CardTitle>
@@ -1449,6 +1466,7 @@ hire_date: formData.hire_date || null,
               </Field>
             </CardContent>
           </Card>
+          )}
 
           {error && (
             <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-sm">
