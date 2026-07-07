@@ -751,12 +751,12 @@ hire_date: formData.hire_date || null,
                 </div>
 
                 <Field>
-                  <FieldLabel htmlFor="employee_code">Código de empleado</FieldLabel>
+                  <FieldLabel htmlFor="birth_date">Fecha de nacimiento</FieldLabel>
                   <Input
-                    id="employee_code"
-                    value={formData.employee_code}
-                    onChange={(e) => setFormData({ ...formData, employee_code: e.target.value })}
-                    placeholder="Ej: EMP-001"
+                    id="birth_date"
+                    type="date"
+                    value={formData.birth_date}
+                    onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })}
                   />
                 </Field>
               </FieldGroup>
@@ -955,12 +955,12 @@ hire_date: formData.hire_date || null,
                     />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="birth_date">Fecha de nacimiento</FieldLabel>
+                    <FieldLabel htmlFor="employee_code">Código de empleado</FieldLabel>
                     <Input
-                      id="birth_date"
-                      type="date"
-                      value={formData.birth_date}
-                      onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })}
+                      id="employee_code"
+                      value={formData.employee_code}
+                      onChange={(e) => setFormData({ ...formData, employee_code: e.target.value })}
+                      placeholder="Ej: EMP-001"
                     />
                   </Field>
                 </div>
