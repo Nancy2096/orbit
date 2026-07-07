@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Save, User, Lock, Shield, Building2, Camera, Briefcase, Mail, Phone, MapPin } from "lucide-react"
+import { Save, User, Lock, Shield, Building2, Camera, Briefcase, Mail, Phone, MapPin, Info, Calendar, FileText } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
 import { StaffAvatar } from "@/components/staff-avatar"
@@ -346,6 +347,12 @@ export default function ProfilePage() {
             <Lock className="h-4 w-4" />
             Seguridad
           </TabsTrigger>
+          {staff && (
+            <TabsTrigger value="info" className="gap-2">
+              <Info className="h-4 w-4" />
+              Información
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="general">
@@ -763,7 +770,110 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {staff && (
+          <TabsContent value="info">
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Briefcase className="h-5 w-5" />
+                    Información Laboral
+                  </CardTitle>
+                  <CardDescription>
+                    Datos de tu registro en Personal. Esta información es de solo lectura; si algo es incorrecto,
+                    contacta a Recursos Humanos.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <InfoItem icon={User} label="Nombre completo" value={`${staff.first_name} ${staff.last_name}`} />
+                    <InfoItem icon={Briefcase} label="Puesto" value={staff.position} />
+                    <InfoItem icon={Building2} label="Departamento" value={staff.department} />
+                    <InfoItem
+                      icon={Shield}
+                      label="Rol"
+                      value={staff.role?.display_name || user.role?.display_name || null}
+                    />
+                    <InfoItem
+                      icon={Building2}
+                      label="Agencia"
+                      value={
+                        staff.is_global || user.is_global_access
+                          ? "Acceso Global"
+                          : staff.agency?.name || staff.agencies?.map((a) => a.name).join(", ") || null
+                      }
+                    />
+                    <InfoItem
+                      icon={FileText}
+                      label="Tipo de contrato"
+                      value={CONTRACT_TYPE_LABELS[staff.contract_type] || staff.contract_type || null}
+                    />
+                    <InfoItem
+                      icon={Calendar}
+                      label="Fecha de ingreso"
+                      value={
+                        staff.hire_date
+                          ? new Date(staff.hire_date).toLocaleDateString("es-MX", {
+                              year: "numeric",
+                              month: "long",
+                              day: "numeric",
+                            })
+                          : null
+                      }
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Mail className="h-5 w-5" />
+                    Contacto Corporativo
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <InfoItem icon={Mail} label="Correo corporativo" value={staff.email} />
+                    <InfoItem icon={Phone} label="Teléfono" value={staff.phone} />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
+    </div>
+  )
+}
+
+const CONTRACT_TYPE_LABELS: Record<string, string> = {
+  full_time: "Tiempo completo",
+  part_time: "Medio tiempo",
+  freelance: "Freelance",
+  commission: "Por comisión",
+  fixed_variable: "Fijo + variable",
+  intern: "Prácticas",
+  temporary: "Temporal",
+}
+
+function InfoItem({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon
+  label: string
+  value: string | null
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <p className="text-sm mt-0.5 break-words">{value || "No especificado"}</p>
+      </div>
     </div>
   )
 }
