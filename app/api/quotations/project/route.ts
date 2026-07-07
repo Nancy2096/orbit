@@ -1,48 +1,29 @@
-import { del } from "@vercel/blob"
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
+import { del, put } from "@vercel/blob"
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 
-// POST: genera el token para subir el archivo DIRECTO a Vercel Blob desde el
-// cliente. Esto evita el límite de ~4.5MB de los Route Handlers, por lo que la
-// cotización no tiene restricción de peso (ni de tipo de archivo).
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const body = (await request.json()) as HandleUploadBody
+// Permite cuerpos grandes en el route handler (cotizaciones pesadas).
+export const maxDuration = 60
 
+// POST: sube la cotización a Vercel Blob DESDE EL SERVIDOR (en un solo paso) y
+// la agrega al HISTORIAL del proyecto. Nunca borra las cotizaciones anteriores:
+// cada subida es un registro nuevo.
+export async function POST(request: NextRequest) {
   try {
-    const jsonResponse = await handleUpload({
-      body,
-      request,
-      onBeforeGenerateToken: async () => {
-        return {
-          // Sin restricción de tipo ni de tamaño de archivo.
-          addRandomSuffix: true,
-        }
-      },
-      // onUploadCompleted no se ejecuta en local/preview, por eso la BD se
-      // actualiza desde el cliente vía PATCH.
-      onUploadCompleted: async () => {},
-    })
+    const formData = await request.formData()
+    const file = formData.get("file") as File | null
+    const projectId = formData.get("projectId") as string | null
+    const label = (formData.get("label") as string | null) || null
 
-    return NextResponse.json(jsonResponse)
-  } catch (error) {
-    console.error("Token generation error:", error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Upload failed" },
-      { status: 400 },
-    )
-  }
-}
-
-// PATCH: agrega la cotización subida al HISTORIAL del proyecto.
-// Nunca borra las cotizaciones anteriores: cada subida es un registro nuevo.
-export async function PATCH(request: NextRequest) {
-  try {
-    const { projectId, url, filename, label } = await request.json()
-
-    if (!projectId || !url) {
+    if (!file || !projectId) {
       return NextResponse.json({ error: "Missing parameters" }, { status: 400 })
     }
+
+    // Sube el archivo al blob storage (nombre único para conservar el histórico).
+    const blob = await put(`quotations/projects/${projectId}/${file.name}`, file, {
+      access: "public",
+      addRandomSuffix: true,
+    })
 
     const supabase = await createClient()
     const { data, error } = await supabase
@@ -50,23 +31,27 @@ export async function PATCH(request: NextRequest) {
       .insert({
         owner_type: "project",
         owner_id: projectId,
-        url,
-        filename,
-        label: label || null,
+        url: blob.url,
+        filename: file.name,
+        label,
       })
       .select()
       .single()
 
     if (error) {
-      // Si falla la BD, borra el archivo recién subido
-      await del(url)
+      // Si falla la BD, borra el archivo recién subido para no dejar huérfanos.
+      await del(blob.url)
+      console.error("Save error:", error)
       return NextResponse.json({ error: "Failed to save quotation" }, { status: 500 })
     }
 
     return NextResponse.json(data)
   } catch (error) {
-    console.error("Save error:", error)
-    return NextResponse.json({ error: "Save failed" }, { status: 500 })
+    console.error("Upload error:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Upload failed" },
+      { status: 500 },
+    )
   }
 }
 

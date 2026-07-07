@@ -3,7 +3,6 @@
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { upload } from "@vercel/blob/client"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -492,22 +491,15 @@ async function fetchAgencyServices(agencyId: string) {
     setError(null)
 
     try {
-      // Sube el archivo DIRECTO a Vercel Blob (sin pasar por el servidor),
-      // así no aplica el límite de ~4.5MB de los Route Handlers.
-      const blob = await upload(`quotations/projects/${id}/${file.name}`, file, {
-        access: "public",
-        handleUploadUrl: "/api/quotations/project",
-      })
+      // Sube el archivo al servidor en un solo paso (FormData). El servidor lo
+      // guarda en Vercel Blob y lo agrega al historial (nunca borra anteriores).
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("projectId", id)
 
-      // Agrega la cotización al historial (nunca borra las anteriores).
       const res = await fetch("/api/quotations/project", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: id,
-          url: blob.url,
-          filename: file.name,
-        }),
+        method: "POST",
+        body: formData,
       })
 
       if (!res.ok) {
