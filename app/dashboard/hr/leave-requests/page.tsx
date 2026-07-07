@@ -179,7 +179,8 @@ export default function LeaveRequestsOverviewPage() {
   // Solicitudes filtradas
   const filtered = useMemo(() => {
     return requests.filter((r) => {
-      if (filterAgency !== "all" && r.agency_id !== filterAgency) return false
+      if (filterAgency === "global" ? !!r.agency_id : filterAgency !== "all" && r.agency_id !== filterAgency)
+        return false
       if (filterStatus !== "all" && r.status !== filterStatus) return false
       if (filterDepartment !== "all" && (r.staff?.department || "") !== filterDepartment) return false
       if (search.trim()) {
@@ -194,7 +195,8 @@ export default function LeaveRequestsOverviewPage() {
   // KPIs globales (respetan los filtros de agencia/depto/búsqueda salvo el estado)
   const scoped = useMemo(() => {
     return requests.filter((r) => {
-      if (filterAgency !== "all" && r.agency_id !== filterAgency) return false
+      if (filterAgency === "global" ? !!r.agency_id : filterAgency !== "all" && r.agency_id !== filterAgency)
+        return false
       if (filterDepartment !== "all" && (r.staff?.department || "") !== filterDepartment) return false
       if (search.trim()) {
         const q = search.trim().toLowerCase()
@@ -299,12 +301,26 @@ export default function LeaveRequestsOverviewPage() {
     return map
   }, [requests, currentYear])
 
+  // Conjunto estándar de tipos de permiso, iguales para todas las agencias.
+  // Se usa para el personal Global (sin agencia asignada). Se deduplica por nombre.
+  const standardLeaveTypes = useMemo(() => {
+    const byName = new Map<string, (typeof leaveTypes)[number]>()
+    leaveTypes
+      .filter((t) => t.is_active !== false)
+      .forEach((t) => {
+        const key = (t.name || "").trim().toLowerCase()
+        if (!byName.has(key)) byName.set(key, t)
+      })
+    return Array.from(byName.values())
+  }, [leaveTypes])
+
   // Saldos del personal (respetan filtros de agencia/depto/búsqueda).
   // Los tipos y días/año provienen de la configuración de permisos de cada agencia.
   const staffBalances = useMemo(() => {
     return staff
       .filter((s) => {
-        if (filterAgency !== "all" && s.agency_id !== filterAgency) return false
+        if (filterAgency === "global" ? !!s.agency_id : filterAgency !== "all" && s.agency_id !== filterAgency)
+          return false
         if (filterDepartment !== "all" && (s.department || "") !== filterDepartment) return false
         if (search.trim()) {
           const q = search.trim().toLowerCase()
@@ -314,10 +330,14 @@ export default function LeaveRequestsOverviewPage() {
         return true
       })
       .map((s) => {
-        const agencyName = agencies.find((a) => a.id === s.agency_id)?.name || "-"
-        // Tipos de permiso definidos para la agencia del empleado
-        const rows = leaveTypes
-          .filter((t) => t.agency_id === s.agency_id)
+        // El personal sin agencia asignada se considera Global.
+        const agencyName = s.agency_id ? agencies.find((a) => a.id === s.agency_id)?.name || "-" : "Global"
+        // Tipos de permiso: los de la agencia del empleado, o el conjunto estándar
+        // (común a todas las agencias) para el personal Global.
+        const applicableTypes = s.agency_id
+          ? leaveTypes.filter((t) => t.agency_id === s.agency_id)
+          : standardLeaveTypes
+        const rows = applicableTypes
           .map((t) => {
             const usage = usageMap.get(`${s.id}::${t.id}`) || { taken: 0, pending: 0 }
             const entitled = Number(t.days_per_year || 0)
@@ -341,7 +361,7 @@ export default function LeaveRequestsOverviewPage() {
         return { staff: s, agencyName, rows, totalAvailable, totalTaken }
       })
       .sort((a, b) => `${a.staff.first_name} ${a.staff.last_name}`.localeCompare(`${b.staff.first_name} ${b.staff.last_name}`))
-  }, [staff, usageMap, leaveTypes, agencies, filterAgency, filterDepartment, search])
+  }, [staff, usageMap, leaveTypes, standardLeaveTypes, agencies, filterAgency, filterDepartment, search])
 
   // Indicadores de saldos
   const balanceKpis = useMemo(() => {
@@ -471,6 +491,7 @@ export default function LeaveRequestsOverviewPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas las agencias</SelectItem>
+              <SelectItem value="global">Global</SelectItem>
               {agencies.map((a) => (
                 <SelectItem key={a.id} value={a.id}>
                   {a.name}
