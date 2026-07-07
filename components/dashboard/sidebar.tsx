@@ -135,6 +135,11 @@ const hrNavItems = [
     icon: LayoutDashboard,
   },
   {
+    title: "Sueldos y Salarios",
+    url: "/dashboard/hr/salaries",
+    icon: Banknote,
+  },
+  {
     title: "Personal",
     url: "/dashboard/hr/staff",
     icon: UserCog,
@@ -158,11 +163,6 @@ const hrNavItems = [
     title: "Evaluaciones",
     url: "/dashboard/hr/evaluations",
     icon: ClipboardCheck,
-  },
-  {
-    title: "Sueldos y Salarios",
-    url: "/dashboard/hr/salaries",
-    icon: Banknote,
   },
   {
     title: "Nómina",
