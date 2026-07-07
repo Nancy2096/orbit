@@ -51,6 +51,7 @@ interface Holiday {
   agency_id: string | null
   name: string
   date: string
+  end_date: string | null
   is_recurring: boolean
   type: string
   description: string | null
@@ -117,6 +118,7 @@ export default function CalendarPage() {
   const [form, setForm] = useState({
     name: "",
     date: "",
+    end_date: "",
     type: "holiday" as "holiday" | "event",
     description: "",
     is_recurring: false,
@@ -134,7 +136,10 @@ export default function CalendarPage() {
   async function load() {
     setLoading(true)
     const [{ data: holidayData }, { data: staffData }] = await Promise.all([
-      supabase.from("holidays").select("id, agency_id, name, date, is_recurring, type, description").order("date"),
+      supabase
+        .from("holidays")
+        .select("id, agency_id, name, date, end_date, is_recurring, type, description")
+        .order("date"),
       supabase
         .from("staff")
         .select("id, first_name, last_name, position, photo_url, birth_date")
@@ -154,15 +159,28 @@ export default function CalendarPage() {
 
     holidays.forEach((h) => {
       const base = new Date(`${h.date}T00:00:00`)
-      const projected = h.is_recurring ? setYear(base, visibleYear) : base
+      const start = h.is_recurring ? setYear(base, visibleYear) : base
       const type: CalItemType = h.type === "event" ? "event" : "holiday"
-      items.push({
-        key: `h-${h.id}`,
-        type,
-        title: h.name,
-        subtitle: h.description || undefined,
-        date: projected,
-        raw: h,
+
+      // Si tiene fecha de fin, se expande a cada día del rango
+      let end = start
+      if (h.end_date) {
+        const rawEnd = new Date(`${h.end_date}T00:00:00`)
+        end = h.is_recurring ? setYear(rawEnd, visibleYear) : rawEnd
+      }
+      if (end < start) end = start
+
+      const rangeDays = eachDayOfInterval({ start, end })
+      const isRange = rangeDays.length > 1
+      rangeDays.forEach((day, idx) => {
+        items.push({
+          key: `h-${h.id}-${idx}`,
+          type,
+          title: isRange ? `${h.name} (${idx + 1}/${rangeDays.length})` : h.name,
+          subtitle: h.description || undefined,
+          date: day,
+          raw: h,
+        })
       })
     })
 
@@ -226,9 +244,12 @@ export default function CalendarPage() {
   async function handleSave() {
     if (!form.name.trim() || !form.date) return
     setSaving(true)
+    // La fecha de fin es opcional; si es anterior al inicio, se ignora
+    const endDate = form.end_date && form.end_date >= form.date ? form.end_date : null
     const { error } = await supabase.from("holidays").insert({
       name: form.name.trim(),
       date: form.date,
+      end_date: endDate,
       type: form.type,
       description: form.description.trim() || null,
       is_recurring: form.is_recurring,
@@ -237,7 +258,7 @@ export default function CalendarPage() {
     setSaving(false)
     if (!error) {
       setShowDialog(false)
-      setForm({ name: "", date: "", type: "holiday", description: "", is_recurring: false })
+      setForm({ name: "", date: "", end_date: "", type: "holiday", description: "", is_recurring: false })
       load()
     }
   }
@@ -499,29 +520,46 @@ export default function CalendarPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="cal-date">Fecha</Label>
+                <Label htmlFor="cal-date">Desde</Label>
                 <Input
                   id="cal-date"
                   type="date"
                   value={form.date}
-                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      date: e.target.value,
+                      // Si el fin queda antes del inicio, se limpia
+                      end_date: form.end_date && form.end_date < e.target.value ? "" : form.end_date,
+                    })
+                  }
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="cal-type">Tipo</Label>
-                <Select
-                  value={form.type}
-                  onValueChange={(v) => setForm({ ...form, type: v as "holiday" | "event" })}
-                >
-                  <SelectTrigger id="cal-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="holiday">Día festivo</SelectItem>
-                    <SelectItem value="event">Evento</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="cal-end-date">Hasta (opcional)</Label>
+                <Input
+                  id="cal-end-date"
+                  type="date"
+                  min={form.date || undefined}
+                  value={form.end_date}
+                  onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+                />
               </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="cal-type">Tipo</Label>
+              <Select
+                value={form.type}
+                onValueChange={(v) => setForm({ ...form, type: v as "holiday" | "event" })}
+              >
+                <SelectTrigger id="cal-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="holiday">Día festivo</SelectItem>
+                  <SelectItem value="event">Evento</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="cal-desc">Descripción (opcional)</Label>
