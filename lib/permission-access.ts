@@ -24,6 +24,7 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   ["/dashboard/hr/organigrama", ["organigrama"]],
   ["/dashboard/hr/workload", ["workload"]],
   ["/dashboard/hr/evaluations", ["staff", "staff_all", "staff_own", "staff_subordinates"]],
+  ["/dashboard/hr/salaries", ["payroll", "payroll_all", "staff", "staff_all"]],
   ["/dashboard/hr/payroll", ["payroll", "payroll_all", "payroll_own", "payroll_subordinates"]],
   ["/dashboard/hr/bonuses", ["bonuses", "bonuses_all", "bonuses_own", "bonuses_subordinates"]],
   ["/dashboard/hr/loans", ["loans", "loans_all", "loans_own", "loans_subordinates"]],

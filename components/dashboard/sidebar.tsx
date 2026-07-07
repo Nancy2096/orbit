@@ -47,6 +47,7 @@ import {
   Layers,
   ClipboardList,
   Wallet,
+  Banknote,
   BadgePercent,
   Gift,
   HandCoins,
@@ -157,6 +158,11 @@ const hrNavItems = [
     title: "Evaluaciones",
     url: "/dashboard/hr/evaluations",
     icon: ClipboardCheck,
+  },
+  {
+    title: "Sueldos y Salarios",
+    url: "/dashboard/hr/salaries",
+    icon: Banknote,
   },
   {
     title: "Nómina",
