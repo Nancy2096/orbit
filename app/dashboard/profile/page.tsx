@@ -347,12 +347,10 @@ export default function ProfilePage() {
             <Lock className="h-4 w-4" />
             Seguridad
           </TabsTrigger>
-          {staff && (
-            <TabsTrigger value="info" className="gap-2">
-              <Info className="h-4 w-4" />
-              Información
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="info" className="gap-2">
+            <Info className="h-4 w-4" />
+            Información
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -771,78 +769,93 @@ export default function ProfilePage() {
           </Card>
         </TabsContent>
 
-        {staff && (
-          <TabsContent value="info">
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Briefcase className="h-5 w-5" />
-                    Información Laboral
-                  </CardTitle>
-                  <CardDescription>
-                    Datos de tu registro en Personal. Esta información es de solo lectura; si algo es incorrecto,
-                    contacta a Recursos Humanos.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <InfoItem icon={User} label="Nombre completo" value={`${staff.first_name} ${staff.last_name}`} />
-                    <InfoItem icon={Briefcase} label="Puesto" value={staff.position} />
-                    <InfoItem icon={Building2} label="Departamento" value={staff.department} />
-                    <InfoItem
-                      icon={Shield}
-                      label="Rol"
-                      value={staff.role?.display_name || user.role?.display_name || null}
-                    />
-                    <InfoItem
-                      icon={Building2}
-                      label="Agencia"
-                      value={
-                        staff.is_global || user.is_global_access
-                          ? "Acceso Global"
-                          : staff.agency?.name || staff.agencies?.map((a) => a.name).join(", ") || null
-                      }
-                    />
-                    <InfoItem
-                      icon={FileText}
-                      label="Tipo de contrato"
-                      value={CONTRACT_TYPE_LABELS[staff.contract_type] || staff.contract_type || null}
-                    />
-                    <InfoItem
-                      icon={Calendar}
-                      label="Fecha de ingreso"
-                      value={
-                        staff.hire_date
-                          ? new Date(staff.hire_date).toLocaleDateString("es-MX", {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                            })
-                          : null
-                      }
-                    />
+        <TabsContent value="info">
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Briefcase className="h-5 w-5" />
+                  Información Laboral
+                </CardTitle>
+                <CardDescription>
+                  Datos de tu registro en Personal. Esta información es de solo lectura; si algo es incorrecto,
+                  contacta a Recursos Humanos.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {!staff && (
+                  <div className="mb-6 flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Tu cuenta no tiene un registro vinculado en Personal, por lo que se muestran los datos básicos de
+                      tu usuario.
+                    </span>
                   </div>
-                </CardContent>
-              </Card>
+                )}
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <InfoItem
+                    icon={User}
+                    label="Nombre completo"
+                    value={
+                      staff
+                        ? `${staff.first_name} ${staff.last_name}`
+                        : `${user?.first_name || ""} ${user?.last_name || ""}`.trim() || null
+                    }
+                  />
+                  <InfoItem icon={Briefcase} label="Puesto" value={staff?.position || null} />
+                  <InfoItem icon={Building2} label="Departamento" value={staff?.department || null} />
+                  <InfoItem
+                    icon={Shield}
+                    label="Rol"
+                    value={staff?.role?.display_name || user?.role?.display_name || null}
+                  />
+                  <InfoItem
+                    icon={Building2}
+                    label="Agencia"
+                    value={
+                      staff?.is_global || user?.is_global_access
+                        ? "Acceso Global"
+                        : staff?.agency?.name || staff?.agencies?.map((a) => a.name).join(", ") || null
+                    }
+                  />
+                  <InfoItem
+                    icon={FileText}
+                    label="Tipo de contrato"
+                    value={staff ? CONTRACT_TYPE_LABELS[staff.contract_type] || staff.contract_type || null : null}
+                  />
+                  <InfoItem
+                    icon={Calendar}
+                    label="Fecha de ingreso"
+                    value={
+                      staff?.hire_date
+                        ? new Date(staff.hire_date).toLocaleDateString("es-MX", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                          })
+                        : null
+                    }
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Mail className="h-5 w-5" />
-                    Contacto Corporativo
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    <InfoItem icon={Mail} label="Correo corporativo" value={staff.email} />
-                    <InfoItem icon={Phone} label="Teléfono" value={staff.phone} />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        )}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-5 w-5" />
+                  Contacto Corporativo
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <InfoItem icon={Mail} label="Correo corporativo" value={staff?.email || user?.email || null} />
+                  <InfoItem icon={Phone} label="Teléfono" value={staff?.phone || null} />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
       </Tabs>
     </div>
   )
