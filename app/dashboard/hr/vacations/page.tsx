@@ -29,7 +29,9 @@ import {
   AlertCircle,
   Filter,
   Eye,
-  History
+  History,
+  Pencil,
+  Trash2
 } from "lucide-react"
 import { format, differenceInBusinessDays, addDays, isWeekend } from "date-fns"
 import { es } from "date-fns/locale"
@@ -136,6 +138,10 @@ export default function VacationsPage() {
   const [showBalanceDialog, setShowBalanceDialog] = useState(false)
   const [showHolidayDialog, setShowHolidayDialog] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null)
+  // Edición y eliminación de solicitudes propias (solo mientras están pendientes)
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null)
+  const [editingOriginalDays, setEditingOriginalDays] = useState<number>(0)
+  const [requestToDelete, setRequestToDelete] = useState<LeaveRequest | null>(null)
 
   // New request form
   const [newRequest, setNewRequest] = useState({
@@ -297,6 +303,85 @@ export default function VacationsPage() {
     setNewRequest((prev) => ({ ...prev, staff_id: staffId, approver_id: chain[0]?.id || "" }))
   }
 
+  // ¿El usuario actual puede aprobar/rechazar esta solicitud?
+  // Nadie puede aprobar su propia solicitud; debe ser un superior jerárquico o Recursos Humanos.
+  const canReviewRequest = (request: LeaveRequest | null) => {
+    if (!request || !currentStaff) return false
+    if (request.staff_id === currentStaff.id) return false // no puede aprobar la suya
+    // computeApproverChain incluye jefes (cadena) + Recursos Humanos y excluye al propio empleado
+    const approvers = computeApproverChain(request.staff_id, allStaff)
+    return approvers.some((s) => s.id === currentStaff.id)
+  }
+
+  // ¿El usuario actual puede editar/eliminar esta solicitud?
+  // Solo el propietario y únicamente mientras siga pendiente (sin aprobar/rechazar).
+  const canModifyRequest = (request: LeaveRequest | null) => {
+    if (!request || !currentStaff) return false
+    return request.staff_id === currentStaff.id && request.status === "pending"
+  }
+
+  // Abre el diálogo en modo edición con los datos de la solicitud
+  const handleEditRequest = (request: LeaveRequest) => {
+    if (!canModifyRequest(request)) return
+    const chain = computeApproverChain(request.staff_id, allStaff)
+    setApproverOptions(chain)
+    setEditingRequestId(request.id)
+    setEditingOriginalDays(Number(request.total_days) || 0)
+    setNewRequest({
+      staff_id: request.staff_id,
+      leave_type_id: request.leave_type_id,
+      start_date: request.start_date ? new Date(request.start_date + "T00:00:00") : null,
+      end_date: request.end_date ? new Date(request.end_date + "T00:00:00") : null,
+      reason: request.reason || "",
+      is_half_day: !!request.is_half_day,
+      half_day_period: (request.half_day_period as "morning" | "afternoon") || "morning",
+      approver_id: request.approver_id || chain[0]?.id || "",
+    })
+    setShowRequestDialog(true)
+  }
+
+  // Elimina una solicitud propia pendiente y revierte los días pendientes del balance
+  const handleDeleteRequest = async () => {
+    const request = requestToDelete
+    if (!request || !canModifyRequest(request)) {
+      setRequestToDelete(null)
+      return
+    }
+
+    const { error } = await supabase.from("leave_requests").delete().eq("id", request.id)
+
+    if (!error) {
+      const balance = leaveBalances.find(
+        (b) => b.staff_id === request.staff_id && b.leave_type_id === request.leave_type_id,
+      )
+      if (balance) {
+        await supabase
+          .from("leave_balances")
+          .update({ days_pending: Math.max(0, balance.days_pending - Number(request.total_days || 0)) })
+          .eq("id", balance.id)
+      }
+      setRequestToDelete(null)
+      fetchLeaveRequests()
+      fetchLeaveBalances()
+    }
+  }
+
+  // Restablece el formulario y el modo edición
+  const resetRequestForm = () => {
+    setEditingRequestId(null)
+    setEditingOriginalDays(0)
+    setNewRequest({
+      staff_id: "",
+      leave_type_id: "",
+      start_date: null,
+      end_date: null,
+      reason: "",
+      is_half_day: false,
+      half_day_period: "morning",
+      approver_id: "",
+    })
+  }
+
   const fetchLeaveTypes = async () => {
     const { data } = await supabase
       .from("leave_types")
@@ -368,20 +453,54 @@ export default function VacationsPage() {
       : calculateBusinessDays(newRequest.start_date, newRequest.end_date)
     const endDate = newRequest.is_half_day ? newRequest.start_date : newRequest.end_date
 
+    const payload = {
+      leave_type_id: newRequest.leave_type_id,
+      start_date: format(newRequest.start_date, "yyyy-MM-dd"),
+      end_date: format(endDate, "yyyy-MM-dd"),
+      total_days: totalDays,
+      reason: newRequest.reason || null,
+      is_half_day: newRequest.is_half_day,
+      half_day_period: newRequest.is_half_day ? newRequest.half_day_period : null,
+      approver_id: newRequest.approver_id || null,
+    }
+
+    if (editingRequestId) {
+      // MODO EDICIÓN: solo se permite mientras la solicitud sigue pendiente.
+      const { error } = await supabase
+        .from("leave_requests")
+        .update(payload)
+        .eq("id", editingRequestId)
+        .eq("status", "pending")
+
+      if (!error) {
+        // Ajustar días pendientes por la diferencia entre lo anterior y lo nuevo
+        const delta = totalDays - editingOriginalDays
+        if (delta !== 0) {
+          const balance = leaveBalances.find(
+            (b) => b.staff_id === newRequest.staff_id && b.leave_type_id === newRequest.leave_type_id,
+          )
+          if (balance) {
+            await supabase
+              .from("leave_balances")
+              .update({ days_pending: Math.max(0, balance.days_pending + delta) })
+              .eq("id", balance.id)
+          }
+        }
+        setShowRequestDialog(false)
+        resetRequestForm()
+        fetchLeaveRequests()
+        fetchLeaveBalances()
+      }
+      return
+    }
+
     const { error } = await supabase
       .from("leave_requests")
       .insert({
         agency_id: selectedAgency,
         staff_id: newRequest.staff_id,
-        leave_type_id: newRequest.leave_type_id,
-        start_date: format(newRequest.start_date, "yyyy-MM-dd"),
-        end_date: format(endDate, "yyyy-MM-dd"),
-        total_days: totalDays,
-        reason: newRequest.reason || null,
         status: "pending",
-        is_half_day: newRequest.is_half_day,
-        half_day_period: newRequest.is_half_day ? newRequest.half_day_period : null,
-        approver_id: newRequest.approver_id || null,
+        ...payload,
       })
 
     if (!error) {
@@ -394,16 +513,7 @@ export default function VacationsPage() {
         .eq("year", currentYear)
 
       setShowRequestDialog(false)
-      setNewRequest({
-        staff_id: "",
-        leave_type_id: "",
-        start_date: null,
-        end_date: null,
-        reason: "",
-        is_half_day: false,
-        half_day_period: "morning",
-        approver_id: "",
-      })
+      resetRequestForm()
       fetchLeaveRequests()
       fetchLeaveBalances()
     }
@@ -411,6 +521,8 @@ export default function VacationsPage() {
 
   const handleApproveRequest = async () => {
     if (!selectedRequest) return
+    // Refuerzo de seguridad: nadie puede aprobar su propia solicitud; debe ser jefe o RH.
+    if (!canReviewRequest(selectedRequest)) return
 
     const { error } = await supabase
       .from("leave_requests")
@@ -421,6 +533,7 @@ export default function VacationsPage() {
         review_notes: reviewNotes || null,
       })
       .eq("id", selectedRequest.id)
+      .eq("status", "pending")
 
     if (!error) {
       // Update balance: move from pending to taken
@@ -447,6 +560,8 @@ export default function VacationsPage() {
 
   const handleRejectRequest = async () => {
     if (!selectedRequest) return
+    // Refuerzo de seguridad: nadie puede rechazar su propia solicitud; debe ser jefe o RH.
+    if (!canReviewRequest(selectedRequest)) return
 
     const { error } = await supabase
       .from("leave_requests")
@@ -457,6 +572,7 @@ export default function VacationsPage() {
         review_notes: reviewNotes || null,
       })
       .eq("id", selectedRequest.id)
+      .eq("status", "pending")
 
     if (!error) {
       // Update balance: remove from pending
@@ -634,7 +750,7 @@ export default function VacationsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button onClick={() => setShowRequestDialog(true)}>
+          <Button onClick={() => { resetRequestForm(); setShowRequestDialog(true) }}>
             <Plus className="w-4 h-4 mr-2" />
             Nueva Solicitud
           </Button>
@@ -789,29 +905,53 @@ export default function VacationsPage() {
                         <TableCell>{getStatusBadge(request.status)}</TableCell>
                         <TableCell>{format(new Date(request.created_at), "dd MMM yyyy", { locale: es })}</TableCell>
                         <TableCell className="text-right">
-                          {request.status === "pending" ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedRequest(request)
-                                setShowReviewDialog(true)
-                              }}
-                            >
-                              Revisar
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setSelectedRequest(request)
-                                setShowReviewDialog(true)
-                              }}
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                          )}
+                          <div className="flex items-center justify-end gap-1">
+                            {canModifyRequest(request) ? (
+                              // Solicitud propia y pendiente: el usuario puede editarla o eliminarla
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleEditRequest(request)}
+                                >
+                                  <Pencil className="w-4 h-4 mr-1" />
+                                  Editar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => setRequestToDelete(request)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </>
+                            ) : request.status === "pending" && canReviewRequest(request) ? (
+                              // Un superior o RH puede revisar (aprobar/rechazar)
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedRequest(request)
+                                  setShowReviewDialog(true)
+                                }}
+                              >
+                                Revisar
+                              </Button>
+                            ) : (
+                              // Cualquier otro caso: solo lectura del detalle
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedRequest(request)
+                                  setShowReviewDialog(true)
+                                }}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -1063,12 +1203,22 @@ export default function VacationsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* New Request Dialog */}
-      <Dialog open={showRequestDialog} onOpenChange={setShowRequestDialog}>
+      {/* New/Edit Request Dialog */}
+      <Dialog
+        open={showRequestDialog}
+        onOpenChange={(open) => {
+          setShowRequestDialog(open)
+          if (!open) resetRequestForm()
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Nueva Solicitud de Permiso</DialogTitle>
-            <DialogDescription>Crea una nueva solicitud de vacaciones o permiso</DialogDescription>
+            <DialogTitle>{editingRequestId ? "Editar Solicitud de Permiso" : "Nueva Solicitud de Permiso"}</DialogTitle>
+            <DialogDescription>
+              {editingRequestId
+                ? "Modifica los datos de tu solicitud mientras siga pendiente de aprobación"
+                : "Crea una nueva solicitud de vacaciones o permiso"}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {staff.length === 0 || leaveTypes.length === 0 ? (
@@ -1279,12 +1429,20 @@ export default function VacationsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRequestDialog(false)}>Cancelar</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowRequestDialog(false)
+                resetRequestForm()
+              }}
+            >
+              Cancelar
+            </Button>
             <Button
               onClick={handleCreateRequest}
               disabled={!newRequest.staff_id || !newRequest.approver_id}
             >
-              Crear Solicitud
+              {editingRequestId ? "Guardar Cambios" : "Crear Solicitud"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1336,7 +1494,7 @@ export default function VacationsPage() {
                 )}
               </div>
 
-              {selectedRequest.status === "pending" ? (
+              {selectedRequest.status === "pending" && canReviewRequest(selectedRequest) ? (
                 <>
                   <div className="space-y-2">
                     <Label>Notas de Revisión (opcional)</Label>
@@ -1359,6 +1517,20 @@ export default function VacationsPage() {
                     </Button>
                   </DialogFooter>
                 </>
+              ) : selectedRequest.status === "pending" ? (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p className="text-sm">
+                      {selectedRequest.staff_id === currentStaff?.id
+                        ? "No puedes aprobar ni rechazar tu propia solicitud. Debe autorizarla tu jefe directo, un superior o Recursos Humanos."
+                        : "Solo el jefe directo, un superior o Recursos Humanos pueden aprobar o rechazar esta solicitud."}
+                    </p>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowReviewDialog(false)}>Cerrar</Button>
+                  </DialogFooter>
+                </div>
               ) : (
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
@@ -1390,6 +1562,40 @@ export default function VacationsPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmación de eliminación (solo solicitudes propias pendientes) */}
+      <Dialog open={!!requestToDelete} onOpenChange={(open) => !open && setRequestToDelete(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Eliminar solicitud</DialogTitle>
+            <DialogDescription>
+              Esta acción no se puede deshacer. La solicitud se eliminará de forma permanente.
+            </DialogDescription>
+          </DialogHeader>
+          {requestToDelete && (
+            <div className="rounded-lg bg-muted p-4 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Tipo:</span>
+                <span className="font-medium">{requestToDelete.leave_type?.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Período:</span>
+                <span>
+                  {format(new Date(requestToDelete.start_date), "dd/MM/yyyy")} -{" "}
+                  {format(new Date(requestToDelete.end_date), "dd/MM/yyyy")}
+                </span>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setRequestToDelete(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteRequest}>
+              <Trash2 className="w-4 h-4 mr-2" />
+              Eliminar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

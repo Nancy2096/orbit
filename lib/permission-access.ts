@@ -29,6 +29,7 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   ["/dashboard/hr/loans", ["loans", "loans_all", "loans_own", "loans_subordinates"]],
   ["/dashboard/hr/recognitions", ["recognitions"]],
   ["/dashboard/hr/training", ["training"]],
+  ["/dashboard/hr/leave-requests", ["vacations"]],
   ["/dashboard/hr/vacations", ["vacations"]],
   ["/dashboard/hr/commissions", ["commissions"]],
   ["/dashboard/hr", ["staff", "staff_all", "staff_own", "staff_subordinates"]],

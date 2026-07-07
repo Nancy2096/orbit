@@ -188,6 +188,11 @@ const hrNavItems = [
     url: "/dashboard/hr/vacations",
     icon: CalendarDays,
   },
+  {
+    title: "Panorama de Permisos",
+    url: "/dashboard/hr/leave-requests",
+    icon: ClipboardList,
+  },
 ]
 
 const financeNavItems = [

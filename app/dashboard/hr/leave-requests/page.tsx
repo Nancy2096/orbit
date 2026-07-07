@@ -1,0 +1,558 @@
+"use client"
+
+import { useState, useEffect, useMemo } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Progress } from "@/components/ui/progress"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+} from "@/components/ui/chart"
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { Clock, Check, X, CalendarDays, Building2, Search, TrendingUp } from "lucide-react"
+import { format } from "date-fns"
+import { es } from "date-fns/locale"
+
+interface Agency {
+  id: string
+  name: string
+}
+
+interface StaffRef {
+  id: string
+  first_name: string
+  last_name: string
+  position: string | null
+  department: string | null
+  agency_id: string | null
+}
+
+interface LeaveTypeRef {
+  id: string
+  name: string
+  color: string | null
+}
+
+interface AgencyRef {
+  id: string
+  name: string
+}
+
+interface LeaveRequest {
+  id: string
+  agency_id: string
+  staff_id: string
+  leave_type_id: string
+  start_date: string
+  end_date: string
+  total_days: number
+  is_half_day?: boolean
+  half_day_period?: "morning" | "afternoon" | null
+  reason: string | null
+  status: string
+  reviewed_at: string | null
+  created_at: string
+  staff?: StaffRef
+  leave_type?: LeaveTypeRef
+  agency?: AgencyRef
+  reviewer?: { id: string; first_name: string; last_name: string } | null
+  approver?: { id: string; first_name: string; last_name: string } | null
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Pendiente",
+  approved: "Aprobada",
+  rejected: "Rechazada",
+  cancelled: "Cancelada",
+}
+
+function StatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case "approved":
+      return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Aprobada</Badge>
+    case "rejected":
+      return <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Rechazada</Badge>
+    case "pending":
+      return <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">Pendiente</Badge>
+    default:
+      return <Badge variant="secondary">{STATUS_LABEL[status] || status}</Badge>
+  }
+}
+
+export default function LeaveRequestsOverviewPage() {
+  const supabase = createClient()
+
+  const [agencies, setAgencies] = useState<Agency[]>([])
+  const [requests, setRequests] = useState<LeaveRequest[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Filtros
+  const [filterAgency, setFilterAgency] = useState<string>("all")
+  const [filterStatus, setFilterStatus] = useState<string>("all")
+  const [filterDepartment, setFilterDepartment] = useState<string>("all")
+  const [search, setSearch] = useState<string>("")
+
+  useEffect(() => {
+    const load = async () => {
+      const [{ data: agencyData }, { data: requestData }] = await Promise.all([
+        supabase.from("agencies").select("id, name").order("name"),
+        supabase
+          .from("leave_requests")
+          .select(
+            `
+            *,
+            staff:staff_id(id, first_name, last_name, position, department, agency_id),
+            leave_type:leave_type_id(id, name, color),
+            agency:agency_id(id, name),
+            reviewer:reviewed_by(id, first_name, last_name),
+            approver:approver_id(id, first_name, last_name)
+          `,
+          )
+          .order("created_at", { ascending: false }),
+      ])
+      if (agencyData) setAgencies(agencyData)
+      if (requestData) setRequests(requestData as LeaveRequest[])
+      setLoading(false)
+    }
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Departamentos únicos para el filtro
+  const departments = useMemo(() => {
+    const set = new Set<string>()
+    requests.forEach((r) => {
+      const d = r.staff?.department?.trim()
+      if (d) set.add(d)
+    })
+    return Array.from(set).sort()
+  }, [requests])
+
+  // Solicitudes filtradas
+  const filtered = useMemo(() => {
+    return requests.filter((r) => {
+      if (filterAgency !== "all" && r.agency_id !== filterAgency) return false
+      if (filterStatus !== "all" && r.status !== filterStatus) return false
+      if (filterDepartment !== "all" && (r.staff?.department || "") !== filterDepartment) return false
+      if (search.trim()) {
+        const q = search.trim().toLowerCase()
+        const name = `${r.staff?.first_name || ""} ${r.staff?.last_name || ""}`.toLowerCase()
+        if (!name.includes(q)) return false
+      }
+      return true
+    })
+  }, [requests, filterAgency, filterStatus, filterDepartment, search])
+
+  // KPIs globales (respetan los filtros de agencia/depto/búsqueda salvo el estado)
+  const scoped = useMemo(() => {
+    return requests.filter((r) => {
+      if (filterAgency !== "all" && r.agency_id !== filterAgency) return false
+      if (filterDepartment !== "all" && (r.staff?.department || "") !== filterDepartment) return false
+      if (search.trim()) {
+        const q = search.trim().toLowerCase()
+        const name = `${r.staff?.first_name || ""} ${r.staff?.last_name || ""}`.toLowerCase()
+        if (!name.includes(q)) return false
+      }
+      return true
+    })
+  }, [requests, filterAgency, filterDepartment, search])
+
+  const kpis = useMemo(() => {
+    const total = scoped.length
+    const pending = scoped.filter((r) => r.status === "pending").length
+    const approved = scoped.filter((r) => r.status === "approved").length
+    const rejected = scoped.filter((r) => r.status === "rejected").length
+    const daysApproved = scoped
+      .filter((r) => r.status === "approved")
+      .reduce((sum, r) => sum + Number(r.total_days || 0), 0)
+    return { total, pending, approved, rejected, daysApproved }
+  }, [scoped])
+
+  // Desglose por agencia
+  const byAgency = useMemo(() => {
+    const map = new Map<
+      string,
+      { name: string; pending: number; approved: number; rejected: number; total: number; days: number }
+    >()
+    // Inicializar todas las agencias conocidas para que aparezcan aunque tengan 0
+    agencies.forEach((a) => map.set(a.id, { name: a.name, pending: 0, approved: 0, rejected: 0, total: 0, days: 0 }))
+    scoped.forEach((r) => {
+      const key = r.agency_id
+      const entry = map.get(key) || {
+        name: r.agency?.name || "Sin agencia",
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        total: 0,
+        days: 0,
+      }
+      entry.total += 1
+      if (r.status === "pending") entry.pending += 1
+      else if (r.status === "approved") entry.approved += 1
+      else if (r.status === "rejected") entry.rejected += 1
+      if (r.status === "approved") entry.days += Number(r.total_days || 0)
+      map.set(key, entry)
+    })
+    return Array.from(map.values()).sort((a, b) => b.total - a.total)
+  }, [scoped, agencies])
+
+  // Desglose por tipo de permiso
+  const byType = useMemo(() => {
+    const map = new Map<string, { name: string; color: string; count: number; days: number }>()
+    scoped.forEach((r) => {
+      const key = r.leave_type_id
+      const entry = map.get(key) || {
+        name: r.leave_type?.name || "Sin tipo",
+        color: r.leave_type?.color || "#64748b",
+        count: 0,
+        days: 0,
+      }
+      entry.count += 1
+      entry.days += Number(r.total_days || 0)
+      map.set(key, entry)
+    })
+    return Array.from(map.values()).sort((a, b) => b.count - a.count)
+  }, [scoped])
+
+  const chartData = useMemo(
+    () => byAgency.map((a) => ({ agency: a.name, Pendiente: a.pending, Aprobada: a.approved, Rechazada: a.rejected })),
+    [byAgency],
+  )
+
+  const chartConfig = {
+    Pendiente: { label: "Pendiente", color: "hsl(45 93% 47%)" },
+    Aprobada: { label: "Aprobada", color: "hsl(142 71% 45%)" },
+    Rechazada: { label: "Rechazada", color: "hsl(0 84% 60%)" },
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Panorama de Solicitudes de Permiso</h1>
+        <p className="text-muted-foreground">
+          Vista completa de las solicitudes de permiso de todo el personal y todas las agencias
+        </p>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Total Solicitudes</CardTitle>
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{kpis.total}</div>
+            <p className="text-xs text-muted-foreground">En el alcance seleccionado</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Pendientes</CardTitle>
+            <Clock className="h-4 w-4 text-yellow-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{kpis.pending}</div>
+            <p className="text-xs text-muted-foreground">Esperando aprobación</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Aprobadas</CardTitle>
+            <Check className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{kpis.approved}</div>
+            <p className="text-xs text-muted-foreground">Solicitudes autorizadas</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Rechazadas</CardTitle>
+            <X className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{kpis.rejected}</div>
+            <p className="text-xs text-muted-foreground">No autorizadas</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Días Aprobados</CardTitle>
+            <TrendingUp className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{kpis.daysApproved}</div>
+            <p className="text-xs text-muted-foreground">Total de días concedidos</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filtros */}
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-4 md:flex-row md:items-center md:flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar empleado..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={filterAgency} onValueChange={setFilterAgency}>
+            <SelectTrigger className="w-full md:w-[200px]">
+              <Building2 className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Agencia" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las agencias</SelectItem>
+              {agencies.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterDepartment} onValueChange={setFilterDepartment}>
+            <SelectTrigger className="w-full md:w-[200px]">
+              <SelectValue placeholder="Departamento" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los departamentos</SelectItem>
+              {departments.map((d) => (
+                <SelectItem key={d} value={d}>
+                  {d}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-full md:w-[160px]">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="pending">Pendientes</SelectItem>
+              <SelectItem value="approved">Aprobadas</SelectItem>
+              <SelectItem value="rejected">Rechazadas</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
+      <Tabs defaultValue="detalle" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="detalle">Detalle</TabsTrigger>
+          <TabsTrigger value="agencias">Por Agencia</TabsTrigger>
+          <TabsTrigger value="tipos">Por Tipo</TabsTrigger>
+        </TabsList>
+
+        {/* Detalle: tabla completa */}
+        <TabsContent value="detalle" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Todas las Solicitudes</CardTitle>
+              <CardDescription>
+                {filtered.length} solicitud{filtered.length === 1 ? "" : "es"} en el alcance seleccionado
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Empleado</TableHead>
+                      <TableHead>Agencia</TableHead>
+                      <TableHead>Departamento</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Período</TableHead>
+                      <TableHead>Días</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead>Aprobador</TableHead>
+                      <TableHead>Solicitado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                          No hay solicitudes que coincidan con los filtros
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filtered.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell>
+                            <p className="font-medium">
+                              {r.staff?.first_name} {r.staff?.last_name}
+                            </p>
+                            <p className="text-sm text-muted-foreground">{r.staff?.position}</p>
+                          </TableCell>
+                          <TableCell>{r.agency?.name || "-"}</TableCell>
+                          <TableCell>{r.staff?.department || "-"}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              style={{ borderColor: r.leave_type?.color || undefined, color: r.leave_type?.color || undefined }}
+                            >
+                              {r.leave_type?.name}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {format(new Date(r.start_date), "dd MMM", { locale: es })} -{" "}
+                            {format(new Date(r.end_date), "dd MMM yyyy", { locale: es })}
+                          </TableCell>
+                          <TableCell>
+                            {r.total_days}
+                            {r.is_half_day && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                (½ · {r.half_day_period === "afternoon" ? "tarde" : "mañana"})
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={r.status} />
+                          </TableCell>
+                          <TableCell>
+                            {r.reviewer
+                              ? `${r.reviewer.first_name} ${r.reviewer.last_name}`
+                              : r.approver
+                                ? `${r.approver.first_name} ${r.approver.last_name}`
+                                : "-"}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {format(new Date(r.created_at), "dd MMM yyyy", { locale: es })}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Por Agencia: gráfico + tarjetas */}
+        <TabsContent value="agencias" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Solicitudes por Agencia</CardTitle>
+              <CardDescription>Distribución de estados en cada agencia</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {chartData.length === 0 ? (
+                <p className="text-center py-8 text-muted-foreground">Sin datos para mostrar</p>
+              ) : (
+                <ChartContainer config={chartConfig} className="h-[320px] w-full">
+                  <BarChart accessibilityLayer data={chartData}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="agency" tickLine={false} tickMargin={10} axisLine={false} />
+                    <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={30} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <ChartLegend content={<ChartLegendContent />} />
+                    <Bar dataKey="Pendiente" stackId="a" fill="var(--color-Pendiente)" radius={[0, 0, 4, 4]} />
+                    <Bar dataKey="Aprobada" stackId="a" fill="var(--color-Aprobada)" />
+                    <Bar dataKey="Rechazada" stackId="a" fill="var(--color-Rechazada)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {byAgency.map((a) => (
+              <Card key={a.name}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    {a.name}
+                  </CardTitle>
+                  <CardDescription>
+                    {a.total} solicitud{a.total === 1 ? "" : "es"} · {a.days} días aprobados
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-yellow-600">Pendientes</span>
+                    <span className="font-medium">{a.pending}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-green-600">Aprobadas</span>
+                    <span className="font-medium">{a.approved}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-red-600">Rechazadas</span>
+                    <span className="font-medium">{a.rejected}</span>
+                  </div>
+                  <Progress
+                    value={a.total > 0 ? (a.approved / a.total) * 100 : 0}
+                    className="h-2 mt-2"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {a.total > 0 ? Math.round((a.approved / a.total) * 100) : 0}% aprobadas
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        {/* Por Tipo de permiso */}
+        <TabsContent value="tipos" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Solicitudes por Tipo de Permiso</CardTitle>
+              <CardDescription>Cantidad de solicitudes y días por cada tipo</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {byType.length === 0 ? (
+                <p className="text-center py-8 text-muted-foreground">Sin datos para mostrar</p>
+              ) : (
+                <div className="space-y-4">
+                  {byType.map((t) => {
+                    const max = Math.max(...byType.map((x) => x.count))
+                    return (
+                      <div key={t.name} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="flex items-center gap-2 font-medium">
+                            <span
+                              className="inline-block h-3 w-3 rounded-full"
+                              style={{ backgroundColor: t.color }}
+                            />
+                            {t.name}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {t.count} solicitudes · {t.days} días
+                          </span>
+                        </div>
+                        <Progress value={max > 0 ? (t.count / max) * 100 : 0} className="h-2" />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
