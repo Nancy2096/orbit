@@ -124,42 +124,41 @@ export default function ProfilePage() {
     // Buscar la ficha de Personal vinculada a este usuario.
     // Primero por user_id; si no existe (muchas fichas no tienen user_id
     // asignado), se intenta por email como respaldo.
+    // staff tiene DOS FKs hacia agencies (agency_id y payroll_agency_id), por lo
+    // que hay que desambiguar el join indicando el nombre de la constraint;
+    // de lo contrario PostgREST devuelve error y la ficha no se carga.
     const staffSelect = `
         *,
-        agency:agencies(name),
+        agency:agencies!staff_agency_id_fkey(name),
         role:roles(display_name)
       `
 
     let staffData: any = null
-    const { data: staffByUserId, error: staffByUserIdError } = await supabase
+    const { data: staffByUserId } = await supabase
       .from("staff")
       .select(staffSelect)
       .eq("user_id", authUser.id)
       .maybeSingle()
 
     staffData = staffByUserId
-    console.log("[v0] staff by user_id:", staffByUserId, "error:", staffByUserIdError)
 
     const emailToMatch = userData?.email || authUser.email
-    console.log("[v0] emailToMatch:", emailToMatch)
     if (!staffData && emailToMatch) {
       // Usar limit(1) en vez de maybeSingle() para que, aunque existiera más de
       // una ficha con el mismo email, no falle la carga del perfil (importante
       // para el personal Global, que suele no tener user_id asignado).
-      const { data: staffByEmail, error: staffByEmailError } = await supabase
+      const { data: staffByEmail } = await supabase
         .from("staff")
         .select(staffSelect)
         .ilike("email", emailToMatch)
         .limit(1)
       staffData = staffByEmail?.[0] ?? null
-      console.log("[v0] staff by email:", staffByEmail, "error:", staffByEmailError)
 
       // Vincular la ficha al usuario para futuras cargas (no bloquea la UI).
       if (staffData && !staffData.user_id) {
         await supabase.from("staff").update({ user_id: authUser.id }).eq("id", staffData.id)
       }
     }
-    console.log("[v0] final staffData id:", staffData?.id)
 
     if (staffData) {
       setStaff(staffData)
@@ -812,7 +811,7 @@ export default function ProfilePage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Briefcase className="h-5 w-5" />
-                  Información Laboral
+                  Informaci��n Laboral
                 </CardTitle>
                 <CardDescription>Datos de tu registro en Personal.</CardDescription>
               </CardHeader>
