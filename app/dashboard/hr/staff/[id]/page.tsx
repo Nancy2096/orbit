@@ -154,7 +154,6 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
     if (!(salary > 0) || !(hours > 0)) return 0
     return salary / hours
   })()
-  const computedHourlyCostStr = computedHourlyCost > 0 ? computedHourlyCost.toFixed(2) : ""
 
   useEffect(() => {
     setMounted(true)
@@ -1116,23 +1115,6 @@ hire_date: formData.hire_date || null,
                     <>
                       <div className="grid grid-cols-2 gap-4">
                         <Field>
-                          <FieldLabel htmlFor="hourly_cost">Costo por hora (automático)</FieldLabel>
-                          <Input
-                            id="hourly_cost"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={computedHourlyCostStr}
-                            readOnly
-                            disabled
-                            placeholder="0.00"
-                            className="bg-muted cursor-not-allowed"
-                          />
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Salario mensual ÷ {workingHoursForStaff()} horas laborables de la agencia.
-                          </p>
-                        </Field>
-                        <Field>
                           <FieldLabel htmlFor="monthly_salary">Salario Mensual</FieldLabel>
                           <Input
                             id="monthly_salary"
@@ -1193,23 +1175,6 @@ hire_date: formData.hire_date || null,
                     </>
                   ) : (
                   <div className="grid grid-cols-2 gap-4">
-                    <Field>
-                      <FieldLabel htmlFor="hourly_cost">Costo por hora (automático)</FieldLabel>
-                      <Input
-                        id="hourly_cost"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={computedHourlyCostStr}
-                        readOnly
-                        disabled
-                        placeholder="0.00"
-                        className="bg-muted cursor-not-allowed"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Salario mensual ÷ {workingHoursForStaff()} horas laborables de la agencia.
-                      </p>
-                    </Field>
                     <Field>
                       <FieldLabel htmlFor="monthly_salary">Salario mensual</FieldLabel>
                       <Input
