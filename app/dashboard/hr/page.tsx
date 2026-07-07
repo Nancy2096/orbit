@@ -840,7 +840,7 @@ export default function HRDashboardPage() {
               </Link>
             </Button>
             <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
-              <Link href="/dashboard/hr/calendar">
+              <Link href="/dashboard/hr/calendar?admin=1">
                 <CalendarDays className="h-5 w-5 text-rose-500" />
                 <span>Calendario</span>
               </Link>

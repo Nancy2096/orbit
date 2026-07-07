@@ -106,6 +106,9 @@ export default function CalendarPage() {
   const [birthdays, setBirthdays] = useState<StaffBirthday[]>([])
   const [currentDate, setCurrentDate] = useState(new Date())
   const [filterType, setFilterType] = useState<string>("all")
+  // Modo administrativo: solo activo al entrar desde el Dashboard RH (?admin=1).
+  // Desde el menú lateral la vista es solo informativa.
+  const [isAdmin, setIsAdmin] = useState(false)
 
   // Diálogo para agregar/eliminar fechas importantes
   const [showDialog, setShowDialog] = useState(false)
@@ -121,6 +124,10 @@ export default function CalendarPage() {
 
   useEffect(() => {
     load()
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      setIsAdmin(params.get("admin") === "1")
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -263,10 +270,12 @@ export default function CalendarPage() {
             Días festivos, eventos y cumpleaños del personal activo de toda la organización
           </p>
         </div>
-        <Button onClick={() => setShowDialog(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Agregar fecha
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => setShowDialog(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Agregar fecha
+          </Button>
+        )}
       </div>
 
       {/* Indicadores del mes */}
@@ -446,7 +455,7 @@ export default function CalendarPage() {
                         )}
                         <Badge className={`mt-1 ${style.badge}`}>{style.label}</Badge>
                       </div>
-                      {holiday && (
+                      {holiday && isAdmin && (
                         <Button
                           variant="ghost"
                           size="icon"
