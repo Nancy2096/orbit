@@ -85,6 +85,7 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
     department_id: "",
     reports_to_id: "",
     hire_date: "",
+    birth_date: "",
     contract_type: "full_time",
     contract_type_id: "",
     hourly_cost: "",
@@ -242,6 +243,7 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
         department_id: s.department_id || "",
 reports_to_id: s.reports_to_id || "",
   hire_date: s.hire_date || "",
+  birth_date: s.birth_date || "",
   contract_type: s.contract_type || "full_time",
   contract_type_id: s.contract_type_id || "",
   hourly_cost: s.hourly_cost?.toString() || "",
@@ -437,6 +439,7 @@ function handlePositionChange(value: string) {
         department_id: formData.department_id || null,
         reports_to_id: formData.reports_to_id || null,
 hire_date: formData.hire_date || null,
+  birth_date: formData.birth_date || null,
   contract_type: formData.contract_type,
   contract_type_id: formData.contract_type_id || null,
   hourly_cost: formData.contract_type === "commission" ? 0 : (parseFloat(formData.hourly_cost) || 0),
@@ -924,6 +927,15 @@ hire_date: formData.hire_date || null,
                       type="date"
                       value={formData.hire_date}
                       onChange={(e) => setFormData({ ...formData, hire_date: e.target.value })}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="birth_date">Fecha de nacimiento</FieldLabel>
+                    <Input
+                      id="birth_date"
+                      type="date"
+                      value={formData.birth_date}
+                      onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })}
                     />
                   </Field>
                 </div>

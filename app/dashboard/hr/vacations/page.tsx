@@ -29,9 +29,28 @@ import {
   AlertCircle,
   Filter,
   Eye,
-  History
+  History,
+  Pencil,
+  Trash2,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react"
-import { format, differenceInBusinessDays, addDays, isWeekend } from "date-fns"
+import {
+  format,
+  differenceInBusinessDays,
+  addDays,
+  isWeekend,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  isSameMonth,
+  isSameDay,
+  isWithinInterval,
+  addMonths,
+  subMonths,
+} from "date-fns"
 import { es } from "date-fns/locale"
 
 interface Agency {
@@ -109,6 +128,7 @@ interface Holiday {
 export default function VacationsPage() {
   const supabase = createClient()
   const [activeTab, setActiveTab] = useState("solicitudes")
+  const [calendarMonth, setCalendarMonth] = useState(new Date())
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("")
   const [staff, setStaff] = useState<Staff[]>([])
@@ -136,6 +156,10 @@ export default function VacationsPage() {
   const [showBalanceDialog, setShowBalanceDialog] = useState(false)
   const [showHolidayDialog, setShowHolidayDialog] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null)
+  // Edición y eliminación de solicitudes propias (solo mientras están pendientes)
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null)
+  const [editingOriginalDays, setEditingOriginalDays] = useState<number>(0)
+  const [requestToDelete, setRequestToDelete] = useState<LeaveRequest | null>(null)
 
   // New request form
   const [newRequest, setNewRequest] = useState({
@@ -297,6 +321,85 @@ export default function VacationsPage() {
     setNewRequest((prev) => ({ ...prev, staff_id: staffId, approver_id: chain[0]?.id || "" }))
   }
 
+  // ¿El usuario actual puede aprobar/rechazar esta solicitud?
+  // Nadie puede aprobar su propia solicitud; debe ser un superior jerárquico o Recursos Humanos.
+  const canReviewRequest = (request: LeaveRequest | null) => {
+    if (!request || !currentStaff) return false
+    if (request.staff_id === currentStaff.id) return false // no puede aprobar la suya
+    // computeApproverChain incluye jefes (cadena) + Recursos Humanos y excluye al propio empleado
+    const approvers = computeApproverChain(request.staff_id, allStaff)
+    return approvers.some((s) => s.id === currentStaff.id)
+  }
+
+  // ¿El usuario actual puede editar/eliminar esta solicitud?
+  // Solo el propietario y únicamente mientras siga pendiente (sin aprobar/rechazar).
+  const canModifyRequest = (request: LeaveRequest | null) => {
+    if (!request || !currentStaff) return false
+    return request.staff_id === currentStaff.id && request.status === "pending"
+  }
+
+  // Abre el diálogo en modo edición con los datos de la solicitud
+  const handleEditRequest = (request: LeaveRequest) => {
+    if (!canModifyRequest(request)) return
+    const chain = computeApproverChain(request.staff_id, allStaff)
+    setApproverOptions(chain)
+    setEditingRequestId(request.id)
+    setEditingOriginalDays(Number(request.total_days) || 0)
+    setNewRequest({
+      staff_id: request.staff_id,
+      leave_type_id: request.leave_type_id,
+      start_date: request.start_date ? new Date(request.start_date + "T00:00:00") : null,
+      end_date: request.end_date ? new Date(request.end_date + "T00:00:00") : null,
+      reason: request.reason || "",
+      is_half_day: !!request.is_half_day,
+      half_day_period: (request.half_day_period as "morning" | "afternoon") || "morning",
+      approver_id: request.approver_id || chain[0]?.id || "",
+    })
+    setShowRequestDialog(true)
+  }
+
+  // Elimina una solicitud propia pendiente y revierte los días pendientes del balance
+  const handleDeleteRequest = async () => {
+    const request = requestToDelete
+    if (!request || !canModifyRequest(request)) {
+      setRequestToDelete(null)
+      return
+    }
+
+    const { error } = await supabase.from("leave_requests").delete().eq("id", request.id)
+
+    if (!error) {
+      const balance = leaveBalances.find(
+        (b) => b.staff_id === request.staff_id && b.leave_type_id === request.leave_type_id,
+      )
+      if (balance) {
+        await supabase
+          .from("leave_balances")
+          .update({ days_pending: Math.max(0, balance.days_pending - Number(request.total_days || 0)) })
+          .eq("id", balance.id)
+      }
+      setRequestToDelete(null)
+      fetchLeaveRequests()
+      fetchLeaveBalances()
+    }
+  }
+
+  // Restablece el formulario y el modo edición
+  const resetRequestForm = () => {
+    setEditingRequestId(null)
+    setEditingOriginalDays(0)
+    setNewRequest({
+      staff_id: "",
+      leave_type_id: "",
+      start_date: null,
+      end_date: null,
+      reason: "",
+      is_half_day: false,
+      half_day_period: "morning",
+      approver_id: "",
+    })
+  }
+
   const fetchLeaveTypes = async () => {
     const { data } = await supabase
       .from("leave_types")
@@ -335,10 +438,12 @@ export default function VacationsPage() {
   }
 
   const fetchHolidays = async () => {
+    // Incluye los festivos/eventos de la agencia y los globales (agency_id null)
+    // definidos en el Calendario de RH.
     const { data } = await supabase
       .from("holidays")
       .select("*")
-      .eq("agency_id", selectedAgency)
+      .or(`agency_id.eq.${selectedAgency},agency_id.is.null`)
       .order("date")
     if (data) setHolidays(data)
   }
@@ -368,20 +473,54 @@ export default function VacationsPage() {
       : calculateBusinessDays(newRequest.start_date, newRequest.end_date)
     const endDate = newRequest.is_half_day ? newRequest.start_date : newRequest.end_date
 
+    const payload = {
+      leave_type_id: newRequest.leave_type_id,
+      start_date: format(newRequest.start_date, "yyyy-MM-dd"),
+      end_date: format(endDate, "yyyy-MM-dd"),
+      total_days: totalDays,
+      reason: newRequest.reason || null,
+      is_half_day: newRequest.is_half_day,
+      half_day_period: newRequest.is_half_day ? newRequest.half_day_period : null,
+      approver_id: newRequest.approver_id || null,
+    }
+
+    if (editingRequestId) {
+      // MODO EDICIÓN: solo se permite mientras la solicitud sigue pendiente.
+      const { error } = await supabase
+        .from("leave_requests")
+        .update(payload)
+        .eq("id", editingRequestId)
+        .eq("status", "pending")
+
+      if (!error) {
+        // Ajustar días pendientes por la diferencia entre lo anterior y lo nuevo
+        const delta = totalDays - editingOriginalDays
+        if (delta !== 0) {
+          const balance = leaveBalances.find(
+            (b) => b.staff_id === newRequest.staff_id && b.leave_type_id === newRequest.leave_type_id,
+          )
+          if (balance) {
+            await supabase
+              .from("leave_balances")
+              .update({ days_pending: Math.max(0, balance.days_pending + delta) })
+              .eq("id", balance.id)
+          }
+        }
+        setShowRequestDialog(false)
+        resetRequestForm()
+        fetchLeaveRequests()
+        fetchLeaveBalances()
+      }
+      return
+    }
+
     const { error } = await supabase
       .from("leave_requests")
       .insert({
         agency_id: selectedAgency,
         staff_id: newRequest.staff_id,
-        leave_type_id: newRequest.leave_type_id,
-        start_date: format(newRequest.start_date, "yyyy-MM-dd"),
-        end_date: format(endDate, "yyyy-MM-dd"),
-        total_days: totalDays,
-        reason: newRequest.reason || null,
         status: "pending",
-        is_half_day: newRequest.is_half_day,
-        half_day_period: newRequest.is_half_day ? newRequest.half_day_period : null,
-        approver_id: newRequest.approver_id || null,
+        ...payload,
       })
 
     if (!error) {
@@ -394,16 +533,7 @@ export default function VacationsPage() {
         .eq("year", currentYear)
 
       setShowRequestDialog(false)
-      setNewRequest({
-        staff_id: "",
-        leave_type_id: "",
-        start_date: null,
-        end_date: null,
-        reason: "",
-        is_half_day: false,
-        half_day_period: "morning",
-        approver_id: "",
-      })
+      resetRequestForm()
       fetchLeaveRequests()
       fetchLeaveBalances()
     }
@@ -411,6 +541,8 @@ export default function VacationsPage() {
 
   const handleApproveRequest = async () => {
     if (!selectedRequest) return
+    // Refuerzo de seguridad: nadie puede aprobar su propia solicitud; debe ser jefe o RH.
+    if (!canReviewRequest(selectedRequest)) return
 
     const { error } = await supabase
       .from("leave_requests")
@@ -421,6 +553,7 @@ export default function VacationsPage() {
         review_notes: reviewNotes || null,
       })
       .eq("id", selectedRequest.id)
+      .eq("status", "pending")
 
     if (!error) {
       // Update balance: move from pending to taken
@@ -447,6 +580,8 @@ export default function VacationsPage() {
 
   const handleRejectRequest = async () => {
     if (!selectedRequest) return
+    // Refuerzo de seguridad: nadie puede rechazar su propia solicitud; debe ser jefe o RH.
+    if (!canReviewRequest(selectedRequest)) return
 
     const { error } = await supabase
       .from("leave_requests")
@@ -457,6 +592,7 @@ export default function VacationsPage() {
         review_notes: reviewNotes || null,
       })
       .eq("id", selectedRequest.id)
+      .eq("status", "pending")
 
     if (!error) {
       // Update balance: remove from pending
@@ -585,16 +721,20 @@ export default function VacationsPage() {
     return true
   })
 
-  // ¿El usuario actual tiene gente a su cargo? (aparece como jefe de alguien)
-  const isManager = !!currentStaff && staff.some((s) => s.reports_to_id === currentStaff.id)
+  // ¿El usuario actual puede aprobar solicitudes? Es jefe (tiene gente a su cargo,
+  // incluso de otras agencias) o pertenece a Recursos Humanos.
+  const isManager =
+    !!currentStaff &&
+    (allStaff.some((s) => s.reports_to_id === currentStaff.id) ||
+      (currentStaff.department || "").trim().toLowerCase() === "recursos humanos")
 
-  // Solicitudes que el usuario actual debe revisar: designado como aprobador,
-  // o es el jefe directo del solicitante (si no se designó aprobador).
+  // Solicitudes que el usuario actual debe revisar: designado explícitamente como
+  // aprobador, o forma parte de la cadena de aprobación (jefe directo/superiores o RH).
   const requestsToApprove = leaveRequests.filter((r) => {
     if (!currentStaff) return false
     if (r.staff_id === currentStaff.id) return false
     if (r.approver_id) return r.approver_id === currentStaff.id
-    return r.staff?.id ? staff.find((s) => s.id === r.staff_id)?.reports_to_id === currentStaff.id : false
+    return canReviewRequest(r)
   })
   const pendingToApprove = requestsToApprove.filter((r) => r.status === "pending")
 
@@ -604,9 +744,83 @@ export default function VacationsPage() {
     new Date(r.created_at).getMonth() === new Date().getMonth()
   )
 
-  const getStaffBalance = (staffId: string) => {
-    return leaveBalances.filter(b => b.staff_id === staffId)
+  // Equipo del usuario actual: sus reportes directos. Si no tiene reportes
+  // (o no está vinculado a un empleado), se muestra todo el personal de la agencia.
+  const myTeam =
+    currentStaff && staff.some((s) => s.reports_to_id === currentStaff.id)
+      ? staff.filter((s) => s.reports_to_id === currentStaff.id)
+      : staff
+
+  // Saldos por empleado calculados con datos reales: los días otorgados provienen
+  // de la configuración de permisos de la agencia (days_per_year) o de un balance
+  // asignado manualmente; los tomados/pendientes se derivan de las solicitudes del año.
+  const getStaffBalance = (staffId: string): LeaveBalance[] => {
+    return leaveTypes.map((t) => {
+      const stored = leaveBalances.find(
+        (b) => b.staff_id === staffId && b.leave_type_id === t.id,
+      )
+      const reqs = leaveRequests.filter(
+        (r) =>
+          r.staff_id === staffId &&
+          r.leave_type_id === t.id &&
+          r.start_date &&
+          new Date(r.start_date).getFullYear() === currentYear,
+      )
+      const taken = reqs
+        .filter((r) => r.status === "approved")
+        .reduce((sum, r) => sum + Number(r.total_days || 0), 0)
+      const pending = reqs
+        .filter((r) => r.status === "pending")
+        .reduce((sum, r) => sum + Number(r.total_days || 0), 0)
+      const entitled = stored ? Number(stored.days_entitled || 0) : Number(t.days_per_year || 0)
+      const available = Math.max(0, entitled - taken - pending)
+      return {
+        id: stored?.id || `${staffId}-${t.id}`,
+        staff_id: staffId,
+        leave_type_id: t.id,
+        year: currentYear,
+        days_entitled: entitled,
+        days_taken: taken,
+        days_pending: pending,
+        days_available: available,
+        leave_type: t,
+      }
+    })
   }
+
+  // --- Datos para el calendario de ausencias ---
+  // Solicitudes vigentes (aprobadas o pendientes) con fechas válidas.
+  const calendarRequests = leaveRequests.filter(
+    (r) => (r.status === "approved" || r.status === "pending") && r.start_date && r.end_date,
+  )
+
+  const parseDay = (d: string) => new Date(`${d}T00:00:00`)
+
+  // Ausencias que caen en un día concreto.
+  const absencesOnDay = (day: Date) =>
+    calendarRequests.filter((r) =>
+      isWithinInterval(day, { start: parseDay(r.start_date), end: parseDay(r.end_date) }),
+    )
+
+  // Grilla del mes visible (semanas completas de lunes a domingo).
+  const monthStart = startOfMonth(calendarMonth)
+  const monthEnd = endOfMonth(calendarMonth)
+  const calendarDays = eachDayOfInterval({
+    start: startOfWeek(monthStart, { weekStartsOn: 1 }),
+    end: endOfWeek(monthEnd, { weekStartsOn: 1 }),
+  })
+
+  // Personal que toma días dentro del mes visible (una entrada por solicitud que se
+  // solapa con el mes), ordenado por fecha de inicio.
+  const monthAbsences = calendarRequests
+    .filter((r) =>
+      isWithinInterval(monthStart, { start: parseDay(r.start_date), end: parseDay(r.end_date) }) ||
+      isWithinInterval(monthEnd, { start: parseDay(r.start_date), end: parseDay(r.end_date) }) ||
+      isWithinInterval(parseDay(r.start_date), { start: monthStart, end: monthEnd }),
+    )
+    .sort((a, b) => parseDay(a.start_date).getTime() - parseDay(b.start_date).getTime())
+
+  const weekDayLabels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
   if (loading) {
     return (
@@ -634,7 +848,7 @@ export default function VacationsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button onClick={() => setShowRequestDialog(true)}>
+          <Button onClick={() => { resetRequestForm(); setShowRequestDialog(true) }}>
             <Plus className="w-4 h-4 mr-2" />
             Nueva Solicitud
           </Button>
@@ -789,29 +1003,53 @@ export default function VacationsPage() {
                         <TableCell>{getStatusBadge(request.status)}</TableCell>
                         <TableCell>{format(new Date(request.created_at), "dd MMM yyyy", { locale: es })}</TableCell>
                         <TableCell className="text-right">
-                          {request.status === "pending" ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedRequest(request)
-                                setShowReviewDialog(true)
-                              }}
-                            >
-                              Revisar
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setSelectedRequest(request)
-                                setShowReviewDialog(true)
-                              }}
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                          )}
+                          <div className="flex items-center justify-end gap-1">
+                            {canModifyRequest(request) ? (
+                              // Solicitud propia y pendiente: el usuario puede editarla o eliminarla
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleEditRequest(request)}
+                                >
+                                  <Pencil className="w-4 h-4 mr-1" />
+                                  Editar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => setRequestToDelete(request)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </>
+                            ) : request.status === "pending" && canReviewRequest(request) ? (
+                              // Un superior o RH puede revisar (aprobar/rechazar)
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedRequest(request)
+                                  setShowReviewDialog(true)
+                                }}
+                              >
+                                Revisar
+                              </Button>
+                            ) : (
+                              // Cualquier otro caso: solo lectura del detalle
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedRequest(request)
+                                  setShowReviewDialog(true)
+                                }}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -923,7 +1161,10 @@ export default function VacationsPage() {
             </Button>
           </div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {staff.map((member) => {
+            {myTeam.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No hay personal para mostrar</p>
+            ) : null}
+            {myTeam.map((member) => {
               const balances = getStaffBalance(member.id)
               return (
                 <Card key={member.id}>
@@ -951,7 +1192,7 @@ export default function VacationsPage() {
                             <span className="font-medium">{balance.days_available} disponibles</span>
                           </div>
                           <Progress 
-                            value={(balance.days_taken / balance.days_entitled) * 100} 
+                            value={balance.days_entitled > 0 ? (balance.days_taken / balance.days_entitled) * 100 : 0} 
                             className="h-2"
                           />
                           <div className="flex justify-between text-xs text-muted-foreground">
@@ -982,77 +1223,119 @@ export default function VacationsPage() {
 
         {/* Calendario Tab */}
         <TabsContent value="calendario" className="space-y-4">
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Próximas Ausencias</CardTitle>
-                <CardDescription>Solicitudes aprobadas próximas</CardDescription>
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Calendario mensual de ausencias */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Calendario de Ausencias</CardTitle>
+                  <CardDescription>Personal de la agencia con permisos o vacaciones</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="icon" onClick={() => setCalendarMonth((m) => subMonths(m, 1))}>
+                    <ChevronLeft className="h-4 w-4" />
+                    <span className="sr-only">Mes anterior</span>
+                  </Button>
+                  <span className="min-w-[140px] text-center text-sm font-medium capitalize">
+                    {format(calendarMonth, "MMMM yyyy", { locale: es })}
+                  </span>
+                  <Button variant="outline" size="icon" onClick={() => setCalendarMonth((m) => addMonths(m, 1))}>
+                    <ChevronRight className="h-4 w-4" />
+                    <span className="sr-only">Mes siguiente</span>
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setCalendarMonth(new Date())}>
+                    Hoy
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {leaveRequests
-                    .filter(r => r.status === "approved" && new Date(r.start_date) >= new Date())
-                    .slice(0, 5)
-                    .map((request) => (
-                      <div key={request.id} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                        <div 
-                          className="w-2 h-12 rounded-full" 
-                          style={{ backgroundColor: request.leave_type?.color }}
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium">{request.staff?.first_name} {request.staff?.last_name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {format(new Date(request.start_date), "dd MMM", { locale: es })} - {format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}
-                          </p>
+                <div className="grid grid-cols-7 gap-1">
+                  {weekDayLabels.map((d) => (
+                    <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground">
+                      {d}
+                    </div>
+                  ))}
+                  {calendarDays.map((day) => {
+                    const dayAbsences = absencesOnDay(day)
+                    const inMonth = isSameMonth(day, calendarMonth)
+                    const isToday = isSameDay(day, new Date())
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className={`min-h-[76px] rounded-md border p-1 ${
+                          inMonth ? "bg-card" : "bg-muted/30 text-muted-foreground"
+                        } ${isToday ? "border-primary ring-1 ring-primary" : "border-border"}`}
+                      >
+                        <div className="mb-1 text-right text-xs font-medium">{format(day, "d")}</div>
+                        <div className="space-y-0.5">
+                          {dayAbsences.slice(0, 3).map((r) => (
+                            <div
+                              key={r.id}
+                              className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-tight"
+                              style={{ backgroundColor: `${r.leave_type?.color || "#64748b"}22` }}
+                              title={`${r.staff?.first_name} ${r.staff?.last_name} · ${r.leave_type?.name || ""}${
+                                r.status === "pending" ? " (pendiente)" : ""
+                              }`}
+                            >
+                              <span
+                                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: r.leave_type?.color || "#64748b" }}
+                              />
+                              <span className="truncate">
+                                {r.staff?.first_name} {r.staff?.last_name?.[0] || ""}.
+                              </span>
+                            </div>
+                          ))}
+                          {dayAbsences.length > 3 && (
+                            <div className="px-1 text-[10px] text-muted-foreground">
+                              +{dayAbsences.length - 3} más
+                            </div>
+                          )}
                         </div>
-                        <Badge variant="outline">
-                          {request.total_days} días
-                          {request.is_half_day && (request.half_day_period === "afternoon" ? " · tarde" : " · mañana")}
-                        </Badge>
                       </div>
-                    ))}
-                  {leaveRequests.filter(r => r.status === "approved" && new Date(r.start_date) >= new Date()).length === 0 && (
-                    <p className="text-center text-muted-foreground py-4">No hay ausencias próximas</p>
-                  )}
+                    )
+                  })}
                 </div>
               </CardContent>
             </Card>
 
+            {/* Personal que toma días en el mes visible */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Días Festivos</CardTitle>
-                  <CardDescription>Días no laborables configurados</CardDescription>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => setShowHolidayDialog(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Agregar
-                </Button>
+              <CardHeader>
+                <CardTitle className="capitalize">
+                  {format(calendarMonth, "MMMM", { locale: es })}
+                </CardTitle>
+                <CardDescription>Personal que tomará días este mes</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {holidays.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-4">No hay días festivos configurados</p>
+                <div className="space-y-3">
+                  {monthAbsences.length === 0 ? (
+                    <p className="py-4 text-center text-muted-foreground">
+                      Nadie tomará días este mes
+                    </p>
                   ) : (
-                    holidays.map((holiday) => (
-                      <div key={holiday.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
-                        <div className="flex items-center gap-3">
-                          <CalendarDays className="w-4 h-4 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">{holiday.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {format(new Date(holiday.date), "dd MMMM yyyy", { locale: es })}
-                              {holiday.is_recurring && " (Anual)"}
-                            </p>
-                          </div>
+                    monthAbsences.map((request) => (
+                      <div key={request.id} className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
+                        <div
+                          className="h-12 w-2 rounded-full"
+                          style={{ backgroundColor: request.leave_type?.color || "#64748b" }}
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium">
+                            {request.staff?.first_name} {request.staff?.last_name}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {format(parseDay(request.start_date), "dd MMM", { locale: es })} -{" "}
+                            {format(parseDay(request.end_date), "dd MMM", { locale: es })} ·{" "}
+                            {request.leave_type?.name}
+                          </p>
                         </div>
-                        <Button 
-                          size="sm" 
-                          variant="ghost"
-                          onClick={() => handleDeleteHoliday(holiday.id)}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge variant="outline">{request.total_days} días</Badge>
+                          {request.status === "pending" && (
+                            <span className="text-[10px] text-amber-600">Pendiente</span>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
@@ -1063,12 +1346,22 @@ export default function VacationsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* New Request Dialog */}
-      <Dialog open={showRequestDialog} onOpenChange={setShowRequestDialog}>
+      {/* New/Edit Request Dialog */}
+      <Dialog
+        open={showRequestDialog}
+        onOpenChange={(open) => {
+          setShowRequestDialog(open)
+          if (!open) resetRequestForm()
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Nueva Solicitud de Permiso</DialogTitle>
-            <DialogDescription>Crea una nueva solicitud de vacaciones o permiso</DialogDescription>
+            <DialogTitle>{editingRequestId ? "Editar Solicitud de Permiso" : "Nueva Solicitud de Permiso"}</DialogTitle>
+            <DialogDescription>
+              {editingRequestId
+                ? "Modifica los datos de tu solicitud mientras siga pendiente de aprobación"
+                : "Crea una nueva solicitud de vacaciones o permiso"}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {staff.length === 0 || leaveTypes.length === 0 ? (
@@ -1279,12 +1572,20 @@ export default function VacationsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRequestDialog(false)}>Cancelar</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowRequestDialog(false)
+                resetRequestForm()
+              }}
+            >
+              Cancelar
+            </Button>
             <Button
               onClick={handleCreateRequest}
               disabled={!newRequest.staff_id || !newRequest.approver_id}
             >
-              Crear Solicitud
+              {editingRequestId ? "Guardar Cambios" : "Crear Solicitud"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1336,7 +1637,7 @@ export default function VacationsPage() {
                 )}
               </div>
 
-              {selectedRequest.status === "pending" ? (
+              {selectedRequest.status === "pending" && canReviewRequest(selectedRequest) ? (
                 <>
                   <div className="space-y-2">
                     <Label>Notas de Revisión (opcional)</Label>
@@ -1359,6 +1660,20 @@ export default function VacationsPage() {
                     </Button>
                   </DialogFooter>
                 </>
+              ) : selectedRequest.status === "pending" ? (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p className="text-sm">
+                      {selectedRequest.staff_id === currentStaff?.id
+                        ? "No puedes aprobar ni rechazar tu propia solicitud. Debe autorizarla tu jefe directo, un superior o Recursos Humanos."
+                        : "Solo el jefe directo, un superior o Recursos Humanos pueden aprobar o rechazar esta solicitud."}
+                    </p>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowReviewDialog(false)}>Cerrar</Button>
+                  </DialogFooter>
+                </div>
               ) : (
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
@@ -1390,6 +1705,40 @@ export default function VacationsPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmación de eliminación (solo solicitudes propias pendientes) */}
+      <Dialog open={!!requestToDelete} onOpenChange={(open) => !open && setRequestToDelete(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Eliminar solicitud</DialogTitle>
+            <DialogDescription>
+              Esta acción no se puede deshacer. La solicitud se eliminará de forma permanente.
+            </DialogDescription>
+          </DialogHeader>
+          {requestToDelete && (
+            <div className="rounded-lg bg-muted p-4 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Tipo:</span>
+                <span className="font-medium">{requestToDelete.leave_type?.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Período:</span>
+                <span>
+                  {format(new Date(requestToDelete.start_date), "dd/MM/yyyy")} -{" "}
+                  {format(new Date(requestToDelete.end_date), "dd/MM/yyyy")}
+                </span>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setRequestToDelete(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteRequest}>
+              <Trash2 className="w-4 h-4 mr-2" />
+              Eliminar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

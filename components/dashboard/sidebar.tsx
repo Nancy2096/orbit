@@ -188,6 +188,11 @@ const hrNavItems = [
     url: "/dashboard/hr/vacations",
     icon: CalendarDays,
   },
+  {
+    title: "Calendario",
+    url: "/dashboard/hr/calendar",
+    icon: CalendarDays,
+  },
 ]
 
 const financeNavItems = [

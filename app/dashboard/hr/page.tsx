@@ -29,7 +29,8 @@ import {
   ChevronRight,
   UserCheck,
   UserX,
-  AlertCircle
+  AlertCircle,
+  CalendarDays,
 } from "lucide-react"
 import {
   AreaChart,
@@ -821,6 +822,12 @@ export default function HRDashboardPage() {
               </Link>
             </Button>
             <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
+              <Link href="/dashboard/hr/leave-requests">
+                <Calendar className="h-5 w-5 text-teal-500" />
+                <span>Panorama Permisos</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
               <Link href="/dashboard/hr/payroll">
                 <Wallet className="h-5 w-5 text-purple-500" />
                 <span>Nómina</span>
@@ -830,6 +837,12 @@ export default function HRDashboardPage() {
               <Link href="/dashboard/hr/recognitions">
                 <Award className="h-5 w-5 text-amber-500" />
                 <span>Reconocimientos</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
+              <Link href="/dashboard/hr/calendar?admin=1">
+                <CalendarDays className="h-5 w-5 text-rose-500" />
+                <span>Calendario</span>
               </Link>
             </Button>
             <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
