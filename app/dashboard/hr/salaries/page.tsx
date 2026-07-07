@@ -100,8 +100,8 @@ export default function SalariesPage() {
   // Cambios pendientes por id de empleado
   const [edits, setEdits] = useState<Record<string, EditableRow>>({})
 
-  // Solo pueden editar quienes tienen acceso al módulo de nómina o de personal completo.
-  const canEdit = fullAccess || hasAnyModule(["payroll", "payroll_all", "staff", "staff_all"])
+  // Solo pueden editar quienes tienen acceso al módulo de sueldos y salarios.
+  const canEdit = fullAccess || hasAnyModule(["salaries"])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
