@@ -22,7 +22,10 @@ import { EMPLOYMENT_STATUSES } from "@/app/dashboard/hr/staff/page"
 interface Agency {
   id: string
   name: string
+  settings?: { working_hours_per_month?: number } | null
 }
+
+const DEFAULT_WORKING_HOURS = 160
 
 interface Currency {
   id: string
@@ -131,6 +134,28 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
   const router = useRouter()
   const supabase = createClient()
 
+  // Horas laborables al mes de la agencia del colaborador. El personal Global
+  // (sin agencia) usa el valor de cualquier agencia que lo tenga configurado,
+  // pues es igual para todas. Si nadie lo tiene, se usa el valor por defecto.
+  const workingHoursForStaff = () => {
+    const agencyId = formData.is_global ? null : formData.agency_id
+    if (agencyId) {
+      const h = Number(agencies.find((a) => a.id === agencyId)?.settings?.working_hours_per_month)
+      if (h > 0) return h
+    }
+    const found = agencies.find((a) => Number(a.settings?.working_hours_per_month) > 0)
+    return Number(found?.settings?.working_hours_per_month) || DEFAULT_WORKING_HOURS
+  }
+
+  // Costo por hora = salario mensual ÷ horas laborables al mes (automático).
+  const computedHourlyCost = (() => {
+    const salary = Number.parseFloat(formData.monthly_salary) || 0
+    const hours = workingHoursForStaff()
+    if (!(salary > 0) || !(hours > 0)) return 0
+    return salary / hours
+  })()
+  const computedHourlyCostStr = computedHourlyCost > 0 ? computedHourlyCost.toFixed(2) : ""
+
   useEffect(() => {
     setMounted(true)
   }, [])
@@ -211,7 +236,7 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
     }
     
     const [agenciesRes, currenciesRes, staffRes] = await Promise.all([
-      supabase.from("agencies").select("id, name").eq("is_active", true).order("name"),
+      supabase.from("agencies").select("id, name, settings").eq("is_active", true).order("name"),
       supabase.from("currencies").select("id, code, name, symbol").eq("is_active", true).order("code"),
       supabase.from("staff").select("*").eq("id", id).single(),
     ])
@@ -448,7 +473,7 @@ hire_date: formData.hire_date || null,
   birth_date: formData.birth_date || null,
   contract_type: formData.contract_type,
   contract_type_id: formData.contract_type_id || null,
-  hourly_cost: formData.contract_type === "commission" ? 0 : (parseFloat(formData.hourly_cost) || 0),
+        hourly_cost: formData.contract_type === "commission" ? 0 : computedHourlyCost,
       monthly_salary: formData.contract_type === "commission" ? 0 : (parseFloat(formData.monthly_salary) || 0),
       currency_id: formData.currency_id || null,
       commission_percentage: (formData.contract_type === "commission" || formData.contract_type === "full_time_variable") ? (parseFloat(formData.commission_percentage) || 0) : 0,
@@ -1091,18 +1116,21 @@ hire_date: formData.hire_date || null,
                     <>
                       <div className="grid grid-cols-2 gap-4">
                         <Field>
-                          <FieldLabel htmlFor="hourly_cost">Costo por hora</FieldLabel>
+                          <FieldLabel htmlFor="hourly_cost">Costo por hora (automático)</FieldLabel>
                           <Input
                             id="hourly_cost"
                             type="number"
                             step="0.01"
                             min="0"
-                            value={formData.hourly_cost}
-                            onChange={(e) => setFormData({ ...formData, hourly_cost: e.target.value })}
-                            placeholder="Ej: 150.00"
-                            disabled={!canEditBilling}
-                            className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}
+                            value={computedHourlyCostStr}
+                            readOnly
+                            disabled
+                            placeholder="0.00"
+                            className="bg-muted cursor-not-allowed"
                           />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Salario mensual ÷ {workingHoursForStaff()} horas laborables de la agencia.
+                          </p>
                         </Field>
                         <Field>
                           <FieldLabel htmlFor="monthly_salary">Salario Mensual</FieldLabel>
@@ -1166,18 +1194,21 @@ hire_date: formData.hire_date || null,
                   ) : (
                   <div className="grid grid-cols-2 gap-4">
                     <Field>
-                      <FieldLabel htmlFor="hourly_cost">Costo por hora</FieldLabel>
+                      <FieldLabel htmlFor="hourly_cost">Costo por hora (automático)</FieldLabel>
                       <Input
                         id="hourly_cost"
                         type="number"
                         step="0.01"
                         min="0"
-                        value={formData.hourly_cost}
-                        onChange={(e) => setFormData({ ...formData, hourly_cost: e.target.value })}
+                        value={computedHourlyCostStr}
+                        readOnly
+                        disabled
                         placeholder="0.00"
-                        disabled={!canEditBilling}
-                        className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}
+                        className="bg-muted cursor-not-allowed"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Salario mensual ÷ {workingHoursForStaff()} horas laborables de la agencia.
+                      </p>
                     </Field>
                     <Field>
                       <FieldLabel htmlFor="monthly_salary">Salario mensual</FieldLabel>

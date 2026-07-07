@@ -30,7 +30,10 @@ import { toast } from "sonner"
 interface Agency {
   id: string
   name: string
+  settings: { working_hours_per_month?: number } | null
 }
+
+const DEFAULT_WORKING_HOURS = 160
 
 interface Currency {
   id: string
@@ -113,7 +116,7 @@ export default function SalariesPage() {
         )
         .eq("is_active", true)
         .order("first_name"),
-      supabase.from("agencies").select("id, name").order("name"),
+      supabase.from("agencies").select("id, name, settings").order("name"),
       supabase.from("currencies").select("id, code, name").eq("is_active", true).order("code"),
     ])
 
@@ -135,6 +138,36 @@ export default function SalariesPage() {
   const agencyName = useCallback(
     (s: StaffSalary) => (s.agency_id ? agencies.find((a) => a.id === s.agency_id)?.name || "-" : "Global"),
     [agencies],
+  )
+
+  // Horas laborables al mes de la agencia. El personal Global (sin agencia)
+  // usa el valor de cualquier agencia que lo tenga configurado, pues es igual
+  // para todas. Si nadie lo tiene, se usa el valor por defecto.
+  const globalWorkingHours = useMemo(() => {
+    const found = agencies.find((a) => Number(a.settings?.working_hours_per_month) > 0)
+    return Number(found?.settings?.working_hours_per_month) || DEFAULT_WORKING_HOURS
+  }, [agencies])
+
+  const workingHoursFor = useCallback(
+    (agencyId: string | null) => {
+      if (agencyId) {
+        const agency = agencies.find((a) => a.id === agencyId)
+        const h = Number(agency?.settings?.working_hours_per_month)
+        if (h > 0) return h
+      }
+      return globalWorkingHours
+    },
+    [agencies, globalWorkingHours],
+  )
+
+  // Costo por hora = salario mensual ÷ horas laborables al mes (automático).
+  const computeHourlyCost = useCallback(
+    (monthlySalary: number, agencyId: string | null) => {
+      const hours = workingHoursFor(agencyId)
+      if (!(monthlySalary > 0) || !(hours > 0)) return 0
+      return monthlySalary / hours
+    },
+    [workingHoursFor],
   )
 
   // Valor efectivo (usa el editado si existe, si no el guardado).
@@ -208,11 +241,19 @@ export default function SalariesPage() {
           const n = Number.parseFloat(t)
           return Number.isFinite(n) ? n : null
         }
+        const monthlySalary = parseNum(row.monthly_salary)
+        const person = staff.find((s) => s.id === id)
+        // El costo por hora se deriva automáticamente del salario mensual y las
+        // horas laborables de la agencia; no se toma un valor manual.
+        const hourlyCost =
+          monthlySalary != null && monthlySalary > 0
+            ? computeHourlyCost(monthlySalary, person?.agency_id ?? null)
+            : null
         return supabase
           .from("staff")
           .update({
-            monthly_salary: parseNum(row.monthly_salary),
-            hourly_cost: parseNum(row.hourly_cost),
+            monthly_salary: monthlySalary,
+            hourly_cost: hourlyCost,
             commission_percentage: parseNum(row.commission_percentage),
             currency_id: row.currency_id || null,
           })
@@ -264,8 +305,10 @@ export default function SalariesPage() {
       <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
         <Info className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Los importes que edites aquí actualizan directamente el salario mensual, el costo por hora y la comisión de
-          cada colaborador. Estos mismos valores se muestran en{" "}
+          Los importes que edites aquí actualizan directamente el salario mensual y la comisión de cada colaborador. El{" "}
+          <span className="font-medium text-foreground">costo por hora se calcula automáticamente</span> dividiendo el
+          salario mensual entre las <span className="font-medium text-foreground">horas laborables</span> configuradas
+          en cada agencia. Estos mismos valores se muestran en{" "}
           <span className="font-medium text-foreground">Personal → Costos y Facturación</span> y se utilizan al{" "}
           <span className="font-medium text-foreground">calcular la Nómina</span>.
         </p>
@@ -388,7 +431,7 @@ export default function SalariesPage() {
                   <TableHead>Contrato</TableHead>
                   <TableHead className="w-28">Moneda</TableHead>
                   <TableHead className="text-right">Salario mensual</TableHead>
-                  <TableHead className="text-right">Costo por hora</TableHead>
+                  <TableHead className="text-right">Costo por hora (auto)</TableHead>
                   <TableHead className="text-right">Comisión %</TableHead>
                 </TableRow>
               </TableHeader>
@@ -461,17 +504,12 @@ export default function SalariesPage() {
                           />
                         </TableCell>
                         <TableCell className="text-right">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            inputMode="decimal"
-                            value={eff.hourly_cost}
-                            onChange={(e) => updateField(s, "hourly_cost", e.target.value)}
-                            disabled={!canEdit}
-                            className="h-8 text-right"
-                            placeholder="0.00"
-                          />
+                          <div className="flex h-8 items-center justify-end rounded-md bg-muted px-3 text-sm tabular-nums text-muted-foreground">
+                            {formatMoney(
+                              computeHourlyCost(Number.parseFloat(eff.monthly_salary) || 0, s.agency_id),
+                              currencyCode(eff.currency_id || s.currency_id),
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <Input
