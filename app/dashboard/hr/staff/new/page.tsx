@@ -76,9 +76,10 @@ export default function NewStaffPage() {
     position_id: "",
     department: "",
     department_id: "",
-    reports_to_id: "",
-    hire_date: "",
-    contract_type: "full_time",
+  reports_to_id: "",
+  hire_date: "",
+  birth_date: "",
+  contract_type: "full_time",
     contract_type_id: "",
     hourly_cost: "",
     monthly_salary: "",
@@ -339,6 +340,7 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
   department_id: formData.department_id || null,
   reports_to_id: formData.reports_to_id || null,
   hire_date: formData.hire_date || null,
+  birth_date: formData.birth_date || null,
   contract_type: formData.contract_type,
   contract_type_id: formData.contract_type_id || null,
   hourly_cost: formData.contract_type === "commission" ? 0 : (parseFloat(formData.hourly_cost) || 0),
@@ -823,6 +825,15 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                       type="date"
                       value={formData.hire_date}
                       onChange={(e) => setFormData({ ...formData, hire_date: e.target.value })}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="birth_date">Fecha de nacimiento</FieldLabel>
+                    <Input
+                      id="birth_date"
+                      type="date"
+                      value={formData.birth_date}
+                      onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })}
                     />
                   </Field>
                 </div>
