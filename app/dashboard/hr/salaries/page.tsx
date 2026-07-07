@@ -24,6 +24,16 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Banknote, Users, Wallet, BadgePercent, Save, Search, Info } from "lucide-react"
 import { toast } from "sonner"
 
@@ -77,6 +87,14 @@ const contractTypeLabels: Record<string, string> = {
   temporary: "Temporal",
 }
 
+// Permite solo dígitos y un único punto decimal (evita letras y signos).
+function sanitizeDecimal(value: string) {
+  const cleaned = value.replace(/[^0-9.]/g, "")
+  const parts = cleaned.split(".")
+  if (parts.length <= 1) return cleaned
+  return `${parts[0]}.${parts.slice(1).join("")}`
+}
+
 function formatMoney(value: number, currencyCode: string) {
   return new Intl.NumberFormat("es-MX", {
     style: "currency",
@@ -103,8 +121,19 @@ export default function SalariesPage() {
   // Cambios pendientes por id de empleado
   const [edits, setEdits] = useState<Record<string, EditableRow>>({})
 
+  // Diálogo de confirmación antes de guardar cambios de sueldo/comisión.
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
   // Solo pueden editar quienes tienen acceso al módulo de sueldos y salarios.
   const canEdit = fullAccess || hasAnyModule(["salaries"])
+
+  // Convierte texto a número (o null si está vacío/ inválido).
+  const parseNum = (v: string): number | null => {
+    const t = v.trim()
+    if (t === "") return null
+    const n = Number.parseFloat(t)
+    return Number.isFinite(n) ? n : null
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -230,17 +259,66 @@ export default function SalariesPage() {
 
   const dirtyCount = Object.keys(edits).length
 
-  const handleSaveAll = async () => {
+  // Cambios de salario y comisión pendientes (los que requieren confirmación y registro).
+  const sensitiveChanges = useMemo(() => {
+    const list: {
+      staffId: string
+      name: string
+      field: "monthly_salary" | "commission_percentage"
+      label: string
+      oldValue: number | null
+      newValue: number | null
+      display: string
+    }[] = []
+    Object.entries(edits).forEach(([id, row]) => {
+      const person = staff.find((s) => s.id === id)
+      if (!person) return
+      const name = `${person.first_name} ${person.last_name}`
+      const code = currencyCode(row.currency_id || person.currency_id)
+
+      const newSalary = parseNum(row.monthly_salary)
+      const oldSalary = person.monthly_salary ?? null
+      if (newSalary !== oldSalary) {
+        list.push({
+          staffId: id,
+          name,
+          field: "monthly_salary",
+          label: "Salario mensual",
+          oldValue: oldSalary,
+          newValue: newSalary,
+          display: `${formatMoney(oldSalary || 0, code)} → ${formatMoney(newSalary || 0, code)}`,
+        })
+      }
+
+      const newComm = parseNum(row.commission_percentage)
+      const oldComm = person.commission_percentage ?? null
+      if (newComm !== oldComm) {
+        list.push({
+          staffId: id,
+          name,
+          field: "commission_percentage",
+          label: "Comisión",
+          oldValue: oldComm,
+          newValue: newComm,
+          display: `${oldComm ?? 0}% → ${newComm ?? 0}%`,
+        })
+      }
+    })
+    return list
+  }, [edits, staff, currencyCode])
+
+  // Abre la confirmación en lugar de guardar directamente.
+  const handleSaveClick = () => {
     if (dirtyCount === 0) return
+    setConfirmOpen(true)
+  }
+
+  const performSave = async () => {
+    if (dirtyCount === 0) return
+    setConfirmOpen(false)
     setSaving(true)
     try {
       const updates = Object.entries(edits).map(([id, row]) => {
-        const parseNum = (v: string) => {
-          const t = v.trim()
-          if (t === "") return null
-          const n = Number.parseFloat(t)
-          return Number.isFinite(n) ? n : null
-        }
         const monthlySalary = parseNum(row.monthly_salary)
         const person = staff.find((s) => s.id === id)
         // El costo por hora se deriva automáticamente del salario mensual y las
@@ -263,6 +341,39 @@ export default function SalariesPage() {
       const results = await Promise.all(updates)
       const failed = results.find((r) => r.error)
       if (failed?.error) throw new Error(failed.error.message)
+
+      // Registrar en bitácora cada cambio de salario o comisión.
+      if (sensitiveChanges.length > 0) {
+        const {
+          data: { user: authUser },
+        } = await supabase.auth.getUser()
+        let changedByName: string | null = null
+        if (authUser) {
+          const { data: u } = await supabase
+            .from("users")
+            .select("first_name, last_name")
+            .eq("id", authUser.id)
+            .single()
+          changedByName = `${u?.first_name ?? ""} ${u?.last_name ?? ""}`.trim() || null
+        }
+        const logRows = sensitiveChanges.map((c) => {
+          const person = staff.find((s) => s.id === c.staffId)
+          return {
+            staff_id: c.staffId,
+            field: c.field,
+            old_value: c.oldValue,
+            new_value: c.newValue,
+            currency_code:
+              c.field === "monthly_salary"
+                ? currencyCode(edits[c.staffId]?.currency_id || person?.currency_id || null)
+                : null,
+            changed_by: authUser?.id ?? null,
+            changed_by_name: changedByName,
+          }
+        })
+        const { error: logError } = await supabase.from("salary_change_logs").insert(logRows)
+        if (logError) console.log("[v0] Error al registrar bitácora de sueldos:", logError.message)
+      }
 
       toast.success(`Se guardaron los cambios de ${dirtyCount} colaborador(es)`)
       setEdits({})
@@ -294,7 +405,7 @@ export default function SalariesPage() {
           </p>
         </div>
         {canEdit && (
-          <Button onClick={handleSaveAll} disabled={dirtyCount === 0 || saving}>
+          <Button onClick={handleSaveClick} disabled={dirtyCount === 0 || saving}>
             {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
             Guardar cambios{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
           </Button>
@@ -492,12 +603,10 @@ export default function SalariesPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                            type="text"
                             inputMode="decimal"
                             value={eff.monthly_salary}
-                            onChange={(e) => updateField(s, "monthly_salary", e.target.value)}
+                            onChange={(e) => updateField(s, "monthly_salary", sanitizeDecimal(e.target.value))}
                             disabled={!canEdit}
                             className="h-8 text-right"
                             placeholder="0.00"
@@ -513,13 +622,10 @@ export default function SalariesPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="100"
+                            type="text"
                             inputMode="decimal"
                             value={eff.commission_percentage}
-                            onChange={(e) => updateField(s, "commission_percentage", e.target.value)}
+                            onChange={(e) => updateField(s, "commission_percentage", sanitizeDecimal(e.target.value))}
                             disabled={!canEdit}
                             className="h-8 text-right"
                             placeholder="0"
@@ -534,6 +640,42 @@ export default function SalariesPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Confirmación de cambios de sueldo / comisión */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar cambios de compensación</AlertDialogTitle>
+            <AlertDialogDescription>
+              {sensitiveChanges.length > 0
+                ? "Revisa los cambios de sueldo y comisión antes de aplicarlos. Quedarán registrados en la bitácora con tu usuario y la fecha."
+                : "Se guardarán los cambios pendientes. ¿Deseas continuar?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {sensitiveChanges.length > 0 && (
+            <div className="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-border p-3">
+              {sensitiveChanges.map((c, i) => (
+                <div key={`${c.staffId}-${c.field}-${i}`} className="text-sm">
+                  <div className="font-medium">{c.name}</div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <span>{c.label}:</span>
+                    <span className="tabular-nums">{c.display}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={performSave} disabled={saving}>
+              {saving ? <Spinner className="mr-2 h-4 w-4" /> : null}
+              Sí, aplicar cambios
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
