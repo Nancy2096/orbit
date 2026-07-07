@@ -129,7 +129,6 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [staffDocuments, setStaffDocuments] = useState<StaffDocument[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
   const [canEditBilling, setCanEditBilling] = useState(false)
   const router = useRouter()
   const supabase = createClient()
@@ -193,46 +192,10 @@ export default function EditStaffPage({ params }: { params: Promise<{ id: string
   async function fetchData() {
     setFetching(true)
     
-    // Verificar el rol del usuario actual para permisos de edición de Costos y Facturación
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: currentStaff } = await supabase
-        .from("staff")
-        .select("position, position_id, role_id, positions(name, level), roles(name)")
-        .eq("user_id", user.id)
-        .single()
-      
-      if (currentStaff) {
-        const positionName = (currentStaff.position || currentStaff.positions?.name || "").toLowerCase()
-        const positionLevel = (currentStaff.positions?.level || "").toLowerCase()
-        const roleName = (currentStaff.roles?.name || "").toLowerCase()
-        
-        // Permitir edición a: Super Admin, Dirección, RRHH, Finanzas, Gerentes RH
-        const canEdit = 
-          roleName === "superadmin" ||
-          roleName === "direccion_general" ||
-          roleName === "direccion_agencia" ||
-          roleName === "rrhh" ||
-          roleName === "finanzas" ||
-          positionName.includes("gerente") && positionName.includes("rh") ||
-          positionName.includes("gerente") && positionName.includes("recursos humanos") ||
-          positionName.includes("director") ||
-          positionLevel === "director" ||
-          positionLevel === "c-level" ||
-          positionName.includes("ceo") ||
-          positionName.includes("cfo") ||
-          positionName.includes("coo")
-        
-        setCanEditBilling(canEdit)
-        setCurrentUserRole(positionName)
-      } else {
-        // Si no hay registro de staff para este usuario, permitir edición (probablemente es super admin)
-        setCanEditBilling(true)
-      }
-    } else {
-      // Si no hay usuario autenticado, no permitir edición
-      setCanEditBilling(false)
-    }
+    // La sección de Costos y Facturación es solo de lectura en Personal para
+    // todos los usuarios. Los sueldos y comisiones únicamente se editan desde
+    // la sección de Sueldos y Salarios (con confirmación y bitácora de cambios).
+    setCanEditBilling(false)
     
     const [agenciesRes, currenciesRes, staffRes] = await Promise.all([
       supabase.from("agencies").select("id, name, settings").eq("is_active", true).order("name"),
@@ -1020,7 +983,7 @@ hire_date: formData.hire_date || null,
                 {!canEditBilling && (
                   <div className="flex items-center gap-2 text-amber-600 bg-amber-100 px-3 py-1.5 rounded-md text-xs font-medium">
                     <AlertCircle className="h-3.5 w-3.5" />
-                    Solo lectura - Requiere permisos de Gerente RH o Director
+                    Solo lectura - Edítalo desde Sueldos y Salarios
                   </div>
                 )}
               </div>
