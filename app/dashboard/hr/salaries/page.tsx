@@ -34,7 +34,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Banknote, Users, Wallet, BadgePercent, Save, Search, Info } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Banknote, Users, Wallet, BadgePercent, Save, Search, Info, History } from "lucide-react"
 import { toast } from "sonner"
 
 interface Agency {
@@ -67,6 +74,19 @@ interface StaffSalary {
   currency_id: string | null
   commission_percentage: number | null
   commission_type: string | null
+}
+
+// Registro de bitácora de cambios de sueldo/comisión
+interface ChangeLog {
+  id: string
+  staff_id: string
+  field: string
+  old_value: number | null
+  new_value: number | null
+  currency_code: string | null
+  changed_by_name: string | null
+  changed_at: string
+  staff: { first_name: string; last_name: string } | null
 }
 
 // Valores editables por fila
@@ -123,6 +143,11 @@ export default function SalariesPage() {
 
   // Diálogo de confirmación antes de guardar cambios de sueldo/comisión.
   const [confirmOpen, setConfirmOpen] = useState(false)
+
+  // Historial (bitácora) de cambios de sueldo y comisión.
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyLogs, setHistoryLogs] = useState<ChangeLog[]>([])
 
   // Solo pueden editar quienes tienen acceso al módulo de sueldos y salarios.
   const canEdit = fullAccess || hasAnyModule(["salaries"])
@@ -313,6 +338,26 @@ export default function SalariesPage() {
     setConfirmOpen(true)
   }
 
+  // Carga la bitácora de cambios de sueldo/comisión más recientes.
+  const openHistory = async () => {
+    setHistoryOpen(true)
+    setHistoryLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from("salary_change_logs")
+        .select("id, staff_id, field, old_value, new_value, currency_code, changed_by_name, changed_at, staff(first_name, last_name)")
+        .order("changed_at", { ascending: false })
+        .limit(200)
+      if (error) throw new Error(error.message)
+      setHistoryLogs((data as unknown as ChangeLog[]) || [])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo cargar el historial")
+      setHistoryLogs([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   const performSave = async () => {
     if (dirtyCount === 0) return
     setConfirmOpen(false)
@@ -404,12 +449,18 @@ export default function SalariesPage() {
             cálculo de Nómina.
           </p>
         </div>
-        {canEdit && (
-          <Button onClick={handleSaveClick} disabled={dirtyCount === 0 || saving}>
-            {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
-            Guardar cambios{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={openHistory}>
+            <History className="mr-2 h-4 w-4" />
+            Historial
           </Button>
-        )}
+          {canEdit && (
+            <Button onClick={handleSaveClick} disabled={dirtyCount === 0 || saving}>
+              {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
+              Guardar cambios{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Aviso de vinculación */}
@@ -676,6 +727,65 @@ export default function SalariesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Historial (bitácora) de cambios de sueldo / comisión */}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Historial de cambios
+            </DialogTitle>
+            <DialogDescription>
+              Registro de modificaciones de sueldo y comisión, con el usuario responsable y la fecha.
+            </DialogDescription>
+          </DialogHeader>
+
+          {historyLoading ? (
+            <div className="flex h-40 items-center justify-center">
+              <Spinner className="h-6 w-6" />
+            </div>
+          ) : historyLogs.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Aún no hay cambios registrados.
+            </p>
+          ) : (
+            <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
+              {historyLogs.map((log) => {
+                const name = log.staff ? `${log.staff.first_name} ${log.staff.last_name}` : "Colaborador"
+                const isSalary = log.field === "monthly_salary"
+                const label = isSalary ? "Salario mensual" : "Comisión"
+                const change = isSalary
+                  ? `${formatMoney(log.old_value || 0, log.currency_code || "MXN")} → ${formatMoney(log.new_value || 0, log.currency_code || "MXN")}`
+                  : `${log.old_value ?? 0}% → ${log.new_value ?? 0}%`
+                return (
+                  <div key={log.id} className="rounded-lg border border-border p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(log.changed_at).toLocaleString("es-MX", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">{label}</span>
+                      <span className="tabular-nums">{change}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Por {log.changed_by_name || "Usuario desconocido"}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
