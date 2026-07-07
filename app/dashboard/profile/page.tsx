@@ -141,12 +141,15 @@ export default function ProfilePage() {
 
     const emailToMatch = userData?.email || authUser.email
     if (!staffData && emailToMatch) {
+      // Usar limit(1) en vez de maybeSingle() para que, aunque existiera más de
+      // una ficha con el mismo email, no falle la carga del perfil (importante
+      // para el personal Global, que suele no tener user_id asignado).
       const { data: staffByEmail } = await supabase
         .from("staff")
         .select(staffSelect)
         .ilike("email", emailToMatch)
-        .maybeSingle()
-      staffData = staffByEmail
+        .limit(1)
+      staffData = staffByEmail?.[0] ?? null
 
       // Vincular la ficha al usuario para futuras cargas (no bloquea la UI).
       if (staffData && !staffData.user_id) {
