@@ -674,51 +674,59 @@ export default function ProfilePage() {
                     <CardDescription>
                       Persona a contactar en caso de emergencia
                     </CardDescription>
+                    <div className="flex items-start gap-2 mt-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm">
+                      <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                      <span>
+                        Esta información es de solo lectura. Puedes editarla desde la pestaña &quot;Información&quot;.
+                      </span>
+                    </div>
                   </CardHeader>
                   <CardContent>
-                    <FieldGroup>
-                      <div className="grid grid-cols-2 gap-4">
-                        <Field>
-                          <FieldLabel htmlFor="emergency_contact_name">Nombre Completo</FieldLabel>
-                          <Input
-                            id="emergency_contact_name"
-                            value={formData.emergency_contact_name}
-                            onChange={(e) => setFormData({ ...formData, emergency_contact_name: e.target.value })}
-                            placeholder="Nombre del contacto"
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel htmlFor="emergency_contact_relationship">Parentesco</FieldLabel>
-                          <Input
-                            id="emergency_contact_relationship"
-                            value={formData.emergency_contact_relationship}
-                            onChange={(e) => setFormData({ ...formData, emergency_contact_relationship: e.target.value })}
-                            placeholder="Esposo(a), Padre, Madre, etc."
-                          />
-                        </Field>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <Field>
-                          <FieldLabel htmlFor="emergency_contact_phone">Teléfono</FieldLabel>
-                          <Input
-                            id="emergency_contact_phone"
-                            value={formData.emergency_contact_phone}
-                            onChange={(e) => setFormData({ ...formData, emergency_contact_phone: e.target.value })}
-                            placeholder="+52 55 1234 5678"
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel htmlFor="emergency_contact_email">Correo</FieldLabel>
-                          <Input
-                            id="emergency_contact_email"
-                            type="email"
-                            value={formData.emergency_contact_email}
-                            onChange={(e) => setFormData({ ...formData, emergency_contact_email: e.target.value })}
-                            placeholder="contacto@email.com"
-                          />
-                        </Field>
-                      </div>
-                    </FieldGroup>
+                    <fieldset disabled className="opacity-70">
+                      <FieldGroup>
+                        <div className="grid grid-cols-2 gap-4">
+                          <Field>
+                            <FieldLabel htmlFor="emergency_contact_name">Nombre Completo</FieldLabel>
+                            <Input
+                              id="emergency_contact_name"
+                              value={formData.emergency_contact_name}
+                              onChange={(e) => setFormData({ ...formData, emergency_contact_name: e.target.value })}
+                              placeholder="Nombre del contacto"
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel htmlFor="emergency_contact_relationship">Parentesco</FieldLabel>
+                            <Input
+                              id="emergency_contact_relationship"
+                              value={formData.emergency_contact_relationship}
+                              onChange={(e) => setFormData({ ...formData, emergency_contact_relationship: e.target.value })}
+                              placeholder="Esposo(a), Padre, Madre, etc."
+                            />
+                          </Field>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <Field>
+                            <FieldLabel htmlFor="emergency_contact_phone">Teléfono</FieldLabel>
+                            <Input
+                              id="emergency_contact_phone"
+                              value={formData.emergency_contact_phone}
+                              onChange={(e) => setFormData({ ...formData, emergency_contact_phone: e.target.value })}
+                              placeholder="+52 55 1234 5678"
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel htmlFor="emergency_contact_email">Correo</FieldLabel>
+                            <Input
+                              id="emergency_contact_email"
+                              type="email"
+                              value={formData.emergency_contact_email}
+                              onChange={(e) => setFormData({ ...formData, emergency_contact_email: e.target.value })}
+                              placeholder="contacto@email.com"
+                            />
+                          </Field>
+                        </div>
+                      </FieldGroup>
+                    </fieldset>
                   </CardContent>
                 </Card>
 
