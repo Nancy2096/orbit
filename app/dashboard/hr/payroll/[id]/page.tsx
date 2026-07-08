@@ -54,11 +54,11 @@ interface PayrollPeriod {
   total_deductions: number
   total_net: number
   notes: string | null
-  agency_id: string
+  agency_id: string | null
   agency: {
     id: string
     name: string
-  }
+  } | null
 }
 
 interface Staff {
@@ -139,6 +139,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       if (periodError) throw periodError
       setPeriod(periodData)
 
+      // Un periodo GLOBAL no tiene agencia (agency_id null) => incluye a todo el personal
+      const isGlobalPeriod = !periodData.agency_id
+
       // Fetch staff for this agency (and optionally global staff)
       let staffQuery = supabase
         .from("staff")
@@ -146,7 +149,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         .eq("is_active", true)
         .order("first_name")
 
-      if (includeGlobalStaff) {
+      if (isGlobalPeriod) {
+        // Periodo global: todo el personal activo de todas las agencias (sin filtrar)
+      } else if (includeGlobalStaff) {
         // Include agency staff AND global staff (agency_id is null)
         staffQuery = staffQuery.or(`agency_id.eq.${periodData.agency_id},agency_id.is.null`)
       } else {
@@ -158,24 +163,47 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       if (staffError) throw staffError
 
-      // Check if we have existing payroll entries
-      const { data: existingEntries, error: entriesError } = await supabase
-        .from("payroll_entries")
-        .select("*")
-        .eq("period_id", resolvedParams.id)
+      // Obtener bonos y comisiones (del apartado Comercial) aplicables al periodo.
+      // Se consideran solo los aprobados o pagados cuya fecha cae dentro del periodo.
+      const staffIds = (staffData || []).map((s) => s.id)
+      const bonusesByStaff: Record<string, number> = {}
+      const commissionsByStaff: Record<string, number> = {}
 
-      if (entriesError && entriesError.code !== "42P01") {
-        // Table might not exist, that's ok
-        console.log("Payroll entries table may not exist yet")
+      if (staffIds.length > 0) {
+        const [bonusesRes, commissionsRes] = await Promise.all([
+          supabase
+            .from("bonuses")
+            .select("staff_id, amount, benefit_type, status, effective_date")
+            .in("staff_id", staffIds)
+            .in("status", ["approved", "paid"])
+            .gte("effective_date", periodData.start_date)
+            .lte("effective_date", periodData.end_date),
+          supabase
+            .from("commissions")
+            .select("staff_id, commission_amount, status, period_date")
+            .in("staff_id", staffIds)
+            .in("status", ["approved", "paid"])
+            .gte("period_date", periodData.start_date)
+            .lte("period_date", periodData.end_date),
+        ])
+
+        for (const b of bonusesRes.data || []) {
+          // Los bonos de "días libres" no representan un monto en dinero
+          if (b.benefit_type === "free_days") continue
+          bonusesByStaff[b.staff_id] = (bonusesByStaff[b.staff_id] || 0) + Number(b.amount || 0)
+        }
+        for (const c of commissionsRes.data || []) {
+          commissionsByStaff[c.staff_id] =
+            (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
+        }
       }
 
       // Create entries from staff data
       const payrollEntries: PayrollEntry[] = (staffData || []).map(staff => {
-        const existing = existingEntries?.find(e => e.staff_id === staff.id)
         const baseSalary = calculateBaseSalary(staff, periodData.period_type)
-        const bonuses = existing?.bonuses || 0
-        const commissions = existing?.commissions || 0
-        const deductions = existing?.deductions || 0
+        const bonuses = bonusesByStaff[staff.id] || 0
+        const commissions = commissionsByStaff[staff.id] || 0
+        const deductions = 0
         const grossPay = baseSalary + bonuses + commissions
         const taxes = grossPay * 0.10 // 10% tax estimate
         const netPay = grossPay - deductions - taxes
@@ -425,7 +453,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
               </Badge>
             </div>
             <p className="text-muted-foreground">
-              {period.agency?.name} • {formatDate(period.start_date)} - {formatDate(period.end_date)}
+              {period.agency?.name || "Global (todas las agencias)"} • {formatDate(period.start_date)} - {formatDate(period.end_date)}
             </p>
           </div>
         </div>
@@ -542,16 +570,20 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                 Revisa y ajusta los pagos de cada empleado
               </CardDescription>
             </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="include-global"
-                checked={includeGlobalStaff}
-                onCheckedChange={setIncludeGlobalStaff}
-              />
-              <Label htmlFor="include-global" className="text-sm">
-                Incluir personal global
-              </Label>
-            </div>
+            {period.agency_id ? (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="include-global"
+                  checked={includeGlobalStaff}
+                  onCheckedChange={setIncludeGlobalStaff}
+                />
+                <Label htmlFor="include-global" className="text-sm">
+                  Incluir personal global
+                </Label>
+              </div>
+            ) : (
+              <Badge variant="secondary">Todas las agencias</Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent>

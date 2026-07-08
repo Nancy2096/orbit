@@ -146,7 +146,8 @@ export default function NewPayrollPeriodPage() {
       const { data, error } = await supabase
         .from("payroll_periods")
         .insert({
-          agency_id: formData.agency_id,
+          // "global" => agency_id NULL (nómina de todas las agencias)
+          agency_id: formData.agency_id === "global" ? null : formData.agency_id,
           period_name: formData.period_name,
           period_type: formData.period_type,
           start_date: formData.start_date,
@@ -223,6 +224,7 @@ export default function NewPayrollPeriodPage() {
                       <SelectValue placeholder="Selecciona una agencia" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="global">Global (todas las agencias)</SelectItem>
                       {agencies.map((agency) => (
                         <SelectItem key={agency.id} value={agency.id}>
                           {agency.name}
@@ -335,7 +337,9 @@ export default function NewPayrollPeriodPage() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Agencia:</span>
                     <span className="font-medium">
-                      {agencies.find(a => a.id === formData.agency_id)?.name || "-"}
+                      {formData.agency_id === "global"
+                        ? "Global (todas las agencias)"
+                        : agencies.find(a => a.id === formData.agency_id)?.name || "-"}
                     </span>
                   </div>
                   {formData.start_date && formData.end_date && (
