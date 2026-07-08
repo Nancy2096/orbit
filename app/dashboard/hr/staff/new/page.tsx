@@ -255,31 +255,42 @@ export default function NewStaffPage() {
       supabase.from("contract_types").select("id, name, code, weekly_hours, is_billable, agency_id, agencies(name)").eq("is_active", true).order("sort_order"),
     ])
 
-    // Los departamentos y puestos son iguales entre agencias, así que
-    // mostramos solo uno de cada uno (deduplicado por nombre).
-    const idToDeptName = new Map<string, string>((deptsRes.data || []).map((d: any) => [d.id, d.name]))
+    // Los departamentos y puestos son iguales entre todas las agencias, así que
+    // mostramos solo uno de cada uno. La deduplicación se hace por NOMBRE
+    // normalizado (sin espacios extra ni distinción de mayúsculas) para que no
+    // dependa de los ids por-agencia y nunca se repitan opciones.
+    const normalize = (s: string | null | undefined) => (s || "").trim().toLowerCase()
 
-    // Departamento canónico por nombre (se conserva el primero)
+    // Mapa id de departamento -> nombre normalizado (todos los departamentos)
+    const idToDeptName = new Map<string, string>(
+      (deptsRes.data || []).map((d: any) => [d.id, normalize(d.name)])
+    )
+
+    // Departamento canónico por nombre (se conserva el primero encontrado)
     const canonicalDeptByName = new Map<string, any>()
     const uniqueDepartments: any[] = []
     for (const dept of deptsRes.data || []) {
-      if (!canonicalDeptByName.has(dept.name)) {
-        canonicalDeptByName.set(dept.name, dept)
+      const key = normalize(dept.name)
+      if (!canonicalDeptByName.has(key)) {
+        canonicalDeptByName.set(key, dept)
         uniqueDepartments.push(dept)
       }
     }
     setDepartments(uniqueDepartments)
 
     if (positionsRes.data) {
-      // Remapear el department_id de cada puesto al departamento canónico (por nombre)
-      // para que el filtrado por departamento siga funcionando, y deduplicar puestos.
+      // Remapear el department_id de cada puesto al departamento canónico (por
+      // nombre) para que el filtrado por departamento siga funcionando, y
+      // deduplicar puestos por nombre + departamento (ambos normalizados).
       const seenPositions = new Set<string>()
       const uniquePositions: any[] = []
       for (const pos of positionsRes.data) {
         const deptName = pos.department_id ? idToDeptName.get(pos.department_id) : null
-        const canonicalDeptId = deptName ? canonicalDeptByName.get(deptName)?.id ?? pos.department_id : pos.department_id
+        const canonicalDeptId = deptName
+          ? canonicalDeptByName.get(deptName)?.id ?? pos.department_id
+          : pos.department_id
         const remapped = { ...pos, department_id: canonicalDeptId }
-        const key = `${pos.name}|${canonicalDeptId ?? "none"}`
+        const key = `${normalize(pos.name)}|${deptName ?? "none"}`
         if (!seenPositions.has(key)) {
           seenPositions.add(key)
           uniquePositions.push(remapped)
@@ -744,9 +755,6 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                           {departments.map((dept: any) => (
                             <SelectItem key={dept.id} value={dept.id}>
                               {dept.name}
-                              {formData.is_global && dept.agencies?.name && (
-                                <span className="text-muted-foreground ml-1">({dept.agencies.name})</span>
-                              )}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -783,11 +791,6 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                           {filteredPositions.map((pos: any) => (
                             <SelectItem key={pos.id} value={pos.id}>
                               {pos.name}
-                              {formData.is_global && pos.agency_id && agencies.find((a: any) => a.id === pos.agency_id) && (
-                                <span className="text-muted-foreground ml-1">
-                                  ({agencies.find((a: any) => a.id === pos.agency_id)?.name})
-                                </span>
-                              )}
                             </SelectItem>
                           ))}
                         </SelectContent>
