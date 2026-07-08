@@ -27,12 +27,15 @@ interface Staff {
   last_name: string
   email: string
   agency_id: string
+  monthly_salary: number | null
 }
 
 interface BonusType {
   id: string
   name: string
   description: string | null
+  benefit_type: string
+  benefit_value: number
 }
 
 export default function NewBonusPage() {
@@ -55,6 +58,37 @@ export default function NewBonusPage() {
     notes: "",
   })
 
+  // Calcula el monto (dinero) y los días libres según el beneficio del tipo de bono
+  const computeBenefit = (bonusTypeId: string, staffId: string) => {
+    const type = bonusTypes.find((t) => t.id === bonusTypeId)
+    const member = staff.find((s) => s.id === staffId)
+    if (!type) return { amount: 0, freeDays: 0 }
+
+    if (type.benefit_type === "money") {
+      return { amount: Number(type.benefit_value) || 0, freeDays: 0 }
+    }
+    if (type.benefit_type === "salary_days") {
+      const dailySalary = (Number(member?.monthly_salary) || 0) / 30
+      return { amount: dailySalary * (Number(type.benefit_value) || 0), freeDays: 0 }
+    }
+    // free_days: no representa monto en dinero
+    return { amount: 0, freeDays: Number(type.benefit_value) || 0 }
+  }
+
+  const handleBonusTypeChange = (bonusTypeId: string) => {
+    const { amount } = computeBenefit(bonusTypeId, formData.staff_id)
+    setFormData((prev) => ({ ...prev, bonus_type_id: bonusTypeId, amount: amount ? String(amount.toFixed(2)) : "0" }))
+  }
+
+  const handleStaffChange = (staffId: string) => {
+    const { amount } = computeBenefit(formData.bonus_type_id, staffId)
+    setFormData((prev) => ({
+      ...prev,
+      staff_id: staffId,
+      amount: formData.bonus_type_id ? String(amount.toFixed(2)) : prev.amount,
+    }))
+  }
+
   useEffect(() => {
     if (selectedAgencyId) {
       fetchInitialData()
@@ -70,13 +104,13 @@ export default function NewBonusPage() {
       const [staffRes, bonusTypesRes] = await Promise.all([
         supabase
           .from("staff")
-          .select("id, first_name, last_name, email, agency_id")
+          .select("id, first_name, last_name, email, agency_id, monthly_salary")
           .eq("agency_id", selectedAgencyId)
           .eq("is_active", true)
           .order("first_name"),
         supabase
           .from("bonus_types")
-          .select("id, name, description")
+          .select("id, name, description, benefit_type, benefit_value")
           .eq("agency_id", selectedAgencyId)
           .eq("is_active", true)
           .order("name"),
@@ -106,7 +140,11 @@ export default function NewBonusPage() {
       toast.error("Selecciona un tipo de bono")
       return
     }
-    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+
+    const selectedType = bonusTypes.find((t) => t.id === formData.bonus_type_id)
+    const isFreeDays = selectedType?.benefit_type === "free_days"
+
+    if (!isFreeDays && (!formData.amount || parseFloat(formData.amount) <= 0)) {
       toast.error("Ingresa un monto válido")
       return
     }
@@ -114,15 +152,16 @@ export default function NewBonusPage() {
     setSaving(true)
 
     try {
-      const selectedType = bonusTypes.find((t) => t.id === formData.bonus_type_id)
-
       const { error } = await supabase.from("bonuses").insert({
         agency_id: selectedAgencyId,
         staff_id: formData.staff_id,
         bonus_type_id: formData.bonus_type_id,
         // Se conserva bonus_type (texto) por compatibilidad con la vista existente
         bonus_type: selectedType?.name || "Otro",
-        amount: parseFloat(formData.amount),
+        amount: parseFloat(formData.amount) || 0,
+        // Beneficio aplicado (para el historial y cálculos)
+        benefit_type: selectedType?.benefit_type || "money",
+        benefit_value: selectedType ? Number(selectedType.benefit_value) : null,
         effective_date: formData.effective_date || null,
         status: formData.status,
         description: formData.description || null,
@@ -202,7 +241,7 @@ export default function NewBonusPage() {
                 <FieldLabel>Miembro del Personal *</FieldLabel>
                 <Select
                   value={formData.staff_id}
-                  onValueChange={(value) => setFormData((prev) => ({ ...prev, staff_id: value }))}
+                  onValueChange={handleStaffChange}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona un miembro" />
@@ -226,7 +265,7 @@ export default function NewBonusPage() {
                 ) : (
                   <Select
                     value={formData.bonus_type_id}
-                    onValueChange={(value) => setFormData((prev) => ({ ...prev, bonus_type_id: value }))}
+                    onValueChange={handleBonusTypeChange}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Selecciona el tipo de bono" />
@@ -240,8 +279,16 @@ export default function NewBonusPage() {
                     </SelectContent>
                   </Select>
                 )}
-                {selectedType?.description && (
-                  <FieldDescription>{selectedType.description}</FieldDescription>
+                {selectedType && (
+                  <FieldDescription>
+                    Beneficio:{" "}
+                    {selectedType.benefit_type === "money"
+                      ? `${formatCurrency(Number(selectedType.benefit_value))} (monto fijo)`
+                      : selectedType.benefit_type === "salary_days"
+                        ? `${selectedType.benefit_value} día(s) de sueldo`
+                        : `${selectedType.benefit_value} día(s) libre(s)`}
+                    {selectedType.description ? ` — ${selectedType.description}` : ""}
+                  </FieldDescription>
                 )}
               </Field>
 
@@ -255,6 +302,16 @@ export default function NewBonusPage() {
                   onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
                   placeholder="0.00"
                 />
+                {selectedType?.benefit_type === "salary_days" && (
+                  <FieldDescription>
+                    Calculado automáticamente: sueldo diario × {selectedType.benefit_value} día(s). Puedes ajustarlo si es necesario.
+                  </FieldDescription>
+                )}
+                {selectedType?.benefit_type === "free_days" && (
+                  <FieldDescription>
+                    Este bono otorga días libres, no un monto en dinero. Puede quedar en 0.
+                  </FieldDescription>
+                )}
               </Field>
 
               <Field>
@@ -303,16 +360,27 @@ export default function NewBonusPage() {
                 </Select>
               </Field>
 
-              {formData.amount && parseFloat(formData.amount) > 0 && (
-                <div className="p-4 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">Monto del bono:</p>
-                  <p className="font-semibold text-2xl text-green-600">
-                    {formatCurrency(parseFloat(formData.amount))}
+              {selectedType?.benefit_type === "free_days" ? (
+                <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg">
+                  <p className="text-sm text-muted-foreground mb-1">Días libres otorgados:</p>
+                  <p className="font-semibold text-2xl text-blue-600">
+                    {selectedType.benefit_value} día(s)
                   </p>
-                  {selectedType && (
-                    <p className="text-sm text-muted-foreground mt-1">{selectedType.name}</p>
-                  )}
+                  <p className="text-sm text-muted-foreground mt-1">{selectedType.name}</p>
                 </div>
+              ) : (
+                formData.amount &&
+                parseFloat(formData.amount) > 0 && (
+                  <div className="p-4 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-1">Monto del bono:</p>
+                    <p className="font-semibold text-2xl text-green-600">
+                      {formatCurrency(parseFloat(formData.amount))}
+                    </p>
+                    {selectedType && (
+                      <p className="text-sm text-muted-foreground mt-1">{selectedType.name}</p>
+                    )}
+                  </div>
+                )
               )}
 
               <Field>
