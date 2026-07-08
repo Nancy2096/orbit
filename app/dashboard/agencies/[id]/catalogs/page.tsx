@@ -37,7 +37,15 @@ interface BonusType {
   id: string
   name: string
   description: string | null
+  benefit_type: string
+  benefit_value: number
   is_active: boolean
+}
+
+const benefitTypeLabels: Record<string, string> = {
+  money: "Dinero (monto fijo)",
+  salary_days: "Días de sueldo",
+  free_days: "Días libres",
 }
 
 const sourceTypeLabels: Record<string, string> = {
@@ -73,7 +81,13 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   // Bonus type dialog state
   const [bonusDialogOpen, setBonusDialogOpen] = useState(false)
   const [editingBonus, setEditingBonus] = useState<BonusType | null>(null)
-  const [bonusForm, setBonusForm] = useState({ name: "", description: "", is_active: true })
+  const [bonusForm, setBonusForm] = useState({
+    name: "",
+    description: "",
+    benefit_type: "money",
+    benefit_value: "",
+    is_active: true,
+  })
   const [savingBonus, setSavingBonus] = useState(false)
 
   useEffect(() => {
@@ -194,7 +208,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   // Bonus type handlers
   function openNewBonus() {
     setEditingBonus(null)
-    setBonusForm({ name: "", description: "", is_active: true })
+    setBonusForm({ name: "", description: "", benefit_type: "money", benefit_value: "", is_active: true })
     setBonusDialogOpen(true)
   }
 
@@ -203,6 +217,8 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
     setBonusForm({
       name: bonus.name,
       description: bonus.description || "",
+      benefit_type: bonus.benefit_type || "money",
+      benefit_value: bonus.benefit_value != null ? String(bonus.benefit_value) : "",
       is_active: bonus.is_active,
     })
     setBonusDialogOpen(true)
@@ -212,23 +228,21 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
     if (!bonusForm.name.trim()) return
     setSavingBonus(true)
 
+    const payload = {
+      name: bonusForm.name,
+      description: bonusForm.description || null,
+      benefit_type: bonusForm.benefit_type,
+      benefit_value: Number.parseFloat(bonusForm.benefit_value) || 0,
+      is_active: bonusForm.is_active,
+    }
+
     if (editingBonus) {
       await supabase
         .from("bonus_types")
-        .update({
-          name: bonusForm.name,
-          description: bonusForm.description || null,
-          is_active: bonusForm.is_active,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ ...payload, updated_at: new Date().toISOString() })
         .eq("id", editingBonus.id)
     } else {
-      await supabase.from("bonus_types").insert({
-        agency_id: id,
-        name: bonusForm.name,
-        description: bonusForm.description || null,
-        is_active: bonusForm.is_active,
-      })
+      await supabase.from("bonus_types").insert({ agency_id: id, ...payload })
     }
 
     setSavingBonus(false)
@@ -560,6 +574,49 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                         rows={3}
                       />
                     </Field>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field>
+                        <FieldLabel htmlFor="benefit_type">Tipo de beneficio *</FieldLabel>
+                        <Select
+                          value={bonusForm.benefit_type}
+                          onValueChange={(value) => setBonusForm({ ...bonusForm, benefit_type: value })}
+                        >
+                          <SelectTrigger id="benefit_type">
+                            <SelectValue placeholder="Selecciona" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="money">Dinero (monto fijo)</SelectItem>
+                            <SelectItem value="salary_days">Días de sueldo</SelectItem>
+                            <SelectItem value="free_days">Días libres</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="benefit_value">
+                          {bonusForm.benefit_type === "money"
+                            ? "Monto"
+                            : bonusForm.benefit_type === "salary_days"
+                              ? "Número de días de sueldo"
+                              : "Número de días libres"}
+                        </FieldLabel>
+                        <Input
+                          id="benefit_value"
+                          type="number"
+                          min="0"
+                          step={bonusForm.benefit_type === "money" ? "0.01" : "1"}
+                          value={bonusForm.benefit_value}
+                          onChange={(e) => setBonusForm({ ...bonusForm, benefit_value: e.target.value })}
+                          placeholder={bonusForm.benefit_type === "money" ? "Ej: 5000" : "Ej: 5"}
+                        />
+                      </Field>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {bonusForm.benefit_type === "money"
+                        ? "Se otorgará un monto fijo en dinero."
+                        : bonusForm.benefit_type === "salary_days"
+                          ? "El monto se calculará según el sueldo diario del empleado multiplicado por el número de días."
+                          : "Se otorgarán días libres al empleado (no representa un monto en dinero)."}
+                    </p>
                     <div className="flex items-center justify-between">
                       <FieldLabel htmlFor="bonus_active">Activo</FieldLabel>
                       <Switch
@@ -591,6 +648,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                     <TableRow>
                       <TableHead>Nombre</TableHead>
                       <TableHead>Descripción</TableHead>
+                      <TableHead>Beneficio</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="w-[100px]">Acciones</TableHead>
                     </TableRow>
@@ -601,6 +659,18 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                         <TableCell className="font-medium">{bonus.name}</TableCell>
                         <TableCell className="text-muted-foreground">
                           {bonus.description || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span>{benefitTypeLabels[bonus.benefit_type] || bonus.benefit_type}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {bonus.benefit_type === "money"
+                                ? `$${Number(bonus.benefit_value).toLocaleString("es-MX", { minimumFractionDigits: 2 })}`
+                                : bonus.benefit_type === "salary_days"
+                                  ? `${bonus.benefit_value} día(s) de sueldo`
+                                  : `${bonus.benefit_value} día(s) libre(s)`}
+                            </span>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Badge variant={bonus.is_active ? "default" : "secondary"}>
