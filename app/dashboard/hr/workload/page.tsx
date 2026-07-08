@@ -28,6 +28,7 @@ import {
   X,
   CalendarDays,
   User,
+  RefreshCw,
 } from "lucide-react"
 
 interface Agency {
@@ -144,6 +145,46 @@ export default function WorkloadPage() {
     }
   }, [selectedAgency])
 
+  // Auto-actualización: mantener las cargas de trabajo sincronizadas cuando se
+  // hacen cambios en cuentas o proyectos (desde otra pantalla, pestaña o usuario).
+  useEffect(() => {
+    if (!selectedAgency) return
+
+    // 1) Realtime: recargar (en silencio) ante cambios en las tablas relevantes.
+    const channel = supabase
+      .channel("workload-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "accounts" }, () => {
+        fetchAgencyData({ silent: true })
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, () => {
+        fetchAgencyData({ silent: true })
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "project_team_members" }, () => {
+        fetchAgencyData({ silent: true })
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "staff" }, () => {
+        fetchAgencyData({ silent: true })
+      })
+      .subscribe()
+
+    // 2) Respaldo: recargar al volver el foco o visibilidad de la pestaña,
+    // por si realtime no está habilitado en el proyecto.
+    const handleRefocus = () => {
+      if (document.visibilityState === "visible") {
+        fetchAgencyData({ silent: true })
+      }
+    }
+    window.addEventListener("focus", handleRefocus)
+    document.addEventListener("visibilitychange", handleRefocus)
+
+    return () => {
+      supabase.removeChannel(channel)
+      window.removeEventListener("focus", handleRefocus)
+      document.removeEventListener("visibilitychange", handleRefocus)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAgency])
+
   async function fetchAgencies() {
     const { data } = await supabase
       .from("agencies")
@@ -170,8 +211,10 @@ export default function WorkloadPage() {
     setLoading(false)
   }
 
-  async function fetchAgencyData() {
-    setLoading(true)
+  async function fetchAgencyData({ silent = false }: { silent?: boolean } = {}) {
+    // En recargas automáticas (silent) no mostramos el spinner para no
+    // interrumpir la vista; solo actualizamos los datos en segundo plano.
+    if (!silent) setLoading(true)
 
     const isAllAgencies = selectedAgency === "all"
 
@@ -364,7 +407,7 @@ export default function WorkloadPage() {
       setWorkloadData(workload)
     }
 
-    setLoading(false)
+    if (!silent) setLoading(false)
   }
 
   function buildOrgTree(staff: StaffMember[]): OrgNode[] {
@@ -820,6 +863,16 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                 {activeFiltersCount}
               </Badge>
             )}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => fetchAgencyData({ silent: true })}
+            title="Actualizar"
+            aria-label="Actualizar"
+          >
+            <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
       </div>

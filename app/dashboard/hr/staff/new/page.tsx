@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { FieldGroup, Field, FieldLabel } from "@/components/ui/field"
+import { FieldGroup, Field, FieldLabel, FieldDescription } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { ArrowLeft, Users, AlertCircle, Camera, MapPin, Phone, CreditCard, Upload, Globe } from "lucide-react"
 import { StaffAvatar } from "@/components/staff-avatar"
@@ -202,13 +202,30 @@ export default function NewStaffPage() {
       setCanEditBilling(false)
     }
 
-    const [agenciesRes, currenciesRes] = await Promise.all([
+    const [agenciesRes, currenciesRes, codesRes] = await Promise.all([
       supabase.from("agencies").select("id, name").eq("is_active", true).order("name"),
       supabase.from("currencies").select("id, code, name, symbol").eq("is_active", true).order("code"),
+      // Todos los códigos de empleado para calcular el siguiente consecutivo
+      supabase.from("staff").select("employee_code"),
     ])
 
     if (agenciesRes.data) setAgencies(agenciesRes.data)
     if (currenciesRes.data) setCurrencies(currenciesRes.data)
+
+    // Generar el siguiente código consecutivo con formato EMP-### de forma
+    // automática, tomando el número más alto existente y sumando 1.
+    if (codesRes.data) {
+      let maxNum = 0
+      for (const row of codesRes.data) {
+        const match = /^EMP-(\d+)$/.exec((row.employee_code || "").trim())
+        if (match) {
+          const num = parseInt(match[1], 10)
+          if (num > maxNum) maxNum = num
+        }
+      }
+      const nextCode = `EMP-${String(maxNum + 1).padStart(3, "0")}`
+      setFormData((prev) => ({ ...prev, employee_code: prev.employee_code || nextCode }))
+    }
   }
 
   async function fetchAgencyData(agencyId: string) {
@@ -238,31 +255,42 @@ export default function NewStaffPage() {
       supabase.from("contract_types").select("id, name, code, weekly_hours, is_billable, agency_id, agencies(name)").eq("is_active", true).order("sort_order"),
     ])
 
-    // Los departamentos y puestos son iguales entre agencias, así que
-    // mostramos solo uno de cada uno (deduplicado por nombre).
-    const idToDeptName = new Map<string, string>((deptsRes.data || []).map((d: any) => [d.id, d.name]))
+    // Los departamentos y puestos son iguales entre todas las agencias, así que
+    // mostramos solo uno de cada uno. La deduplicación se hace por NOMBRE
+    // normalizado (sin espacios extra ni distinción de mayúsculas) para que no
+    // dependa de los ids por-agencia y nunca se repitan opciones.
+    const normalize = (s: string | null | undefined) => (s || "").trim().toLowerCase()
 
-    // Departamento canónico por nombre (se conserva el primero)
+    // Mapa id de departamento -> nombre normalizado (todos los departamentos)
+    const idToDeptName = new Map<string, string>(
+      (deptsRes.data || []).map((d: any) => [d.id, normalize(d.name)])
+    )
+
+    // Departamento canónico por nombre (se conserva el primero encontrado)
     const canonicalDeptByName = new Map<string, any>()
     const uniqueDepartments: any[] = []
     for (const dept of deptsRes.data || []) {
-      if (!canonicalDeptByName.has(dept.name)) {
-        canonicalDeptByName.set(dept.name, dept)
+      const key = normalize(dept.name)
+      if (!canonicalDeptByName.has(key)) {
+        canonicalDeptByName.set(key, dept)
         uniqueDepartments.push(dept)
       }
     }
     setDepartments(uniqueDepartments)
 
     if (positionsRes.data) {
-      // Remapear el department_id de cada puesto al departamento canónico (por nombre)
-      // para que el filtrado por departamento siga funcionando, y deduplicar puestos.
+      // Remapear el department_id de cada puesto al departamento canónico (por
+      // nombre) para que el filtrado por departamento siga funcionando, y
+      // deduplicar puestos por nombre + departamento (ambos normalizados).
       const seenPositions = new Set<string>()
       const uniquePositions: any[] = []
       for (const pos of positionsRes.data) {
         const deptName = pos.department_id ? idToDeptName.get(pos.department_id) : null
-        const canonicalDeptId = deptName ? canonicalDeptByName.get(deptName)?.id ?? pos.department_id : pos.department_id
+        const canonicalDeptId = deptName
+          ? canonicalDeptByName.get(deptName)?.id ?? pos.department_id
+          : pos.department_id
         const remapped = { ...pos, department_id: canonicalDeptId }
-        const key = `${pos.name}|${canonicalDeptId ?? "none"}`
+        const key = `${normalize(pos.name)}|${deptName ?? "none"}`
         if (!seenPositions.has(key)) {
           seenPositions.add(key)
           uniquePositions.push(remapped)
@@ -684,6 +712,9 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                     onChange={(e) => setFormData({ ...formData, employee_code: e.target.value })}
                     placeholder="Ej: EMP-001"
                   />
+                  <FieldDescription>
+                    Se asigna automáticamente con el siguiente número consecutivo. Puedes editarlo si lo necesitas.
+                  </FieldDescription>
                 </Field>
               </FieldGroup>
             </CardContent>
@@ -724,9 +755,6 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                           {departments.map((dept: any) => (
                             <SelectItem key={dept.id} value={dept.id}>
                               {dept.name}
-                              {formData.is_global && dept.agencies?.name && (
-                                <span className="text-muted-foreground ml-1">({dept.agencies.name})</span>
-                              )}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -763,11 +791,6 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                           {filteredPositions.map((pos: any) => (
                             <SelectItem key={pos.id} value={pos.id}>
                               {pos.name}
-                              {formData.is_global && pos.agency_id && agencies.find((a: any) => a.id === pos.agency_id) && (
-                                <span className="text-muted-foreground ml-1">
-                                  ({agencies.find((a: any) => a.id === pos.agency_id)?.name})
-                                </span>
-                              )}
                             </SelectItem>
                           ))}
                         </SelectContent>
