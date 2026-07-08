@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback } from "react"
+import { upload } from "@vercel/blob/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -124,19 +125,36 @@ export function StaffDocuments({
     setUploading(typeId)
     
     try {
-      const formData = new FormData()
-      formData.append("file", file)
-      formData.append("staffId", staffId)
-      formData.append("documentType", typeId)
+      // 1) Subir el archivo DIRECTAMENTE del navegador a Vercel Blob.
+      // Esto evita el límite ~4.5MB del body de la función serverless que
+      // hacía que las subidas grandes se quedaran "cargando" sin avanzar.
+      const extension = file.name.split(".").pop() || "pdf"
+      const pathname = `staff/${staffId}/${typeId}_${Date.now()}.${extension}`
 
+      const blob = await upload(pathname, file, {
+        access: "private",
+        handleUploadUrl: "/api/staff/documents/upload",
+        contentType: file.type,
+        multipart: file.size > 5 * 1024 * 1024, // multipart para archivos grandes
+      })
+
+      // 2) Registrar los metadatos del documento en la base de datos.
       const response = await fetch("/api/staff/documents", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          staffId,
+          documentType: typeId,
+          fileName: file.name,
+          fileUrl: blob.url,
+          fileSize: file.size,
+          mimeType: file.type,
+        }),
       })
 
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || "Error al subir el documento")
+        throw new Error(error.error || "Error al guardar el documento")
       }
 
       const newDocument = await response.json()
