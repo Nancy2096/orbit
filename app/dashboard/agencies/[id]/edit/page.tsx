@@ -295,7 +295,14 @@ const [positions, setPositions] = useState<Position[]>([])
   const [editingCategory, setEditingCategory] = useState<RecognitionCategory | null>(null)
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [deletedCategories, setDeletedCategories] = useState<string[]>([])
-  
+
+  // Alcance de aplicación de cambios de configuración unificada
+  // (monedas, bancos, departamentos, puestos, contratos, permisos, reconocimientos, horas)
+  const [allAgencies, setAllAgencies] = useState<{ id: string; name: string }[]>([])
+  const [scopeDialogOpen, setScopeDialogOpen] = useState(false)
+  const [applyScope, setApplyScope] = useState<"all" | "current" | "select">("all")
+  const [selectedTargetAgencies, setSelectedTargetAgencies] = useState<string[]>([])
+
   const router = useRouter()
   const supabase = createClient()
 
@@ -516,6 +523,18 @@ const [positions, setPositions] = useState<Position[]>([])
       
       if (recCategoriesData) {
         setRecognitionCategories(recCategoriesData)
+      }
+
+      // Cargar todas las agencias activas para el diálogo de alcance
+      const { data: agenciesData } = await supabase
+        .from("agencies")
+        .select("id, name")
+        .eq("is_active", true)
+        .order("name")
+      if (agenciesData) {
+        setAllAgencies(agenciesData)
+        // Por defecto, aplicar a todas las demás agencias
+        setSelectedTargetAgencies(agenciesData.filter((a) => a.id !== id).map((a) => a.id))
       }
 
       setLoading(false)
@@ -963,8 +982,21 @@ const [positions, setPositions] = useState<Position[]>([])
     setRecognitionCategories(prev => prev.filter(c => c.id !== categoryId))
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    // Si hay más de una agencia, preguntar el alcance antes de guardar,
+    // ya que estos apartados están unificados entre agencias.
+    if (allAgencies.length > 1) {
+      setApplyScope("all")
+      setSelectedTargetAgencies(allAgencies.filter((a) => a.id !== id).map((a) => a.id))
+      setScopeDialogOpen(true)
+      return
+    }
+    performSave()
+  }
+
+  const performSave = async () => {
+    setScopeDialogOpen(false)
     setSaving(true)
     setError(null)
 
@@ -1290,6 +1322,25 @@ const [positions, setPositions] = useState<Position[]>([])
         }
       }
   
+      // Propagar la configuración unificada a las demás agencias según el alcance
+      // elegido. La agencia actual es la fuente; las destino se igualan a ella.
+      let targets: string[] = []
+      if (applyScope === "all") {
+        targets = allAgencies.filter((a) => a.id !== id).map((a) => a.id)
+      } else if (applyScope === "select") {
+        targets = selectedTargetAgencies.filter((t) => t !== id)
+      }
+      for (const targetId of targets) {
+        const { error: syncError } = await supabase.rpc("sync_agency_config", {
+          p_source: id,
+          p_target: targetId,
+        })
+        if (syncError) {
+          console.error("[v0] Error sincronizando agencia:", targetId, syncError)
+          throw new Error(`No se pudo sincronizar la configuración: ${syncError.message}`)
+        }
+      }
+
       router.push("/dashboard/agencies")
       router.refresh()
     } catch (err) {
@@ -2856,6 +2907,99 @@ const [positions, setPositions] = useState<Position[]>([])
           </Button>
         </div>
       </form>
+
+      {/* Diálogo de alcance: a qué agencias aplicar los cambios de configuración unificada */}
+      <Dialog open={scopeDialogOpen} onOpenChange={setScopeDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>¿Dónde aplicar estos cambios?</DialogTitle>
+            <DialogDescription>
+              Los apartados de Monedas y Bancos, Departamentos, Puestos y Cargas, Contratos y Horas,
+              Permisos, Reconocimientos y Horas laborales están unificados entre agencias. Elige a qué
+              agencias aplicar los cambios.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+              <input
+                type="radio"
+                name="apply-scope"
+                className="mt-1"
+                checked={applyScope === "all"}
+                onChange={() => setApplyScope("all")}
+              />
+              <div>
+                <p className="font-medium text-sm">Todas las agencias</p>
+                <p className="text-muted-foreground text-xs">
+                  Aplica la configuración a todas las agencias para mantenerlas unificadas (recomendado).
+                </p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+              <input
+                type="radio"
+                name="apply-scope"
+                className="mt-1"
+                checked={applyScope === "current"}
+                onChange={() => setApplyScope("current")}
+              />
+              <div>
+                <p className="font-medium text-sm">Solo esta agencia ({formData.name})</p>
+                <p className="text-muted-foreground text-xs">
+                  Guarda los cambios únicamente en esta agencia, sin propagarlos.
+                </p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50">
+              <input
+                type="radio"
+                name="apply-scope"
+                className="mt-1"
+                checked={applyScope === "select"}
+                onChange={() => setApplyScope("select")}
+              />
+              <div className="flex-1">
+                <p className="font-medium text-sm">Elegir agencias específicas</p>
+                <p className="text-muted-foreground text-xs mb-2">
+                  Selecciona a qué otras agencias aplicar además de esta.
+                </p>
+                {applyScope === "select" && (
+                  <div className="space-y-2 mt-2">
+                    {allAgencies
+                      .filter((a) => a.id !== id)
+                      .map((a) => (
+                        <label key={a.id} className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={selectedTargetAgencies.includes(a.id)}
+                            onCheckedChange={(checked) => {
+                              setSelectedTargetAgencies((prev) =>
+                                checked ? [...prev, a.id] : prev.filter((x) => x !== a.id),
+                              )
+                            }}
+                          />
+                          <span className="text-sm">{a.name}</span>
+                        </label>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setScopeDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={performSave} disabled={saving}>
+              {saving && <Spinner className="mr-2 h-4 w-4" />}
+              Aplicar y guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
 {/* Department Dialog */}
       <Dialog open={departmentDialogOpen} onOpenChange={setDepartmentDialogOpen}>
