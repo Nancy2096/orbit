@@ -21,6 +21,10 @@ import { Clock, Check, X, CalendarDays, Building2, Search, TrendingUp, AlertTria
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
+// Parsea una fecha "solo día" (YYYY-MM-DD) en hora LOCAL para evitar el
+// desfase de un día que ocurre al interpretar el string como UTC.
+const parseDay = (d: string) => new Date(`${d}T00:00:00`)
+
 interface Agency {
   id: string
   name: string
@@ -288,7 +292,7 @@ export default function LeaveRequestsOverviewPage() {
   const usageMap = useMemo(() => {
     const map = new Map<string, { taken: number; pending: number }>()
     requests.forEach((r) => {
-      const year = r.start_date ? new Date(r.start_date).getFullYear() : null
+      const year = r.start_date ? parseDay(r.start_date).getFullYear() : null
       if (year !== currentYear) return
       if (!r.staff_id || !r.leave_type_id) return
       const key = `${r.staff_id}::${r.leave_type_id}`
@@ -586,8 +590,8 @@ export default function LeaveRequestsOverviewPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
-                            {format(new Date(r.start_date), "dd MMM", { locale: es })} -{" "}
-                            {format(new Date(r.end_date), "dd MMM yyyy", { locale: es })}
+                            {format(parseDay(r.start_date), "dd MMM", { locale: es })} -{" "}
+                            {format(parseDay(r.end_date), "dd MMM yyyy", { locale: es })}
                           </TableCell>
                           <TableCell>
                             {r.total_days}

@@ -337,10 +337,48 @@ async function fetchAgencyData(agencyId: string) {
       supabase.from("contract_types").select("id, name, code, weekly_hours, is_billable, agency_id, agencies(name)").eq("is_active", true).order("sort_order"),
     ])
 
-    if (deptsRes.data) setDepartments(deptsRes.data)
+    // Los departamentos y puestos son iguales entre todas las agencias, así que
+    // mostramos solo uno de cada uno, deduplicado por NOMBRE normalizado (sin
+    // espacios extra ni distinción de mayúsculas) para no repetir opciones.
+    const normalize = (s: string | null | undefined) => (s || "").trim().toLowerCase()
+
+    // Mapa id de departamento -> nombre normalizado (todos los departamentos)
+    const idToDeptName = new Map<string, string>(
+      (deptsRes.data || []).map((d: any) => [d.id, normalize(d.name)])
+    )
+
+    // Departamento canónico por nombre (se conserva el primero encontrado)
+    const canonicalDeptByName = new Map<string, any>()
+    const uniqueDepartments: any[] = []
+    for (const dept of deptsRes.data || []) {
+      const key = normalize(dept.name)
+      if (!canonicalDeptByName.has(key)) {
+        canonicalDeptByName.set(key, dept)
+        uniqueDepartments.push(dept)
+      }
+    }
+    setDepartments(uniqueDepartments)
+
     if (positionsRes.data) {
-      setPositions(positionsRes.data)
-      setFilteredPositions(positionsRes.data)
+      // Remapear el department_id de cada puesto al departamento canónico (por
+      // nombre) para que el filtrado por departamento siga funcionando, y
+      // deduplicar puestos por nombre + departamento (ambos normalizados).
+      const seenPositions = new Set<string>()
+      const uniquePositions: any[] = []
+      for (const pos of positionsRes.data) {
+        const deptName = pos.department_id ? idToDeptName.get(pos.department_id) : null
+        const canonicalDeptId = deptName
+          ? canonicalDeptByName.get(deptName)?.id ?? pos.department_id
+          : pos.department_id
+        const remapped = { ...pos, department_id: canonicalDeptId }
+        const key = `${normalize(pos.name)}|${deptName ?? "none"}`
+        if (!seenPositions.has(key)) {
+          seenPositions.add(key)
+          uniquePositions.push(remapped)
+        }
+      }
+      setPositions(uniquePositions)
+      setFilteredPositions(uniquePositions)
     }
     if (staffRes.data) setAgencyStaff(staffRes.data)
     if (contractTypesRes.data) {
@@ -808,9 +846,6 @@ hire_date: formData.hire_date || null,
                           {departments.map((dept: any) => (
                             <SelectItem key={dept.id} value={dept.id}>
                               {dept.name}
-                              {formData.is_global && dept.agencies?.name && (
-                                <span className="text-muted-foreground ml-1">({dept.agencies.name})</span>
-                              )}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -847,11 +882,6 @@ hire_date: formData.hire_date || null,
                           {filteredPositions.map((pos: any) => (
                             <SelectItem key={pos.id} value={pos.id}>
                               {pos.name}
-                              {formData.is_global && pos.agency_id && agencies.find(a => a.id === pos.agency_id) && (
-                                <span className="text-muted-foreground ml-1">
-                                  ({agencies.find(a => a.id === pos.agency_id)?.name})
-                                </span>
-                              )}
                             </SelectItem>
                           ))}
                         </SelectContent>

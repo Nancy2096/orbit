@@ -54,6 +54,10 @@ import {
 } from "date-fns"
 import { es } from "date-fns/locale"
 
+// Parsea una fecha "solo día" (YYYY-MM-DD) en hora LOCAL para evitar el
+// desfase de un día que ocurre al interpretar el string como UTC.
+const parseDay = (d: string) => new Date(`${d}T00:00:00`)
+
 interface Agency {
   id: string
   name: string
@@ -771,7 +775,7 @@ export default function VacationsPage() {
           r.staff_id === staffId &&
           r.leave_type_id === t.id &&
           r.start_date &&
-          new Date(r.start_date).getFullYear() === currentYear,
+          parseDay(r.start_date).getFullYear() === currentYear,
       )
       const taken = reqs
         .filter((r) => r.status === "approved")
@@ -800,8 +804,6 @@ export default function VacationsPage() {
   const calendarRequests = leaveRequests.filter(
     (r) => (r.status === "approved" || r.status === "pending") && r.start_date && r.end_date,
   )
-
-  const parseDay = (d: string) => new Date(`${d}T00:00:00`)
 
   // Ausencias que caen en un día concreto.
   const absencesOnDay = (day: Date) =>
@@ -997,8 +999,8 @@ export default function VacationsPage() {
                             {request.leave_type?.name}
                           </Badge>
                         </TableCell>
-                        <TableCell>{format(new Date(request.start_date), "dd MMM yyyy", { locale: es })}</TableCell>
-                        <TableCell>{format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}</TableCell>
+                        <TableCell>{format(parseDay(request.start_date), "dd MMM yyyy", { locale: es })}</TableCell>
+                        <TableCell>{format(parseDay(request.end_date), "dd MMM yyyy", { locale: es })}</TableCell>
                         <TableCell>
                           {request.total_days} días
                           {request.is_half_day && (
@@ -1118,7 +1120,7 @@ export default function VacationsPage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {format(new Date(request.start_date), "dd MMM", { locale: es })} - {format(new Date(request.end_date), "dd MMM yyyy", { locale: es })}
+                            {format(parseDay(request.start_date), "dd MMM", { locale: es })} - {format(parseDay(request.end_date), "dd MMM yyyy", { locale: es })}
                           </TableCell>
                           <TableCell>
                             {request.total_days} días
@@ -1625,7 +1627,7 @@ export default function VacationsPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Período:</span>
-                  <span>{format(new Date(selectedRequest.start_date), "dd/MM/yyyy")} - {format(new Date(selectedRequest.end_date), "dd/MM/yyyy")}</span>
+                  <span>{format(parseDay(selectedRequest.start_date), "dd/MM/yyyy")} - {format(parseDay(selectedRequest.end_date), "dd/MM/yyyy")}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Días:</span>
@@ -1737,8 +1739,8 @@ export default function VacationsPage() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Período:</span>
                 <span>
-                  {format(new Date(requestToDelete.start_date), "dd/MM/yyyy")} -{" "}
-                  {format(new Date(requestToDelete.end_date), "dd/MM/yyyy")}
+                  {format(parseDay(requestToDelete.start_date), "dd/MM/yyyy")} -{" "}
+                  {format(parseDay(requestToDelete.end_date), "dd/MM/yyyy")}
                 </span>
               </div>
             </div>

@@ -82,16 +82,12 @@ interface OrgNode extends StaffMember {
 }
 
 interface StaffWorkload extends StaffMember {
-  // Cuentas desde tabla accounts - Equipo comercial
-  accounts_as_sales_advisor: number
-  accounts_as_account_manager: number
-  // Cuentas desde tabla accounts - Equipo operativo
-  accounts_as_tech_manager: number
-  accounts_as_tech_coordinator: number
-  accounts_as_strategy_manager: number
-  accounts_as_strategy_coordinator: number
-  accounts_as_creative_manager: number
-  accounts_as_creative_coordinator: number
+  // Cuentas donde el empleado participa (account_team_members).
+  // Una cuenta involucra varios departamentos; cada uno tiene un
+  // gerente y un coordinador. Se cuentan cuentas DISTINTAS por rol.
+  accounts_as_manager: number
+  accounts_as_coordinator: number
+  accounts_commercial: number
   total_accounts: number
   // Proyectos
   projects_as_manager: number
@@ -257,15 +253,47 @@ export default function WorkloadPage() {
         )
       `
 
+    // Columnas comerciales directas en accounts (asesor de ventas / ejecutivo).
     let accountsQuery = supabase
       .from("accounts")
-      .select("id, agency_id, sales_advisor_id, account_manager_id, tech_manager_id, tech_coordinator_id, strategy_manager_id, strategy_coordinator_id, creative_manager_id, creative_coordinator_id")
+      .select("id, agency_id, sales_advisor_id, account_manager_id")
       .eq("status", "active")
+
+    // Asignaciones operativas reales: una cuenta involucra a varios
+    // departamentos, y cada departamento tiene un gerente y un coordinador.
+    let accountTeamQuery = supabase
+      .from("account_team_members")
+      .select(`
+        id,
+        manager_id,
+        coordinator_id,
+        department_id,
+        accounts!inner ( id, agency_id, status )
+      `)
+      .eq("accounts.status", "active")
+
+    // Proyectos activos donde el empleado es gerente o coordinador.
+    let projectTeamQuery = supabase
+      .from("project_team_members")
+      .select(`
+        id,
+        manager_id,
+        coordinator_id,
+        projects!inner (
+          id,
+          account_id,
+          status,
+          accounts!inner ( agency_id )
+        )
+      `)
+      .in("projects.status", ["active", "in_progress"])
 
     // Apply agency filter if not "all"
     if (!isAllAgencies) {
       deptQuery = deptQuery.eq("agency_id", selectedAgency)
       accountsQuery = accountsQuery.eq("agency_id", selectedAgency)
+      accountTeamQuery = accountTeamQuery.eq("accounts.agency_id", selectedAgency)
+      projectTeamQuery = projectTeamQuery.eq("projects.accounts.agency_id", selectedAgency)
     }
 
     // Fetch staff - for specific agency, include global staff too
@@ -278,23 +306,11 @@ export default function WorkloadPage() {
           supabase.from("staff").select(staffSelectFields).eq("is_global", true).eq("is_active", true).order("first_name")
         ]
 
-    const [deptRes, projectTeamRes, accountsRes, ...staffResults] = await Promise.all([
+    const [deptRes, projectTeamRes, accountsRes, accountTeamRes, ...staffResults] = await Promise.all([
       deptQuery,
-      supabase
-        .from("project_team_members")
-        .select(`
-          id,
-          manager_id,
-          coordinator_id,
-          projects!inner (
-            id,
-            account_id,
-            status,
-            accounts!inner (agency_id)
-          )
-        `)
-        .in("projects.status", ["active", "in_progress"]),
+      projectTeamQuery,
       accountsQuery,
+      accountTeamQuery,
       ...staffPromises,
     ])
 
@@ -321,40 +337,43 @@ export default function WorkloadPage() {
 
       // Calculate workload
       const workload = staffData.map((staff: any) => {
-        // Count accounts where staff is directly assigned (commercial team)
-        const accountsAsSalesAdvisor = accountsRes.data?.filter(
-          (a) => a.sales_advisor_id === staff.id
-        ).length || 0
-        const accountsAsAccountManager = accountsRes.data?.filter(
-          (a) => a.account_manager_id === staff.id
-        ).length || 0
-        
-        // Count accounts where staff is assigned (operational team)
-        const accountsAsTechManager = accountsRes.data?.filter(
-          (a) => a.tech_manager_id === staff.id
-        ).length || 0
-        const accountsAsTechCoordinator = accountsRes.data?.filter(
-          (a) => a.tech_coordinator_id === staff.id
-        ).length || 0
-        const accountsAsStrategyManager = accountsRes.data?.filter(
-          (a) => a.strategy_manager_id === staff.id
-        ).length || 0
-        const accountsAsStrategyCoordinator = accountsRes.data?.filter(
-          (a) => a.strategy_coordinator_id === staff.id
-        ).length || 0
-        const accountsAsCreativeManager = accountsRes.data?.filter(
-          (a) => a.creative_manager_id === staff.id
-        ).length || 0
-        const accountsAsCreativeCoordinator = accountsRes.data?.filter(
-          (a) => a.creative_coordinator_id === staff.id
-        ).length || 0
-        
-        // Total accounts (combining all direct assignments)
-        const totalAccounts = accountsAsSalesAdvisor + accountsAsAccountManager + 
-          accountsAsTechManager + accountsAsTechCoordinator + 
-          accountsAsStrategyManager + accountsAsStrategyCoordinator + 
-          accountsAsCreativeManager + accountsAsCreativeCoordinator
-        
+        // La carga de trabajo se mide por la cantidad de CUENTAS DISTINTAS
+        // asignadas. Una cuenta involucra varios departamentos y en cada uno
+        // hay un gerente y un coordinador (account_team_members). Un empleado
+        // afecta la carga cuando es gerente o coordinador de esa cuenta.
+        const managerAccountIds = new Set<string>()
+        const coordinatorAccountIds = new Set<string>()
+        const commercialAccountIds = new Set<string>()
+        const allAccountIds = new Set<string>()
+
+        // Equipo comercial (columnas directas en accounts)
+        accountsRes.data?.forEach((a: any) => {
+          if (a.sales_advisor_id === staff.id || a.account_manager_id === staff.id) {
+            commercialAccountIds.add(a.id)
+            allAccountIds.add(a.id)
+          }
+        })
+
+        // Equipo operativo (gerentes/coordinadores por departamento)
+        accountTeamRes.data?.forEach((row: any) => {
+          const acctId = row.accounts?.id
+          if (!acctId) return
+          if (row.manager_id === staff.id) {
+            managerAccountIds.add(acctId)
+            allAccountIds.add(acctId)
+          }
+          if (row.coordinator_id === staff.id) {
+            coordinatorAccountIds.add(acctId)
+            allAccountIds.add(acctId)
+          }
+        })
+
+        const accountsAsManager = managerAccountIds.size
+        const accountsAsCoordinator = coordinatorAccountIds.size
+        const accountsCommercial = commercialAccountIds.size
+        // Total de cuentas distintas donde participa el empleado
+        const totalAccounts = allAccountIds.size
+
         const projectsAsManager = projectTeamRes.data?.filter(
           (p) => p.manager_id === staff.id
         ).length || 0
@@ -381,14 +400,9 @@ export default function WorkloadPage() {
 
         return {
           ...staff,
-          accounts_as_sales_advisor: accountsAsSalesAdvisor,
-          accounts_as_account_manager: accountsAsAccountManager,
-          accounts_as_tech_manager: accountsAsTechManager,
-          accounts_as_tech_coordinator: accountsAsTechCoordinator,
-          accounts_as_strategy_manager: accountsAsStrategyManager,
-          accounts_as_strategy_coordinator: accountsAsStrategyCoordinator,
-          accounts_as_creative_manager: accountsAsCreativeManager,
-          accounts_as_creative_coordinator: accountsAsCreativeCoordinator,
+          accounts_as_manager: accountsAsManager,
+          accounts_as_coordinator: accountsAsCoordinator,
+          accounts_commercial: accountsCommercial,
           total_accounts: totalAccounts,
           projects_as_manager: projectsAsManager,
           projects_as_coordinator: projectsAsCoordinator,
@@ -725,8 +739,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
               </div>
             )}
 <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Comercial: {staff.accounts_as_sales_advisor + staff.accounts_as_account_manager}</span>
-                <span>Operativo: {staff.accounts_as_tech_manager + staff.accounts_as_tech_coordinator + staff.accounts_as_strategy_manager + staff.accounts_as_strategy_coordinator + staff.accounts_as_creative_manager + staff.accounts_as_creative_coordinator}</span>
+                <span>Gerente: {staff.accounts_as_manager}</span>
+                <span>Coordinador: {staff.accounts_as_coordinator}</span>
+                {staff.accounts_commercial > 0 && <span>Comercial: {staff.accounts_commercial}</span>}
               </div>
           </div>
 
