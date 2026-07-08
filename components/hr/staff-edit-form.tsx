@@ -16,6 +16,7 @@ import { ArrowLeft, Users, AlertCircle, Camera, MapPin, Phone, CreditCard, UserC
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StaffAvatar } from "@/components/staff-avatar"
 import { StaffDocuments, DOCUMENT_TYPES, type StaffDocument } from "@/components/hr/staff-documents"
+import { StaffLoans } from "@/components/hr/staff-loans"
 import { ProfileCompletionDetail } from "@/components/hr/profile-completion"
 import { EMPLOYMENT_STATUSES } from "@/app/dashboard/hr/staff/page"
 
@@ -1448,6 +1449,9 @@ hire_date: formData.hire_date || null,
             documents={staffDocuments}
             onDocumentsChange={setStaffDocuments}
           />
+
+          {/* Préstamos autorizados */}
+          <StaffLoans staffId={id} />
   
   {/* Notas */}
   {!hideNotes && (
