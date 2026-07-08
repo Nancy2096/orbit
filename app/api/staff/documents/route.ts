@@ -1,16 +1,30 @@
 import { createClient } from "@/lib/supabase/server"
-import { put, del } from "@vercel/blob"
+import { del } from "@vercel/blob"
 import { NextRequest, NextResponse } from "next/server"
 
+// El archivo ya fue subido directamente a Vercel Blob desde el navegador
+// (client upload). Aquí solo recibimos los metadatos y guardamos el registro.
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
-    const file = formData.get("file") as File | null
-    const staffId = formData.get("staffId") as string | null
-    const documentType = formData.get("documentType") as string | null
+    const body = await request.json()
+    const {
+      staffId,
+      documentType,
+      fileName,
+      fileUrl,
+      fileSize,
+      mimeType,
+    }: {
+      staffId?: string
+      documentType?: string
+      fileName?: string
+      fileUrl?: string
+      fileSize?: number
+      mimeType?: string
+    } = body
 
-    if (!file) {
-      return NextResponse.json({ error: "No se proporcionó archivo" }, { status: 400 })
+    if (!fileUrl) {
+      return NextResponse.json({ error: "No se proporcionó la URL del archivo" }, { status: 400 })
     }
 
     if (!staffId) {
@@ -21,25 +35,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No se proporcionó el tipo de documento" }, { status: 400 })
     }
 
-    // Validate file type
-    const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png"]
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { error: "Tipo de archivo no permitido. Solo PDF, JPG o PNG." },
-        { status: 400 }
-      )
-    }
-
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: "El archivo es demasiado grande. Máximo 10MB." },
-        { status: 400 }
-      )
-    }
-
     const supabase = await createClient()
+
+    // Verificar sesión activa
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    }
 
     // Verify staff exists
     const { data: staff, error: staffError } = await supabase
@@ -61,7 +65,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     // If document exists, delete the old file from blob storage
-    if (existingDoc?.file_url) {
+    if (existingDoc?.file_url && existingDoc.file_url !== fileUrl) {
       try {
         await del(existingDoc.file_url)
       } catch {
@@ -70,27 +74,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Generate unique filename
-    const timestamp = Date.now()
-    const extension = file.name.split(".").pop() || "pdf"
-    const fileName = `staff/${staffId}/${documentType}_${timestamp}.${extension}`
-
-    // Upload to Vercel Blob (el store está configurado como privado)
-    const blob = await put(fileName, file, {
-      access: "private",
-      addRandomSuffix: false,
-    })
-
     // Save or update document record in database
     if (existingDoc) {
       // Update existing record
       const { data: updatedDoc, error: updateError } = await supabase
         .from("staff_documents")
         .update({
-          file_name: file.name,
-          file_url: blob.url,
-          file_size: file.size,
-          mime_type: file.type,
+          file_name: fileName,
+          file_url: fileUrl,
+          file_size: fileSize ?? null,
+          mime_type: mimeType ?? null,
           uploaded_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -110,10 +103,10 @@ export async function POST(request: NextRequest) {
         .insert({
           staff_id: staffId,
           document_type: documentType,
-          file_name: file.name,
-          file_url: blob.url,
-          file_size: file.size,
-          mime_type: file.type,
+          file_name: fileName,
+          file_url: fileUrl,
+          file_size: fileSize ?? null,
+          mime_type: mimeType ?? null,
         })
         .select()
         .single()
@@ -125,9 +118,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(newDoc)
     }
   } catch (error) {
-    console.error("Error uploading document:", error)
+    console.error("Error saving document:", error)
     return NextResponse.json(
-      { error: "Error al subir el documento" },
+      { error: "Error al guardar el documento" },
       { status: 500 }
     )
   }

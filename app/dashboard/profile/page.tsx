@@ -558,186 +558,176 @@ export default function ProfilePage() {
 
         {staff && (
           <TabsContent value="personal">
-            <form onSubmit={handleSaveProfile}>
-              <div className="space-y-6">
-                {/* Contact personal */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Información de Contacto Personal</CardTitle>
-                    <CardDescription>
-                      Datos de contacto personales (diferentes al correo corporativo)
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <FieldGroup>
-                      <div className="grid grid-cols-2 gap-4">
-                        <Field>
-                          <FieldLabel htmlFor="personal_email">Correo Personal</FieldLabel>
-                          <Input
-                            id="personal_email"
-                            type="email"
-                            value={formData.personal_email}
-                            onChange={(e) => setFormData({ ...formData, personal_email: e.target.value })}
-                            placeholder="correo@personal.com"
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel htmlFor="personal_phone">Teléfono Personal</FieldLabel>
-                          <Input
-                            id="personal_phone"
-                            value={formData.personal_phone}
-                            onChange={(e) => setFormData({ ...formData, personal_phone: e.target.value })}
-                            placeholder="+52 55 1234 5678"
-                          />
-                        </Field>
-                      </div>
-                    </FieldGroup>
-                  </CardContent>
-                </Card>
+            <div className="space-y-6">
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm">
+                <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>
+                  Esta información es de solo lectura. Puedes editarla desde la pestaña &quot;Información&quot;.
+                </span>
+              </div>
 
-                {/* Address */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Dirección</CardTitle>
-                    <CardDescription>
-                      Tu dirección de domicilio actual
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <FieldGroup>
+              {/* Contact personal */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Información de Contacto Personal</CardTitle>
+                  <CardDescription>
+                    Datos de contacto personales (diferentes al correo corporativo)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FieldGroup>
+                    <div className="grid grid-cols-2 gap-4">
                       <Field>
-                        <FieldLabel htmlFor="address_street">Calle y Número</FieldLabel>
+                        <FieldLabel htmlFor="personal_email">Correo Personal</FieldLabel>
                         <Input
-                          id="address_street"
-                          value={formData.address_street}
-                          onChange={(e) => setFormData({ ...formData, address_street: e.target.value })}
-                          placeholder="Av. Principal #123"
+                          id="personal_email"
+                          type="email"
+                          value={formData.personal_email}
+                          readOnly
+                          placeholder="No especificado"
                         />
                       </Field>
-                      <div className="grid grid-cols-2 gap-4">
-                        <Field>
-                          <FieldLabel htmlFor="address_colony">Colonia</FieldLabel>
-                          <Input
-                            id="address_colony"
-                            value={formData.address_colony}
-                            onChange={(e) => setFormData({ ...formData, address_colony: e.target.value })}
-                            placeholder="Centro"
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel htmlFor="address_city">Ciudad</FieldLabel>
-                          <Input
-                            id="address_city"
-                            value={formData.address_city}
-                            onChange={(e) => setFormData({ ...formData, address_city: e.target.value })}
-                            placeholder="Ciudad de México"
-                          />
-                        </Field>
-                      </div>
-                      <div className="grid grid-cols-3 gap-4">
-                        <Field>
-                          <FieldLabel htmlFor="address_state">Estado</FieldLabel>
-                          <Input
-                            id="address_state"
-                            value={formData.address_state}
-                            onChange={(e) => setFormData({ ...formData, address_state: e.target.value })}
-                            placeholder="CDMX"
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel htmlFor="address_zip">Código Postal</FieldLabel>
-                          <Input
-                            id="address_zip"
-                            value={formData.address_zip}
-                            onChange={(e) => setFormData({ ...formData, address_zip: e.target.value })}
-                            placeholder="01234"
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel htmlFor="address_country">País</FieldLabel>
-                          <Input
-                            id="address_country"
-                            value={formData.address_country}
-                            onChange={(e) => setFormData({ ...formData, address_country: e.target.value })}
-                            placeholder="México"
-                          />
-                        </Field>
-                      </div>
-                    </FieldGroup>
-                  </CardContent>
-                </Card>
-
-                {/* Emergency contact */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Contacto de Emergencia</CardTitle>
-                    <CardDescription>
-                      Persona a contactar en caso de emergencia
-                    </CardDescription>
-                    <div className="flex items-start gap-2 mt-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm">
-                      <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                      <span>
-                        Esta información es de solo lectura. Puedes editarla desde la pestaña &quot;Información&quot;.
-                      </span>
+                      <Field>
+                        <FieldLabel htmlFor="personal_phone">Teléfono Personal</FieldLabel>
+                        <Input
+                          id="personal_phone"
+                          value={formData.personal_phone}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    <fieldset disabled className="opacity-70">
-                      <FieldGroup>
-                        <div className="grid grid-cols-2 gap-4">
-                          <Field>
-                            <FieldLabel htmlFor="emergency_contact_name">Nombre Completo</FieldLabel>
-                            <Input
-                              id="emergency_contact_name"
-                              value={formData.emergency_contact_name}
-                              onChange={(e) => setFormData({ ...formData, emergency_contact_name: e.target.value })}
-                              placeholder="Nombre del contacto"
-                            />
-                          </Field>
-                          <Field>
-                            <FieldLabel htmlFor="emergency_contact_relationship">Parentesco</FieldLabel>
-                            <Input
-                              id="emergency_contact_relationship"
-                              value={formData.emergency_contact_relationship}
-                              onChange={(e) => setFormData({ ...formData, emergency_contact_relationship: e.target.value })}
-                              placeholder="Esposo(a), Padre, Madre, etc."
-                            />
-                          </Field>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <Field>
-                            <FieldLabel htmlFor="emergency_contact_phone">Teléfono</FieldLabel>
-                            <Input
-                              id="emergency_contact_phone"
-                              value={formData.emergency_contact_phone}
-                              onChange={(e) => setFormData({ ...formData, emergency_contact_phone: e.target.value })}
-                              placeholder="+52 55 1234 5678"
-                            />
-                          </Field>
-                          <Field>
-                            <FieldLabel htmlFor="emergency_contact_email">Correo</FieldLabel>
-                            <Input
-                              id="emergency_contact_email"
-                              type="email"
-                              value={formData.emergency_contact_email}
-                              onChange={(e) => setFormData({ ...formData, emergency_contact_email: e.target.value })}
-                              placeholder="contacto@email.com"
-                            />
-                          </Field>
-                        </div>
-                      </FieldGroup>
-                    </fieldset>
-                  </CardContent>
-                </Card>
+                  </FieldGroup>
+                </CardContent>
+              </Card>
 
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={saving}>
-                    {saving ? <Spinner className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                    Guardar Cambios
-                  </Button>
-                </div>
-              </div>
-            </form>
+              {/* Address */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Dirección</CardTitle>
+                  <CardDescription>
+                    Tu dirección de domicilio actual
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="address_street">Calle y Número</FieldLabel>
+                      <Input
+                        id="address_street"
+                        value={formData.address_street}
+                        readOnly
+                        placeholder="No especificado"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field>
+                        <FieldLabel htmlFor="address_colony">Colonia</FieldLabel>
+                        <Input
+                          id="address_colony"
+                          value={formData.address_colony}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="address_city">Ciudad</FieldLabel>
+                        <Input
+                          id="address_city"
+                          value={formData.address_city}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <Field>
+                        <FieldLabel htmlFor="address_state">Estado</FieldLabel>
+                        <Input
+                          id="address_state"
+                          value={formData.address_state}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="address_zip">Código Postal</FieldLabel>
+                        <Input
+                          id="address_zip"
+                          value={formData.address_zip}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="address_country">País</FieldLabel>
+                        <Input
+                          id="address_country"
+                          value={formData.address_country}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                    </div>
+                  </FieldGroup>
+                </CardContent>
+              </Card>
+
+              {/* Emergency contact */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Contacto de Emergencia</CardTitle>
+                  <CardDescription>
+                    Persona a contactar en caso de emergencia
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FieldGroup>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field>
+                        <FieldLabel htmlFor="emergency_contact_name">Nombre Completo</FieldLabel>
+                        <Input
+                          id="emergency_contact_name"
+                          value={formData.emergency_contact_name}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="emergency_contact_relationship">Parentesco</FieldLabel>
+                        <Input
+                          id="emergency_contact_relationship"
+                          value={formData.emergency_contact_relationship}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field>
+                        <FieldLabel htmlFor="emergency_contact_phone">Teléfono</FieldLabel>
+                        <Input
+                          id="emergency_contact_phone"
+                          value={formData.emergency_contact_phone}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="emergency_contact_email">Correo</FieldLabel>
+                        <Input
+                          id="emergency_contact_email"
+                          type="email"
+                          value={formData.emergency_contact_email}
+                          readOnly
+                          placeholder="No especificado"
+                        />
+                      </Field>
+                    </div>
+                  </FieldGroup>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         )}
 

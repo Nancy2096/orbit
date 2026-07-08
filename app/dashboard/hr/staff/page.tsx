@@ -155,6 +155,7 @@ export default function StaffPage() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all")
+  const [selectedStatus, setSelectedStatus] = useState<string>("all")
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [canManageRoles, setCanManageRoles] = useState(false)
@@ -374,6 +375,10 @@ export default function StaffPage() {
       const staffDepartmentName = s.department_info?.name || s.department
       if (staffDepartmentName !== selectedDepartment) return false
     }
+    // Filter by employment status
+    if (selectedStatus !== "all") {
+      if ((s.employment_status || "active") !== selectedStatus) return false
+    }
     // Filter by search term
     if (searchTerm) {
       return (
@@ -456,6 +461,23 @@ export default function StaffPage() {
               {filteredDepartments.map((dept) => (
                 <SelectItem key={dept.name} value={dept.name}>
                   {dept.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">Estado:</span>
+          <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+            <SelectTrigger className="w-[250px]">
+              <SelectValue placeholder="Selecciona un estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los estados</SelectItem>
+              {EMPLOYMENT_STATUSES.map((status) => (
+                <SelectItem key={status.value} value={status.value}>
+                  {status.label}
                 </SelectItem>
               ))}
             </SelectContent>

@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/client"
+  import { createClient } from "@/lib/supabase/client"
+  import { upload } from "@vercel/blob/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -387,22 +388,37 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
     const uploadPromises: Promise<Response>[] = []
     
     for (const [documentType, file] of pendingDocuments.entries()) {
-      const formDataUpload = new FormData()
-      formDataUpload.append("file", file)
-      formDataUpload.append("staffId", insertedStaff.id)
-      formDataUpload.append("documentType", documentType)
-      
+      // Subir el archivo directamente del navegador a Vercel Blob y luego
+      // registrar sus metadatos (evita el límite del body serverless).
+      const extension = file.name.split(".").pop() || "pdf"
+      const pathname = `staff/${insertedStaff.id}/${documentType}_${Date.now()}.${extension}`
+
       uploadPromises.push(
-        fetch("/api/staff/documents", {
-          method: "POST",
-          body: formDataUpload,
-        })
+        upload(pathname, file, {
+          access: "private",
+          handleUploadUrl: "/api/staff/documents/upload",
+          contentType: file.type,
+          multipart: file.size > 5 * 1024 * 1024,
+        }).then((blob) =>
+          fetch("/api/staff/documents", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              staffId: insertedStaff.id,
+              documentType,
+              fileName: file.name,
+              fileUrl: blob.url,
+              fileSize: file.size,
+              mimeType: file.type,
+            }),
+          }),
+        ),
       )
     }
     
     try {
-      const results = await Promise.all(uploadPromises)
-      const failedCount = results.filter(r => !r.ok).length
+      const results = await Promise.allSettled(uploadPromises)
+      const failedCount = results.filter((r) => r.status === "rejected" || !r.value.ok).length
       
       if (failedCount > 0) {
         toast.warning(`${failedCount} documento(s) no se pudieron subir. Puedes subirlos desde el perfil del empleado.`)

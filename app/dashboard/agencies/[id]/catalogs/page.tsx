@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Plus, Pencil, Factory, Megaphone } from "lucide-react"
+import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift } from "lucide-react"
 import Link from "next/link"
 
 const supabase = createClient()
@@ -33,6 +33,21 @@ interface ReferralSource {
   is_active: boolean
 }
 
+interface BonusType {
+  id: string
+  name: string
+  description: string | null
+  benefit_type: string
+  benefit_value: number
+  is_active: boolean
+}
+
+const benefitTypeLabels: Record<string, string> = {
+  money: "Dinero (monto fijo)",
+  salary_days: "Días de sueldo",
+  free_days: "Días libres",
+}
+
 const sourceTypeLabels: Record<string, string> = {
   advertising: "Publicidad",
   referral: "Referido",
@@ -48,6 +63,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   const [agency, setAgency] = useState<{ id: string; name: string } | null>(null)
   const [industries, setIndustries] = useState<Industry[]>([])
   const [referralSources, setReferralSources] = useState<ReferralSource[]>([])
+  const [bonusTypes, setBonusTypes] = useState<BonusType[]>([])
   const [loading, setLoading] = useState(true)
 
   // Industry dialog state
@@ -62,6 +78,18 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   const [sourceForm, setSourceForm] = useState({ name: "", description: "", source_type: "other", is_active: true })
   const [savingSource, setSavingSource] = useState(false)
 
+  // Bonus type dialog state
+  const [bonusDialogOpen, setBonusDialogOpen] = useState(false)
+  const [editingBonus, setEditingBonus] = useState<BonusType | null>(null)
+  const [bonusForm, setBonusForm] = useState({
+    name: "",
+    description: "",
+    benefit_type: "money",
+    benefit_value: "",
+    is_active: true,
+  })
+  const [savingBonus, setSavingBonus] = useState(false)
+
   useEffect(() => {
     fetchData()
   }, [id])
@@ -69,15 +97,17 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   async function fetchData() {
     setLoading(true)
 
-    const [agencyRes, industriesRes, sourcesRes] = await Promise.all([
+    const [agencyRes, industriesRes, sourcesRes, bonusTypesRes] = await Promise.all([
       supabase.from("agencies").select("id, name").eq("id", id).single(),
       supabase.from("industries").select("*").eq("agency_id", id).order("name"),
       supabase.from("referral_sources").select("*").eq("agency_id", id).order("name"),
+      supabase.from("bonus_types").select("*").eq("agency_id", id).order("name"),
     ])
 
     if (agencyRes.data) setAgency(agencyRes.data)
     if (industriesRes.data) setIndustries(industriesRes.data)
     if (sourcesRes.data) setReferralSources(sourcesRes.data)
+    if (bonusTypesRes.data) setBonusTypes(bonusTypesRes.data)
 
     setLoading(false)
   }
@@ -175,6 +205,51 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
     fetchData()
   }
 
+  // Bonus type handlers
+  function openNewBonus() {
+    setEditingBonus(null)
+    setBonusForm({ name: "", description: "", benefit_type: "money", benefit_value: "", is_active: true })
+    setBonusDialogOpen(true)
+  }
+
+  function openEditBonus(bonus: BonusType) {
+    setEditingBonus(bonus)
+    setBonusForm({
+      name: bonus.name,
+      description: bonus.description || "",
+      benefit_type: bonus.benefit_type || "money",
+      benefit_value: bonus.benefit_value != null ? String(bonus.benefit_value) : "",
+      is_active: bonus.is_active,
+    })
+    setBonusDialogOpen(true)
+  }
+
+  async function saveBonus() {
+    if (!bonusForm.name.trim()) return
+    setSavingBonus(true)
+
+    const payload = {
+      name: bonusForm.name,
+      description: bonusForm.description || null,
+      benefit_type: bonusForm.benefit_type,
+      benefit_value: Number.parseFloat(bonusForm.benefit_value) || 0,
+      is_active: bonusForm.is_active,
+    }
+
+    if (editingBonus) {
+      await supabase
+        .from("bonus_types")
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq("id", editingBonus.id)
+    } else {
+      await supabase.from("bonus_types").insert({ agency_id: id, ...payload })
+    }
+
+    setSavingBonus(false)
+    setBonusDialogOpen(false)
+    fetchData()
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -193,7 +268,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
         </Button>
         <div>
           <h1 className="text-2xl font-bold">Catálogos de {agency?.name}</h1>
-          <p className="text-muted-foreground">Administra los tipos de cliente y fuentes de referencia</p>
+          <p className="text-muted-foreground">Administra los tipos de cliente, fuentes de referencia y tipos de bono</p>
         </div>
       </div>
 
@@ -206,6 +281,10 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
           <TabsTrigger value="sources" className="gap-2">
             <Megaphone className="h-4 w-4" />
             Fuentes/Referencias
+          </TabsTrigger>
+          <TabsTrigger value="bonuses" className="gap-2">
+            <Gift className="h-4 w-4" />
+            Bonos
           </TabsTrigger>
         </TabsList>
 
@@ -437,6 +516,169 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                         </TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon" onClick={() => openEditSource(source)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Bonus Types Tab */}
+        <TabsContent value="bonuses">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Tipos de Bono</CardTitle>
+                <CardDescription>
+                  Define los tipos de bono que se pueden otorgar al personal de esta agencia
+                </CardDescription>
+              </div>
+              <Dialog open={bonusDialogOpen} onOpenChange={setBonusDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={openNewBonus}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuevo Tipo de Bono
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>
+                      {editingBonus ? "Editar Tipo de Bono" : "Nuevo Tipo de Bono"}
+                    </DialogTitle>
+                    <DialogDescription>
+                      {editingBonus ? "Modifica los datos del tipo de bono" : "Agrega un nuevo tipo de bono al catálogo"}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="bonus_name">Nombre *</FieldLabel>
+                      <Input
+                        id="bonus_name"
+                        value={bonusForm.name}
+                        onChange={(e) => setBonusForm({ ...bonusForm, name: e.target.value })}
+                        placeholder="Ej: Desempeño, Productividad, Aguinaldo..."
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="bonus_description">Descripción</FieldLabel>
+                      <Textarea
+                        id="bonus_description"
+                        value={bonusForm.description}
+                        onChange={(e) => setBonusForm({ ...bonusForm, description: e.target.value })}
+                        placeholder="Descripción opcional..."
+                        rows={3}
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field>
+                        <FieldLabel htmlFor="benefit_type">Tipo de beneficio *</FieldLabel>
+                        <Select
+                          value={bonusForm.benefit_type}
+                          onValueChange={(value) => setBonusForm({ ...bonusForm, benefit_type: value })}
+                        >
+                          <SelectTrigger id="benefit_type">
+                            <SelectValue placeholder="Selecciona" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="money">Dinero (monto fijo)</SelectItem>
+                            <SelectItem value="salary_days">Días de sueldo</SelectItem>
+                            <SelectItem value="free_days">Días libres</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="benefit_value">
+                          {bonusForm.benefit_type === "money"
+                            ? "Monto"
+                            : bonusForm.benefit_type === "salary_days"
+                              ? "Número de días de sueldo"
+                              : "Número de días libres"}
+                        </FieldLabel>
+                        <Input
+                          id="benefit_value"
+                          type="number"
+                          min="0"
+                          step={bonusForm.benefit_type === "money" ? "0.01" : "1"}
+                          value={bonusForm.benefit_value}
+                          onChange={(e) => setBonusForm({ ...bonusForm, benefit_value: e.target.value })}
+                          placeholder={bonusForm.benefit_type === "money" ? "Ej: 5000" : "Ej: 5"}
+                        />
+                      </Field>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {bonusForm.benefit_type === "money"
+                        ? "Se otorgará un monto fijo en dinero."
+                        : bonusForm.benefit_type === "salary_days"
+                          ? "El monto se calculará según el sueldo diario del empleado multiplicado por el número de días."
+                          : "Se otorgarán días libres al empleado (no representa un monto en dinero)."}
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <FieldLabel htmlFor="bonus_active">Activo</FieldLabel>
+                      <Switch
+                        id="bonus_active"
+                        checked={bonusForm.is_active}
+                        onCheckedChange={(checked) => setBonusForm({ ...bonusForm, is_active: checked })}
+                      />
+                    </div>
+                  </FieldGroup>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setBonusDialogOpen(false)}>
+                      Cancelar
+                    </Button>
+                    <Button onClick={saveBonus} disabled={savingBonus || !bonusForm.name.trim()}>
+                      {savingBonus ? "Guardando..." : "Guardar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+            <CardContent>
+              {bonusTypes.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No hay tipos de bono definidos. Agrega uno para comenzar.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nombre</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Beneficio</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="w-[100px]">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bonusTypes.map((bonus) => (
+                      <TableRow key={bonus.id}>
+                        <TableCell className="font-medium">{bonus.name}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {bonus.description || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span>{benefitTypeLabels[bonus.benefit_type] || bonus.benefit_type}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {bonus.benefit_type === "money"
+                                ? `$${Number(bonus.benefit_value).toLocaleString("es-MX", { minimumFractionDigits: 2 })}`
+                                : bonus.benefit_type === "salary_days"
+                                  ? `${bonus.benefit_value} día(s) de sueldo`
+                                  : `${bonus.benefit_value} día(s) libre(s)`}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={bonus.is_active ? "default" : "secondary"}>
+                            {bonus.is_active ? "Activo" : "Inactivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" onClick={() => openEditBonus(bonus)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
                         </TableCell>
