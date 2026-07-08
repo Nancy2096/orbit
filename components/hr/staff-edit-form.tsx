@@ -17,7 +17,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StaffAvatar } from "@/components/staff-avatar"
 import { StaffDocuments, DOCUMENT_TYPES, type StaffDocument } from "@/components/hr/staff-documents"
 import { ProfileCompletionDetail } from "@/components/hr/profile-completion"
-import { StaffBonusHistory } from "@/components/hr/staff-bonus-history"
 import { EMPLOYMENT_STATUSES } from "@/app/dashboard/hr/staff/page"
 
 interface Agency {
@@ -1492,8 +1491,6 @@ hire_date: formData.hire_date || null,
           </div>
         </div>
       </form>
-
-      <StaffBonusHistory staffId={id} />
     </div>
   )
 }

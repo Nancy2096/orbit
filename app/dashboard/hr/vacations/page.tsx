@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -129,6 +130,10 @@ export default function VacationsPage() {
   const supabase = createClient()
   const [activeTab, setActiveTab] = useState("solicitudes")
   const [calendarMonth, setCalendarMonth] = useState(new Date())
+  const { roleName, fullAccess } = usePermissions()
+  // Roles que pueden modificar cualquier solicitud pendiente (además del propietario)
+  const canManageAllRequests = fullAccess || roleName === "superadmin" || roleName === "direccion_general"
+
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("")
   const [staff, setStaff] = useState<Staff[]>([])
@@ -332,10 +337,12 @@ export default function VacationsPage() {
   }
 
   // ¿El usuario actual puede editar/eliminar esta solicitud?
-  // Solo el propietario y únicamente mientras siga pendiente (sin aprobar/rechazar).
+  // Únicamente mientras siga pendiente (sin aprobar/rechazar). Pueden modificarla:
+  // el propietario de la solicitud, el Super Administrador y Dirección General.
   const canModifyRequest = (request: LeaveRequest | null) => {
-    if (!request || !currentStaff) return false
-    return request.staff_id === currentStaff.id && request.status === "pending"
+    if (!request || request.status !== "pending") return false
+    if (canManageAllRequests) return true
+    return !!currentStaff && request.staff_id === currentStaff.id
   }
 
   // Abre el diálogo en modo edición con los datos de la solicitud
@@ -1004,8 +1011,9 @@ export default function VacationsPage() {
                         <TableCell>{format(new Date(request.created_at), "dd MMM yyyy", { locale: es })}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {canModifyRequest(request) ? (
-                              // Solicitud propia y pendiente: el usuario puede editarla o eliminarla
+                            {canModifyRequest(request) && (
+                              // Pendiente: el propietario, Super Admin o Dirección General
+                              // pueden editar o eliminar la solicitud.
                               <>
                                 <Button
                                   size="sm"
@@ -1024,7 +1032,8 @@ export default function VacationsPage() {
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
                               </>
-                            ) : request.status === "pending" && canReviewRequest(request) ? (
+                            )}
+                            {request.status === "pending" && canReviewRequest(request) && (
                               // Un superior o RH puede revisar (aprobar/rechazar)
                               <Button
                                 size="sm"
@@ -1036,19 +1045,21 @@ export default function VacationsPage() {
                               >
                                 Revisar
                               </Button>
-                            ) : (
-                              // Cualquier otro caso: solo lectura del detalle
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  setSelectedRequest(request)
-                                  setShowReviewDialog(true)
-                                }}
-                              >
-                                <Eye className="w-4 h-4" />
-                              </Button>
                             )}
+                            {!canModifyRequest(request) &&
+                              !(request.status === "pending" && canReviewRequest(request)) && (
+                                // Cualquier otro caso: solo lectura del detalle
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setSelectedRequest(request)
+                                    setShowReviewDialog(true)
+                                  }}
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                              )}
                           </div>
                         </TableCell>
                       </TableRow>

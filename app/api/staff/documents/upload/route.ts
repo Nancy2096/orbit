@@ -30,9 +30,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           maximumSizeInBytes: 10 * 1024 * 1024,
         }
       },
-      // No usamos onUploadCompleted para guardar en BD porque no se dispara en
-      // entornos locales; el registro se guarda desde el cliente tras completar.
-      onUploadCompleted: async () => {},
+      // IMPORTANTE: NO definimos onUploadCompleted. Si se define (aunque sea vacío),
+      // el SDK adjunta un callbackUrl al token y el servicio de Blob intenta llamar
+      // de vuelta a esa URL tras subir el archivo. En entornos con proxy/preview esa
+      // URL no es alcanzable, por lo que el paso de "completado" de upload() se queda
+      // colgado y la UI se queda "Subiendo..." sin avanzar. El registro en la base de
+      // datos se guarda desde el cliente (POST a /api/staff/documents) tras completar.
     })
 
     return NextResponse.json(jsonResponse)

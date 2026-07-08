@@ -334,7 +334,7 @@ export default function PayrollPage() {
                   {filteredPeriods.map((period) => (
                     <TableRow key={period.id}>
                       <TableCell className="font-medium">{period.period_name}</TableCell>
-                      <TableCell>{period.agency?.name || "-"}</TableCell>
+                      <TableCell>{period.agency?.name || "Global"}</TableCell>
                       <TableCell>{periodTypeLabels[period.period_type] || period.period_type}</TableCell>
                       <TableCell>
                         <div className="text-sm">

@@ -34,28 +34,59 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
+                var RO_MSG = 'ResizeObserver loop';
+                var isRO = function(v) {
+                  return v && typeof v === 'string' && v.indexOf('ResizeObserver') > -1;
+                };
+
+                // 1) Swallow classic error handlers
                 var ro = window.onerror;
                 window.onerror = function(m) {
-                  if (m && typeof m === 'string' && m.indexOf('ResizeObserver') > -1) return true;
+                  if (isRO(m)) return true;
                   return ro ? ro.apply(this, arguments) : false;
                 };
                 window.addEventListener('error', function(e) {
-                  if (e.message && e.message.indexOf('ResizeObserver') > -1) {
+                  if (isRO(e && e.message)) {
                     e.stopImmediatePropagation();
                     e.preventDefault();
                     return true;
                   }
                 }, true);
-                var resizeObserverErr = window.ResizeObserver;
-                if (resizeObserverErr) {
+
+                // 2) Swallow unhandled promise rejections carrying the message
+                window.addEventListener('unhandledrejection', function(e) {
+                  var reason = e && e.reason;
+                  var msg = reason && (reason.message || reason);
+                  if (isRO(msg)) {
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+                    return true;
+                  }
+                }, true);
+
+                // 3) Filter console.error (Next.js dev overlay reads from here)
+                var origConsoleError = window.console && window.console.error;
+                if (origConsoleError) {
+                  window.console.error = function() {
+                    var first = arguments[0];
+                    var text = isRO(first) ? first
+                      : (first && isRO(first.message) ? first.message : '');
+                    if (isRO(text)) return;
+                    return origConsoleError.apply(this, arguments);
+                  };
+                }
+
+                // 4) Debounce ResizeObserver callbacks to avoid the loop entirely
+                var NativeRO = window.ResizeObserver;
+                if (NativeRO) {
                   window.ResizeObserver = function(callback) {
-                    return new resizeObserverErr(function(entries, observer) {
+                    return new NativeRO(function(entries, observer) {
                       window.requestAnimationFrame(function() {
                         try { callback(entries, observer); } catch(e) {}
                       });
                     });
                   };
-                  window.ResizeObserver.prototype = resizeObserverErr.prototype;
+                  window.ResizeObserver.prototype = NativeRO.prototype;
                 }
               })();
             `,
