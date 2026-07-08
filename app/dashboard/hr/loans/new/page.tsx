@@ -153,11 +153,14 @@ export default function NewLoanPage() {
 
       if (error) throw error
 
-      toast.success("Préstamo creado exitosamente")
+      toast.success("Préstamo enviado para autorización de Dirección")
       router.push("/dashboard/hr/loans")
-    } catch (error) {
-      console.error("Error creating loan:", error)
-      toast.error("Error al crear el préstamo")
+    } catch (error: any) {
+      console.error("[v0] Error creating loan:", error)
+      // Mostrar el mensaje real de la base de datos para facilitar el diagnóstico
+      const message =
+        error?.message || error?.details || error?.hint || "Error desconocido al crear el préstamo"
+      toast.error(`Error al crear el préstamo: ${message}`)
     } finally {
       setSaving(false)
     }
