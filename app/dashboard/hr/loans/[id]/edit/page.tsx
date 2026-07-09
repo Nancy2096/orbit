@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -17,167 +18,155 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
-import { ArrowLeft, Calculator, Save } from "lucide-react"
+import { ArrowLeft, Calculator, Save, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
-import { LoanAuthorizers } from "@/components/hr/loan-authorizers"
 
-interface Agency {
-  id: string
-  name: string
-}
-
-interface Staff {
-  id: string
-  first_name: string
-  last_name: string
-  employee_code: string | null
-  agency_id: string | null
-  agency_ids: string[] | null
-  is_global: boolean
-}
-
-export default function NewLoanPage() {
+export default function EditLoanPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
   const router = useRouter()
   const supabase = createClient()
-  
-  const [agencies, setAgencies] = useState<Agency[]>([])
-  const [staffList, setStaffList] = useState<Staff[]>([])
+  const { roleName, fullAccess, loading: permsLoading } = usePermissions()
+
+  // Solo Dirección General, Operaciones o acceso total pueden editar préstamos.
+  const canEdit = fullAccess || roleName === "direccion_general" || roleName === "operaciones"
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  
+  const [notFound, setNotFound] = useState(false)
+
   const [formData, setFormData] = useState({
-    agency_id: "",
-    staff_id: "",
+    staff_name: "",
+    agency_name: "",
+    loan_number: "",
     loan_type: "personal",
     description: "",
     principal_amount: 0,
     interest_rate: 0,
     number_of_payments: 12,
     payment_frequency: "monthly",
-    request_date: new Date().toISOString().split("T")[0],
+    request_date: "",
     start_date: "",
     notes: "",
   })
 
-  // Calculated values
+  // Valores calculados
   const interestAmount = (formData.principal_amount * formData.interest_rate) / 100
   const totalAmount = formData.principal_amount + interestAmount
   const paymentAmount = formData.number_of_payments > 0 ? totalAmount / formData.number_of_payments : 0
 
   useEffect(() => {
-    fetchAgencies()
-  }, [])
+    const fetchLoan = async () => {
+      const { data, error } = await supabase
+        .from("loans")
+        .select(`
+          *,
+          staff:staff(first_name, last_name),
+          agency:agencies(name)
+        `)
+        .eq("id", id)
+        .single()
 
-  useEffect(() => {
-    if (formData.agency_id) {
-      fetchStaffByAgency(formData.agency_id)
-    } else {
-      setStaffList([])
-    }
-  }, [formData.agency_id])
+      if (error || !data) {
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
 
-  const fetchAgencies = async () => {
-    const { data } = await supabase
-      .from("agencies")
-      .select("id, name")
-      .eq("is_active", true)
-      .order("name")
-    
-    if (data) setAgencies(data)
-    setLoading(false)
-  }
+      const staff: any = Array.isArray(data.staff) ? data.staff[0] : data.staff
+      const agency: any = Array.isArray(data.agency) ? data.agency[0] : data.agency
 
-  const fetchStaffByAgency = async (agencyId: string) => {
-    // Fetch staff that belong to this agency (via agency_id, agency_ids array, or is_global)
-    const { data } = await supabase
-      .from("staff")
-      .select("id, first_name, last_name, employee_code, agency_id, agency_ids, is_global")
-      .eq("is_active", true)
-      .order("first_name")
-    
-    if (data) {
-      // Filter staff that have access to this agency
-      const filteredStaff = data.filter(staff => {
-        if (staff.is_global) return true
-        if (staff.agency_id === agencyId) return true
-        if (staff.agency_ids && Array.isArray(staff.agency_ids) && staff.agency_ids.includes(agencyId)) return true
-        return false
+      setFormData({
+        staff_name: staff ? `${staff.first_name} ${staff.last_name}` : "-",
+        agency_name: agency?.name ?? "-",
+        loan_number: data.loan_number ?? "",
+        loan_type: data.loan_type ?? "personal",
+        description: data.description ?? "",
+        principal_amount: Number(data.principal_amount ?? 0),
+        interest_rate: Number(data.interest_rate ?? 0),
+        number_of_payments: Number(data.number_of_payments ?? 12),
+        payment_frequency: data.payment_frequency ?? "monthly",
+        request_date: data.request_date ?? "",
+        start_date: data.start_date ?? "",
+        notes: data.notes ?? "",
       })
-      setStaffList(filteredStaff)
+      setLoading(false)
     }
-  }
-
-  const generateLoanNumber = async () => {
-    const year = new Date().getFullYear()
-    const { count } = await supabase
-      .from("loans")
-      .select("*", { count: "exact", head: true })
-      .gte("created_at", `${year}-01-01`)
-    
-    const sequence = ((count || 0) + 1).toString().padStart(4, "0")
-    return `PR-${year}-${sequence}`
-  }
+    fetchLoan()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!formData.agency_id || !formData.staff_id || formData.principal_amount <= 0) {
-      toast.error("Completa los campos requeridos")
+    if (formData.principal_amount <= 0) {
+      toast.error("El monto del préstamo debe ser mayor a cero")
       return
     }
-
     setSaving(true)
-
     try {
-      const loanNumber = await generateLoanNumber()
-
-      const { error } = await supabase.from("loans").insert({
-        agency_id: formData.agency_id,
-        staff_id: formData.staff_id,
-        loan_number: loanNumber,
-        loan_type: formData.loan_type,
-        description: formData.description || null,
-        principal_amount: formData.principal_amount,
-        interest_rate: formData.interest_rate,
-        total_amount: totalAmount,
-        number_of_payments: formData.number_of_payments,
-        payment_amount: paymentAmount,
-        payment_frequency: formData.payment_frequency,
-        payments_made: 0,
-        amount_paid: 0,
-        remaining_balance: totalAmount,
-        status: "pending",
-        request_date: formData.request_date || null,
-        start_date: formData.start_date || null,
-        notes: formData.notes || null,
-      })
+      const { error } = await supabase
+        .from("loans")
+        .update({
+          loan_type: formData.loan_type,
+          description: formData.description || null,
+          principal_amount: formData.principal_amount,
+          interest_rate: formData.interest_rate,
+          total_amount: totalAmount,
+          number_of_payments: formData.number_of_payments,
+          payment_amount: paymentAmount,
+          payment_frequency: formData.payment_frequency,
+          request_date: formData.request_date || null,
+          start_date: formData.start_date || null,
+          notes: formData.notes || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
 
       if (error) throw error
-
-      toast.success("Préstamo enviado para autorización de Dirección")
-      router.push("/dashboard/hr/loans")
+      toast.success("Préstamo actualizado")
+      router.push(`/dashboard/hr/loans/${id}`)
     } catch (error: any) {
-      console.error("[v0] Error creating loan:", error)
-      // Mostrar el mensaje real de la base de datos para facilitar el diagnóstico
-      const message =
-        error?.message || error?.details || error?.hint || "Error desconocido al crear el préstamo"
-      toast.error(`Error al crear el préstamo: ${message}`)
+      console.error("[v0] Error updating loan:", error)
+      toast.error(`Error al actualizar el préstamo: ${error?.message || "Error desconocido"}`)
     } finally {
       setSaving(false)
     }
   }
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency: "MXN",
-    }).format(amount)
-  }
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount)
 
-  if (loading) {
+  if (loading || permsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Spinner className="h-8 w-8" />
+      </div>
+    )
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="rounded-full bg-muted p-4 mb-4">
+          <ShieldAlert className="h-8 w-8 text-muted-foreground" />
+        </div>
+        <h2 className="text-xl font-semibold mb-2">Sin permiso para editar</h2>
+        <p className="text-muted-foreground max-w-md">
+          Solo el Director General o la Directora de Operaciones pueden editar préstamos.
+        </p>
+        <Button asChild className="mt-4" variant="outline">
+          <Link href={`/dashboard/hr/loans/${id}`}>Volver al préstamo</Link>
+        </Button>
+      </div>
+    )
+  }
+
+  if (notFound) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <h2 className="text-xl font-semibold mb-2">Préstamo no encontrado</h2>
+        <Button asChild className="mt-4">
+          <Link href="/dashboard/hr/loans">Volver a Préstamos</Link>
+        </Button>
       </div>
     )
   }
@@ -186,76 +175,30 @@ export default function NewLoanPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/dashboard/hr/loans">
+          <Link href={`/dashboard/hr/loans/${id}`}>
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Nuevo Préstamo</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Editar Préstamo</h1>
           <p className="text-muted-foreground">
-            Registra un nuevo préstamo para un empleado
+            {formData.staff_name}
+            {formData.loan_number && ` · #${formData.loan_number}`}
           </p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit}>
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Main Form */}
           <div className="lg:col-span-2 space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>Información del Préstamo</CardTitle>
-                <CardDescription>Datos básicos del préstamo</CardDescription>
+                <CardDescription>
+                  Empleado: {formData.staff_name} · Agencia: {formData.agency_name}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Agencia *</Label>
-                    <Select
-                      value={formData.agency_id}
-                      onValueChange={(value) => setFormData({ ...formData, agency_id: value, staff_id: "" })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar agencia..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {agencies.map((agency) => (
-                          <SelectItem key={agency.id} value={agency.id}>
-                            {agency.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Empleado *</Label>
-                    <Select
-                      value={formData.staff_id}
-                      onValueChange={(value) => setFormData({ ...formData, staff_id: value })}
-                      disabled={!formData.agency_id}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar empleado..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {staffList.length === 0 ? (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No hay empleados en esta agencia
-                          </div>
-                        ) : (
-                          staffList.map((staff) => (
-                            <SelectItem key={staff.id} value={staff.id}>
-                              {staff.first_name} {staff.last_name}
-                              {staff.employee_code && ` (${staff.employee_code})`}
-                              {staff.is_global && " - Global"}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Tipo de Préstamo *</Label>
@@ -301,7 +244,7 @@ export default function NewLoanPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Condiciones Financieras</CardTitle>
-                <CardDescription>Define el monto, interés y plazos del préstamo</CardDescription>
+                <CardDescription>Monto, interés y plazos del préstamo</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -313,7 +256,9 @@ export default function NewLoanPage() {
                       step="100"
                       placeholder="0.00"
                       value={formData.principal_amount || ""}
-                      onChange={(e) => setFormData({ ...formData, principal_amount: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, principal_amount: parseFloat(e.target.value) || 0 })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -325,7 +270,9 @@ export default function NewLoanPage() {
                       step="0.5"
                       placeholder="0"
                       value={formData.interest_rate || ""}
-                      onChange={(e) => setFormData({ ...formData, interest_rate: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, interest_rate: parseFloat(e.target.value) || 0 })
+                      }
                     />
                   </div>
                 </div>
@@ -339,7 +286,9 @@ export default function NewLoanPage() {
                       max="120"
                       placeholder="12"
                       value={formData.number_of_payments || ""}
-                      onChange={(e) => setFormData({ ...formData, number_of_payments: parseInt(e.target.value) || 1 })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, number_of_payments: parseInt(e.target.value) || 1 })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -382,7 +331,6 @@ export default function NewLoanPage() {
             </Card>
           </div>
 
-          {/* Summary Sidebar */}
           <div className="space-y-6">
             <Card>
               <CardHeader>
@@ -405,7 +353,7 @@ export default function NewLoanPage() {
                   <span className="font-bold text-lg">{formatCurrency(totalAmount)}</span>
                 </div>
                 <div className="flex justify-between py-2 border-b">
-                  <span className="text-muted-foreground">N��mero de Pagos</span>
+                  <span className="text-muted-foreground">Número de Pagos</span>
                   <span className="font-medium">{formData.number_of_payments}</span>
                 </div>
                 <div className="flex justify-between py-2">
@@ -415,34 +363,22 @@ export default function NewLoanPage() {
               </CardContent>
             </Card>
 
-<Card>
-              <CardHeader>
-                <CardTitle className="text-base">Autorización</CardTitle>
-                <CardDescription>
-                  El préstamo se enviará como pendiente y deberá ser autorizado por:
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <LoanAuthorizers />
-              </CardContent>
-            </Card>
-
             <div className="flex flex-col gap-2">
               <Button type="submit" disabled={saving} className="w-full">
                 {saving ? (
                   <>
                     <Spinner className="mr-2 h-4 w-4" />
-                    Enviando...
+                    Guardando...
                   </>
                 ) : (
                   <>
                     <Save className="mr-2 h-4 w-4" />
-                    Solicitar autorización
+                    Guardar cambios
                   </>
                 )}
               </Button>
               <Button variant="outline" asChild className="w-full">
-                <Link href="/dashboard/hr/loans">Cancelar</Link>
+                <Link href={`/dashboard/hr/loans/${id}`}>Cancelar</Link>
               </Button>
             </div>
           </div>

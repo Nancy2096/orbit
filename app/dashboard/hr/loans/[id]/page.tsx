@@ -2,12 +2,24 @@
 
 import { useState, useEffect, use } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { LoanAuthorizers } from "@/components/hr/loan-authorizers"
 import {
   ArrowLeft,
   HandCoins,
@@ -18,6 +30,8 @@ import {
   CheckCircle,
   XCircle,
   ShieldCheck,
+  Pencil,
+  Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -88,15 +102,19 @@ const frequencyLabels: Record<string, string> = {
 
 export default function LoanDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const router = useRouter()
   const supabase = createClient()
   const { roleName, fullAccess } = usePermissions()
 
-  // Solo Dirección General, Operaciones (o acceso total) pueden autorizar préstamos.
+  // Solo Dirección General, Operaciones (o acceso total) pueden autorizar,
+  // editar o borrar préstamos.
   const canAuthorize = fullAccess || roleName === "direccion_general" || roleName === "operaciones"
 
   const [loan, setLoan] = useState<Loan | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     fetchLoan()
@@ -177,6 +195,19 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
     setUpdating(false)
   }
 
+  const deleteLoan = async () => {
+    if (!loan) return
+    setDeleting(true)
+    const { error } = await supabase.from("loans").delete().eq("id", loan.id)
+    if (error) {
+      toast.error("Error al borrar el préstamo")
+      setDeleting(false)
+    } else {
+      toast.success("Préstamo borrado")
+      router.push("/dashboard/hr/loans")
+    }
+  }
+
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
     const date = new Date(dateString)
@@ -228,6 +259,25 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
             {loan.loan_number && ` · #${loan.loan_number}`}
           </p>
         </div>
+        {canAuthorize && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/dashboard/hr/loans/${loan.id}/edit`}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar
+              </Link>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Borrar
+            </Button>
+          </div>
+        )}
         <Badge variant={statusColors[loan.status]} className="text-sm">
           {statusLabels[loan.status] || loan.status}
         </Badge>
@@ -362,8 +412,11 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
                   </Button>
                 </div>
               ) : (
-                <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                  Pendiente de autorización por Dirección General u Operaciones.
+                <div className="rounded-md border border-dashed p-4">
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    Pendiente de autorización por Dirección General u Operaciones.
+                  </p>
+                  <LoanAuthorizers compact />
                 </div>
               )
             ) : (
@@ -381,6 +434,33 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Borrar este préstamo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará permanentemente el préstamo
+              {loan.loan_number ? ` #${loan.loan_number}` : ""} de {loan.staff?.first_name}{" "}
+              {loan.staff?.last_name}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                deleteLoan()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <Spinner className="mr-2 h-4 w-4" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Borrar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
