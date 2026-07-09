@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -23,10 +24,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, HandCoins, DollarSign, Clock, CheckCircle, Eye, AlertTriangle } from "lucide-react"
+import { Plus, Search, HandCoins, DollarSign, Clock, CheckCircle, Eye, AlertTriangle, Pencil, Trash2 } from "lucide-react"
 import { DepartmentFilter } from "@/components/hr/department-filter"
+import { toast } from "sonner"
 
 interface Loan {
   id: string
@@ -105,11 +117,32 @@ export default function LoansPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [agencyFilter, setAgencyFilter] = useState<string>("all")
   const [departmentFilter, setDepartmentFilter] = useState<string>("all")
+  const [loanToDelete, setLoanToDelete] = useState<Loan | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const supabase = createClient()
+  const { roleName, fullAccess } = usePermissions()
+
+  // Solo Super Administrador y Dirección General (o acceso total) pueden editar o borrar.
+  const canManage = fullAccess || roleName === "superadmin" || roleName === "direccion_general"
 
   useEffect(() => {
     fetchData()
   }, [])
+
+  const handleDelete = async () => {
+    if (!loanToDelete) return
+    setDeleting(true)
+    const { error } = await supabase.from("loans").delete().eq("id", loanToDelete.id)
+    if (error) {
+      toast.error("Error al borrar el préstamo")
+      setDeleting(false)
+    } else {
+      toast.success("Préstamo borrado")
+      setLoans((prev) => prev.filter((l) => l.id !== loanToDelete.id))
+      setDeleting(false)
+      setLoanToDelete(null)
+    }
+  }
 
   const fetchData = async () => {
     try {
@@ -357,7 +390,7 @@ export default function LoansPage() {
                     <TableHead>Progreso</TableHead>
                     <TableHead className="text-right">Saldo</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead className="w-[100px]">Acciones</TableHead>
+                    <TableHead className="w-[140px]">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -403,11 +436,33 @@ export default function LoansPage() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link href={`/dashboard/hr/loans/${loan.id}`}>
-                              <Eye className="h-4 w-4" />
-                            </Link>
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                              <Link href={`/dashboard/hr/loans/${loan.id}`}>
+                                <Eye className="h-4 w-4" />
+                                <span className="sr-only">Ver</span>
+                              </Link>
+                            </Button>
+                            {canManage && (
+                              <>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                                  <Link href={`/dashboard/hr/loans/${loan.id}/edit`}>
+                                    <Pencil className="h-4 w-4" />
+                                    <span className="sr-only">Editar</span>
+                                  </Link>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  onClick={() => setLoanToDelete(loan)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="sr-only">Borrar</span>
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     )
@@ -418,6 +473,33 @@ export default function LoansPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!loanToDelete} onOpenChange={(open) => !open && setLoanToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Borrar este préstamo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará permanentemente el préstamo
+              {loanToDelete?.loan_number ? ` #${loanToDelete.loan_number}` : ""} de{" "}
+              {loanToDelete?.staff?.first_name} {loanToDelete?.staff?.last_name}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDelete()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <Spinner className="mr-2 h-4 w-4" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Borrar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
