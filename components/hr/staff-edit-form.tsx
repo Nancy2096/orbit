@@ -387,7 +387,20 @@ async function fetchAgencyData(agencyId: string) {
       if (formData.agency_id) {
         setFilteredContractTypes(contractTypesRes.data.filter((ct: any) => ct.agency_id === formData.agency_id))
       } else {
-        setFilteredContractTypes(contractTypesRes.data)
+        // Miembro global sin agencia fija: los tipos de contrato son los mismos
+        // en todas las agencias, así que deduplicamos por CÓDIGO para no repetir
+        // opciones. Si el empleado ya tiene un tipo seleccionado, conservamos esa
+        // fila específica como canónica para que el select lo muestre.
+        const seen = new Map<string, any>()
+        for (const ct of contractTypesRes.data as any[]) {
+          const key = ct.code || ct.name
+          if (!seen.has(key)) {
+            seen.set(key, ct)
+          } else if (formData.contract_type_id && ct.id === formData.contract_type_id) {
+            seen.set(key, ct)
+          }
+        }
+        setFilteredContractTypes(Array.from(seen.values()))
       }
     }
   }
@@ -917,14 +930,22 @@ hire_date: formData.hire_date || null,
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Sin jefe inmediato (nivel más alto)</SelectItem>
-                      {agencyStaff.map((staff: any) => (
-                        <SelectItem key={staff.id} value={staff.id}>
-                          {staff.first_name} {staff.last_name} - {staff.position}
-                          {staff.is_global && (
-                            <span className="text-muted-foreground ml-1">(Global)</span>
-                          )}
-                        </SelectItem>
-                      ))}
+                      {agencyStaff
+                        .filter((staff: any) => {
+                          // Para un miembro global, el jefe directo solo puede ser
+                          // un gerente o director (de cualquier agencia).
+                          if (!formData.is_global) return true
+                          const pos = (staff.position || "").toLowerCase()
+                          return pos.includes("gerente") || pos.includes("director")
+                        })
+                        .map((staff: any) => (
+                          <SelectItem key={staff.id} value={staff.id}>
+                            {staff.first_name} {staff.last_name} - {staff.position}
+                            {staff.is_global && (
+                              <span className="text-muted-foreground ml-1">(Global)</span>
+                            )}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">

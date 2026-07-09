@@ -826,14 +826,22 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Sin jefe inmediato (nivel más alto)</SelectItem>
-                      {agencyStaff.map((staff) => (
-                        <SelectItem key={staff.id} value={staff.id}>
-                          {staff.first_name} {staff.last_name} - {staff.position}
-                          {staff.is_global && (
-                            <span className="text-muted-foreground ml-1">(Global)</span>
-                          )}
-                        </SelectItem>
-                      ))}
+                      {agencyStaff
+                        .filter((staff) => {
+                          // Para un miembro global, el jefe directo solo puede ser
+                          // un gerente o director (de cualquier agencia).
+                          if (!formData.is_global) return true
+                          const pos = (staff.position || "").toLowerCase()
+                          return pos.includes("gerente") || pos.includes("director")
+                        })
+                        .map((staff) => (
+                          <SelectItem key={staff.id} value={staff.id}>
+                            {staff.first_name} {staff.last_name} - {staff.position}
+                            {staff.is_global && (
+                              <span className="text-muted-foreground ml-1">(Global)</span>
+                            )}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -864,7 +872,18 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                           <SelectValue placeholder="Selecciona tipo de contrato" />
                         </SelectTrigger>
                         <SelectContent>
-                          {contractTypes.map((ct: any) => (
+                          {(() => {
+                            // En modo global, los tipos de contrato son los mismos en
+                            // todas las agencias, así que deduplicamos por CÓDIGO para
+                            // no repetir opciones.
+                            if (!formData.is_global) return contractTypes
+                            const seen = new Map<string, any>()
+                            for (const ct of contractTypes as any[]) {
+                              const key = ct.code || ct.name
+                              if (!seen.has(key)) seen.set(key, ct)
+                            }
+                            return Array.from(seen.values())
+                          })().map((ct: any) => (
                             <SelectItem key={ct.id} value={ct.id}>
                               {ct.name}
                               {ct.weekly_hours > 0 && (
