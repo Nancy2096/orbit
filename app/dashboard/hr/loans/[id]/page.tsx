@@ -106,9 +106,9 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   const supabase = createClient()
   const { roleName, fullAccess } = usePermissions()
 
-  // Solo Dirección General, Operaciones (o acceso total) pueden autorizar,
-  // editar o borrar préstamos.
-  const canAuthorize = fullAccess || roleName === "direccion_general" || roleName === "operaciones"
+  // Solo Super Administrador y Dirección General (o acceso total) pueden
+  // autorizar, editar o borrar préstamos.
+  const canAuthorize = fullAccess || roleName === "superadmin" || roleName === "direccion_general"
 
   const [loan, setLoan] = useState<Loan | null>(null)
   const [loading, setLoading] = useState(true)
@@ -386,7 +386,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
           <CardHeader>
             <CardTitle>Autorización</CardTitle>
             <CardDescription>
-              El préstamo debe ser autorizado por Dirección General u Operaciones para registrarse.
+              El préstamo debe ser autorizado por Super Administrador o Dirección General para registrarse.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -414,7 +414,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
               ) : (
                 <div className="rounded-md border border-dashed p-4">
                   <p className="mb-3 text-sm text-muted-foreground">
-                    Pendiente de autorización por Dirección General u Operaciones.
+                    Pendiente de autorización por Super Administrador o Dirección General.
                   </p>
                   <LoanAuthorizers compact />
                 </div>

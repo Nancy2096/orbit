@@ -27,8 +27,8 @@ export default function EditLoanPage({ params }: { params: Promise<{ id: string 
   const supabase = createClient()
   const { roleName, fullAccess, loading: permsLoading } = usePermissions()
 
-  // Solo Dirección General, Operaciones o acceso total pueden editar préstamos.
-  const canEdit = fullAccess || roleName === "direccion_general" || roleName === "operaciones"
+  // Solo Super Administrador y Dirección General (o acceso total) pueden editar préstamos.
+  const canEdit = fullAccess || roleName === "superadmin" || roleName === "direccion_general"
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -151,7 +151,7 @@ export default function EditLoanPage({ params }: { params: Promise<{ id: string 
         </div>
         <h2 className="text-xl font-semibold mb-2">Sin permiso para editar</h2>
         <p className="text-muted-foreground max-w-md">
-          Solo el Director General o la Directora de Operaciones pueden editar préstamos.
+              Solo el Super Administrador o Dirección General pueden editar préstamos.
         </p>
         <Button asChild className="mt-4" variant="outline">
           <Link href={`/dashboard/hr/loans/${id}`}>Volver al préstamo</Link>

@@ -13,12 +13,12 @@ interface Authorizer {
 
 // Etiquetas legibles para los roles que pueden autorizar préstamos.
 const roleLabels: Record<string, string> = {
-  direccion_general: "Director(a) General",
-  operaciones: "Director(a) de Operaciones",
+  superadmin: "Super Administrador",
+  direccion_general: "Dirección General",
 }
 
 /**
- * Muestra quién debe autorizar un préstamo (Dirección General u Operaciones).
+ * Muestra quién debe autorizar un préstamo (Super Administrador o Dirección General).
  * Se usa tanto al crear como al revisar una solicitud.
  */
 export function LoanAuthorizers({ compact = false }: { compact?: boolean }) {
@@ -33,7 +33,7 @@ export function LoanAuthorizers({ compact = false }: { compact?: boolean }) {
         .from("users")
         .select("id, first_name, last_name, role:roles!inner(name)")
         .eq("is_active", true)
-        .in("role.name", ["direccion_general", "operaciones"])
+        .in("role.name", ["superadmin", "direccion_general"])
 
       if (!active) return
 
@@ -46,9 +46,9 @@ export function LoanAuthorizers({ compact = false }: { compact?: boolean }) {
           role_name: role?.name ?? "",
         }
       })
-      // Orden: Dirección General primero, luego Operaciones.
+      // Orden: Super Administrador primero, luego Dirección General.
       mapped.sort((a, b) =>
-        a.role_name === b.role_name ? 0 : a.role_name === "direccion_general" ? -1 : 1,
+        a.role_name === b.role_name ? 0 : a.role_name === "superadmin" ? -1 : 1,
       )
       setAuthorizers(mapped)
       setLoading(false)
@@ -69,7 +69,7 @@ export function LoanAuthorizers({ compact = false }: { compact?: boolean }) {
         <p className="text-sm text-muted-foreground">Cargando autorizadores...</p>
       ) : authorizers.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No hay un Director General o Directora de Operaciones configurado para autorizar.
+          No hay un Super Administrador o Dirección General configurado para autorizar.
         </p>
       ) : (
         <ul className="space-y-2">
