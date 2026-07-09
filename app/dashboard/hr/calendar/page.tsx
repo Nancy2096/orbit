@@ -28,6 +28,7 @@ import {
   Cake,
   Star,
   Trash2,
+  Pencil,
 } from "lucide-react"
 import {
   format,
@@ -116,6 +117,8 @@ export default function CalendarPage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  // Si tiene valor, el diálogo está en modo edición de ese festivo/evento.
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: "",
     date: "",
@@ -242,28 +245,54 @@ export default function CalendarPage() {
 
   const today = new Date()
 
+  const emptyForm = { name: "", date: "", end_date: "", type: "holiday" as "holiday" | "event", description: "", is_recurring: false }
+
+  function openCreate() {
+    setEditingId(null)
+    setForm(emptyForm)
+    setSaveError(null)
+    setShowDialog(true)
+  }
+
+  function openEdit(holiday: Holiday) {
+    setEditingId(holiday.id)
+    setForm({
+      name: holiday.name,
+      date: holiday.date,
+      end_date: holiday.end_date || "",
+      type: holiday.type === "event" ? "event" : "holiday",
+      description: holiday.description || "",
+      is_recurring: holiday.is_recurring,
+    })
+    setSaveError(null)
+    setShowDialog(true)
+  }
+
   async function handleSave() {
     if (!form.name.trim() || !form.date) return
     setSaving(true)
     setSaveError(null)
     // La fecha de fin es opcional; si es anterior al inicio, se ignora
     const endDate = form.end_date && form.end_date >= form.date ? form.end_date : null
-    const { error } = await supabase.from("holidays").insert({
+    const payload = {
       name: form.name.trim(),
       date: form.date,
       end_date: endDate,
       type: form.type,
       description: form.description.trim() || null,
       is_recurring: form.is_recurring,
-      agency_id: null, // global para toda la organización
-    })
+    }
+    const { error } = editingId
+      ? await supabase.from("holidays").update(payload).eq("id", editingId)
+      : await supabase.from("holidays").insert({ ...payload, agency_id: null }) // global para toda la organización
     setSaving(false)
     if (error) {
       setSaveError(error.message || "No se pudo guardar la fecha. Intenta de nuevo.")
       return
     }
     setShowDialog(false)
-    setForm({ name: "", date: "", end_date: "", type: "holiday", description: "", is_recurring: false })
+    setEditingId(null)
+    setForm(emptyForm)
     load()
   }
 
@@ -296,7 +325,7 @@ export default function CalendarPage() {
           </p>
         </div>
         {isAdmin && (
-          <Button onClick={() => setShowDialog(true)}>
+          <Button onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" />
             Agregar fecha
           </Button>
@@ -481,20 +510,31 @@ export default function CalendarPage() {
                         <Badge className={`mt-1 ${style.badge}`}>{style.label}</Badge>
                       </div>
                       {holiday && isAdmin && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-red-600"
-                          onClick={() => handleDelete(holiday.id)}
-                          disabled={deletingId === holiday.id}
-                        >
-                          {deletingId === holiday.id ? (
-                            <Spinner className="h-3.5 w-3.5" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
-                          )}
-                          <span className="sr-only">Eliminar</span>
-                        </Button>
+                        <div className="flex shrink-0 items-center">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-primary"
+                            onClick={() => openEdit(holiday)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            <span className="sr-only">Editar</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                            onClick={() => handleDelete(holiday.id)}
+                            disabled={deletingId === holiday.id}
+                          >
+                            {deletingId === holiday.id ? (
+                              <Spinner className="h-3.5 w-3.5" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                            <span className="sr-only">Eliminar</span>
+                          </Button>
+                        </div>
                       )}
                     </div>
                   )
@@ -509,8 +549,12 @@ export default function CalendarPage() {
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Agregar fecha importante</DialogTitle>
-            <DialogDescription>Registra un día festivo o evento para toda la organización.</DialogDescription>
+            <DialogTitle>{editingId ? "Editar fecha importante" : "Agregar fecha importante"}</DialogTitle>
+            <DialogDescription>
+              {editingId
+                ? "Modifica los datos de este día festivo o evento."
+                : "Registra un día festivo o evento para toda la organización."}
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
@@ -598,7 +642,7 @@ export default function CalendarPage() {
             </Button>
             <Button onClick={handleSave} disabled={saving || !form.name.trim() || !form.date}>
               {saving ? <Spinner className="mr-2 h-4 w-4" /> : null}
-              Guardar
+              {editingId ? "Guardar cambios" : "Guardar"}
             </Button>
           </DialogFooter>
         </DialogContent>
