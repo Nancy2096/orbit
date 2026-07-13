@@ -854,23 +854,42 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                 />
               </div>
             )}
-<div className="flex justify-between text-xs text-muted-foreground">
+{/* Resumen por rol: solo para gerentes/directores */}
+            {isManagerOrDirector && (
+              <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Gerente: {staff.accounts_as_manager}</span>
                 <span>Coordinador: {staff.accounts_as_coordinator}</span>
                 {staff.accounts_commercial > 0 && <span>Comercial: {staff.accounts_commercial}</span>}
               </div>
+            )}
             {/* Desglose de cuentas con su servicio, para quienes no son gerentes/directores */}
             {!isManagerOrDirector && staff.assigned_accounts.length > 0 && (
-              <ul className="mt-1 space-y-1">
-                {staff.assigned_accounts.map((acc) => (
-                  <li key={acc.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1 text-xs">
-                    <span className="truncate">{acc.name}</span>
-                    <span className="shrink-0 text-right text-muted-foreground">
-                      {acc.services.length > 0 ? acc.services.join(" · ") : "Sin servicio"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <div className="mt-2 space-y-1.5 rounded-lg border bg-muted/30 p-2">
+                <p className="px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Detalle por cuenta
+                </p>
+                <ul className="space-y-1">
+                  {staff.assigned_accounts.map((acc) => (
+                    <li
+                      key={acc.id}
+                      className="flex items-center justify-between gap-2 rounded-md bg-background px-2 py-1.5"
+                    >
+                      <span className="truncate text-xs font-medium">{acc.name}</span>
+                      <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                        {acc.services.length > 0 ? (
+                          acc.services.map((s) => (
+                            <Badge key={s} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
+                              {s}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">Sin servicio</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
@@ -900,22 +919,41 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                 />
               </div>
             )}
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Gerente: {staff.projects_as_manager}</span>
-              <span>Coordinador: {staff.projects_as_coordinator}</span>
-            </div>
+            {/* Resumen por rol: solo para gerentes/directores */}
+            {isManagerOrDirector && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Gerente: {staff.projects_as_manager}</span>
+                <span>Coordinador: {staff.projects_as_coordinator}</span>
+              </div>
+            )}
             {/* Desglose de proyectos con su servicio, para quienes no son gerentes/directores */}
             {!isManagerOrDirector && staff.assigned_projects.length > 0 && (
-              <ul className="mt-1 space-y-1">
-                {staff.assigned_projects.map((proj) => (
-                  <li key={proj.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1 text-xs">
-                    <span className="truncate">{proj.name}</span>
-                    <span className="shrink-0 text-right text-muted-foreground">
-                      {proj.services.length > 0 ? proj.services.join(" · ") : "Sin servicio"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <div className="mt-2 space-y-1.5 rounded-lg border bg-muted/30 p-2">
+                <p className="px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Detalle por proyecto
+                </p>
+                <ul className="space-y-1">
+                  {staff.assigned_projects.map((proj) => (
+                    <li
+                      key={proj.id}
+                      className="flex items-center justify-between gap-2 rounded-md bg-background px-2 py-1.5"
+                    >
+                      <span className="truncate text-xs font-medium">{proj.name}</span>
+                      <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                        {proj.services.length > 0 ? (
+                          proj.services.map((s) => (
+                            <Badge key={s} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
+                              {s}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">Sin servicio</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
