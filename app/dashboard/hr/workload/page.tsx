@@ -319,6 +319,17 @@ export default function WorkloadPage() {
       ...staffPromises,
     ])
 
+    console.log("[v0] accountTeamRes", {
+      error: accountTeamRes.error,
+      count: accountTeamRes.data?.length,
+      sample: accountTeamRes.data?.[0],
+    })
+    console.log("[v0] projectTeamRes", {
+      error: projectTeamRes.error,
+      count: projectTeamRes.data?.length,
+      sample: projectTeamRes.data?.[0],
+    })
+
     // Combine staff results and remove duplicates
     let allStaff: any[] = []
     staffResults.forEach((res: any) => {
