@@ -704,6 +704,13 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
     const isManagerOrDirector = positionLower.includes("gerente") || 
                                  positionLower.includes("director") ||
                                  positionLower.includes("manager")
+
+    console.log("[v0] WorkloadCard", staff.first_name, staff.last_name, {
+      position: staff.position,
+      isManagerOrDirector,
+      assigned_accounts: staff.assigned_accounts,
+      assigned_projects: staff.assigned_projects,
+    })
     
     // Border style for managers and directors
     const cardBorderClass = isManagerOrDirector 
