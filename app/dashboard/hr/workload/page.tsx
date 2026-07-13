@@ -95,9 +95,11 @@ interface StaffWorkload extends StaffMember {
   total_projects: number
   total_assignments: number
   // Detalle de nombres de cuentas y proyectos asignados (para desglose de
-  // empleados que no son gerentes ni directores).
-  assigned_accounts: { id: string; name: string; roles: string[] }[]
-  assigned_projects: { id: string; name: string; roles: string[] }[]
+  // empleados que no son gerentes ni directores). Cada entrada relaciona la
+  // cuenta/proyecto con el/los servicio(s) que la persona atiende, según el
+  // departamento de su asignación.
+  assigned_accounts: { id: string; name: string; services: string[] }[]
+  assigned_projects: { id: string; name: string; services: string[] }[]
   // Subordinados (de la relación reports_to_id en staff)
   subordinate_count: number
   // Cargas desde el puesto (Puestos y Cargas de la agencia)
@@ -283,6 +285,7 @@ export default function WorkloadPage() {
         id,
         manager_id,
         coordinator_id,
+        department_id,
         projects!inner (
           id,
           name,
@@ -292,6 +295,25 @@ export default function WorkloadPage() {
         )
       `)
       .in("projects.status", ["active", "in_progress"])
+
+    // Servicios contratados por cuenta y por proyecto. Cada servicio pertenece
+    // a un departamento, lo que permite relacionar la asignación (por
+    // departamento) de una persona con el servicio concreto que atiende.
+    let accountServicesQuery = supabase
+      .from("account_services")
+      .select(`
+        account_id,
+        custom_name,
+        services ( name, department_id )
+      `)
+      .eq("is_active", true)
+
+    const projectServicesQuery = supabase
+      .from("project_services")
+      .select(`
+        project_id,
+        services ( name, department_id )
+      `)
 
     // Apply agency filter if not "all"
     if (!isAllAgencies) {
@@ -311,13 +333,44 @@ export default function WorkloadPage() {
           supabase.from("staff").select(staffSelectFields).eq("is_global", true).eq("is_active", true).order("first_name")
         ]
 
-    const [deptRes, projectTeamRes, accountsRes, accountTeamRes, ...staffResults] = await Promise.all([
+    const [deptRes, projectTeamRes, accountsRes, accountTeamRes, accountServicesRes, projectServicesRes, ...staffResults] = await Promise.all([
       deptQuery,
       projectTeamQuery,
       accountsQuery,
       accountTeamQuery,
+      accountServicesQuery,
+      projectServicesQuery,
       ...staffPromises,
     ])
+
+    // Mapa: accountId -> departmentId -> nombres de servicio.
+    const accountServicesByDept = new Map<string, Map<string, string[]>>()
+    accountServicesRes.data?.forEach((row: any) => {
+      const deptId = row.services?.department_id
+      const name = row.custom_name || row.services?.name
+      if (!row.account_id || !deptId || !name) return
+      if (!accountServicesByDept.has(row.account_id)) accountServicesByDept.set(row.account_id, new Map())
+      const byDept = accountServicesByDept.get(row.account_id)!
+      if (!byDept.has(deptId)) byDept.set(deptId, [])
+      if (!byDept.get(deptId)!.includes(name)) byDept.get(deptId)!.push(name)
+    })
+
+    // Mapa: projectId -> departmentId -> nombres de servicio.
+    const projectServicesByDept = new Map<string, Map<string, string[]>>()
+    projectServicesRes.data?.forEach((row: any) => {
+      const deptId = row.services?.department_id
+      const name = row.services?.name
+      if (!row.project_id || !deptId || !name) return
+      if (!projectServicesByDept.has(row.project_id)) projectServicesByDept.set(row.project_id, new Map())
+      const byDept = projectServicesByDept.get(row.project_id)!
+      if (!byDept.has(deptId)) byDept.set(deptId, [])
+      if (!byDept.get(deptId)!.includes(name)) byDept.get(deptId)!.push(name)
+    })
+
+    // Mapa de nombres de departamento para usar como respaldo cuando la
+    // cuenta/proyecto no tiene un servicio del departamento de la asignación.
+    const departmentNames = new Map<string, string>()
+    deptRes.data?.forEach((d: any) => departmentNames.set(d.id, d.name))
 
     // Combine staff results and remove duplicates
     let allStaff: any[] = []
@@ -350,41 +403,56 @@ export default function WorkloadPage() {
         const coordinatorAccountIds = new Set<string>()
         const commercialAccountIds = new Set<string>()
         const allAccountIds = new Set<string>()
-        // Mapa de cuentas asignadas con su nombre y los roles del empleado en ella.
-        const accountDetails = new Map<string, { id: string; name: string; roles: string[] }>()
+        // Mapa de cuentas asignadas con su nombre y los servicios que la
+        // persona atiende (derivados del departamento de su asignación).
+        const accountDetails = new Map<string, { id: string; name: string; services: string[] }>()
 
-        const addAccountRole = (id: string, name: string, role: string) => {
+        const addAccountServices = (id: string, name: string, labels: string[]) => {
           const existing = accountDetails.get(id)
           if (existing) {
-            if (!existing.roles.includes(role)) existing.roles.push(role)
+            labels.forEach((l) => {
+              if (l && !existing.services.includes(l)) existing.services.push(l)
+            })
           } else {
-            accountDetails.set(id, { id, name: name || "Sin nombre", roles: [role] })
+            accountDetails.set(id, { id, name: name || "Sin nombre", services: labels.filter(Boolean) })
           }
         }
 
-        // Equipo comercial (columnas directas en accounts)
+        // Equipo comercial (columnas directas en accounts): no está ligado a un
+        // departamento/servicio específico.
         accountsRes.data?.forEach((a: any) => {
           if (a.sales_advisor_id === staff.id || a.account_manager_id === staff.id) {
             commercialAccountIds.add(a.id)
             allAccountIds.add(a.id)
-            addAccountRole(a.id, a.account_name, "Comercial")
+            addAccountServices(a.id, a.account_name, ["Comercial"])
           }
         })
 
-        // Equipo operativo (gerentes/coordinadores por departamento)
+        // Equipo operativo (gerentes/coordinadores por departamento). El
+        // servicio se obtiene cruzando el departamento de la asignación con los
+        // servicios contratados de la cuenta.
         accountTeamRes.data?.forEach((row: any) => {
           const acctId = row.accounts?.id
           if (!acctId) return
-          if (row.manager_id === staff.id) {
+          const isManager = row.manager_id === staff.id
+          const isCoordinator = row.coordinator_id === staff.id
+          if (!isManager && !isCoordinator) return
+          if (isManager) {
             managerAccountIds.add(acctId)
             allAccountIds.add(acctId)
-            addAccountRole(acctId, row.accounts?.account_name, "Gerente")
           }
-          if (row.coordinator_id === staff.id) {
+          if (isCoordinator) {
             coordinatorAccountIds.add(acctId)
             allAccountIds.add(acctId)
-            addAccountRole(acctId, row.accounts?.account_name, "Coordinador")
           }
+          const deptId = row.department_id
+          const svc = (deptId && accountServicesByDept.get(acctId)?.get(deptId)) || []
+          const labels = svc.length
+            ? svc
+            : deptId && departmentNames.get(deptId)
+              ? [departmentNames.get(deptId)!]
+              : []
+          addAccountServices(acctId, row.accounts?.account_name, labels)
         })
 
         const accountsAsManager = managerAccountIds.size
@@ -393,22 +461,31 @@ export default function WorkloadPage() {
         // Total de cuentas distintas donde participa el empleado
         const totalAccounts = allAccountIds.size
 
-        // Mapa de proyectos asignados con su nombre y los roles del empleado.
-        const projectDetails = new Map<string, { id: string; name: string; roles: string[] }>()
-        const addProjectRole = (id: string, name: string, role: string) => {
+        // Mapa de proyectos asignados con su nombre y los servicios atendidos.
+        const projectDetails = new Map<string, { id: string; name: string; services: string[] }>()
+        const addProjectServices = (id: string, name: string, labels: string[]) => {
           const existing = projectDetails.get(id)
           if (existing) {
-            if (!existing.roles.includes(role)) existing.roles.push(role)
+            labels.forEach((l) => {
+              if (l && !existing.services.includes(l)) existing.services.push(l)
+            })
           } else {
-            projectDetails.set(id, { id, name: name || "Sin nombre", roles: [role] })
+            projectDetails.set(id, { id, name: name || "Sin nombre", services: labels.filter(Boolean) })
           }
         }
 
         projectTeamRes.data?.forEach((p: any) => {
           const projId = p.projects?.id
           if (!projId) return
-          if (p.manager_id === staff.id) addProjectRole(projId, p.projects?.name, "Gerente")
-          if (p.coordinator_id === staff.id) addProjectRole(projId, p.projects?.name, "Coordinador")
+          if (p.manager_id !== staff.id && p.coordinator_id !== staff.id) return
+          const deptId = p.department_id
+          const svc = (deptId && projectServicesByDept.get(projId)?.get(deptId)) || []
+          const labels = svc.length
+            ? svc
+            : deptId && departmentNames.get(deptId)
+              ? [departmentNames.get(deptId)!]
+              : []
+          addProjectServices(projId, p.projects?.name, labels)
         })
 
         const projectsAsManager = projectTeamRes.data?.filter(
@@ -782,13 +859,15 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                 <span>Coordinador: {staff.accounts_as_coordinator}</span>
                 {staff.accounts_commercial > 0 && <span>Comercial: {staff.accounts_commercial}</span>}
               </div>
-            {/* Desglose de nombres de cuentas para quienes no son gerentes/directores */}
+            {/* Desglose de cuentas con su servicio, para quienes no son gerentes/directores */}
             {!isManagerOrDirector && staff.assigned_accounts.length > 0 && (
               <ul className="mt-1 space-y-1">
                 {staff.assigned_accounts.map((acc) => (
                   <li key={acc.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1 text-xs">
                     <span className="truncate">{acc.name}</span>
-                    <span className="shrink-0 text-muted-foreground">{acc.roles.join(" · ")}</span>
+                    <span className="shrink-0 text-right text-muted-foreground">
+                      {acc.services.length > 0 ? acc.services.join(" · ") : "Sin servicio"}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -825,13 +904,15 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
               <span>Gerente: {staff.projects_as_manager}</span>
               <span>Coordinador: {staff.projects_as_coordinator}</span>
             </div>
-            {/* Desglose de nombres de proyectos para quienes no son gerentes/directores */}
+            {/* Desglose de proyectos con su servicio, para quienes no son gerentes/directores */}
             {!isManagerOrDirector && staff.assigned_projects.length > 0 && (
               <ul className="mt-1 space-y-1">
                 {staff.assigned_projects.map((proj) => (
                   <li key={proj.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1 text-xs">
                     <span className="truncate">{proj.name}</span>
-                    <span className="shrink-0 text-muted-foreground">{proj.roles.join(" · ")}</span>
+                    <span className="shrink-0 text-right text-muted-foreground">
+                      {proj.services.length > 0 ? proj.services.join(" · ") : "Sin servicio"}
+                    </span>
                   </li>
                 ))}
               </ul>
