@@ -260,7 +260,7 @@ export default function WorkloadPage() {
     // Columnas comerciales directas en accounts (asesor de ventas / ejecutivo).
     let accountsQuery = supabase
       .from("accounts")
-      .select("id, name, agency_id, sales_advisor_id, account_manager_id")
+      .select("id, account_name, agency_id, sales_advisor_id, account_manager_id")
       .eq("status", "active")
 
     // Asignaciones operativas reales: una cuenta involucra a varios
@@ -272,7 +272,7 @@ export default function WorkloadPage() {
         manager_id,
         coordinator_id,
         department_id,
-        accounts!inner ( id, name, agency_id, status )
+        accounts!inner ( id, account_name, agency_id, status )
       `)
       .eq("accounts.status", "active")
 
@@ -318,17 +318,6 @@ export default function WorkloadPage() {
       accountTeamQuery,
       ...staffPromises,
     ])
-
-    console.log("[v0] accountTeamRes", {
-      error: accountTeamRes.error,
-      count: accountTeamRes.data?.length,
-      sample: accountTeamRes.data?.[0],
-    })
-    console.log("[v0] projectTeamRes", {
-      error: projectTeamRes.error,
-      count: projectTeamRes.data?.length,
-      sample: projectTeamRes.data?.[0],
-    })
 
     // Combine staff results and remove duplicates
     let allStaff: any[] = []
@@ -378,7 +367,7 @@ export default function WorkloadPage() {
           if (a.sales_advisor_id === staff.id || a.account_manager_id === staff.id) {
             commercialAccountIds.add(a.id)
             allAccountIds.add(a.id)
-            addAccountRole(a.id, a.name, "Comercial")
+            addAccountRole(a.id, a.account_name, "Comercial")
           }
         })
 
@@ -389,12 +378,12 @@ export default function WorkloadPage() {
           if (row.manager_id === staff.id) {
             managerAccountIds.add(acctId)
             allAccountIds.add(acctId)
-            addAccountRole(acctId, row.accounts?.name, "Gerente")
+            addAccountRole(acctId, row.accounts?.account_name, "Gerente")
           }
           if (row.coordinator_id === staff.id) {
             coordinatorAccountIds.add(acctId)
             allAccountIds.add(acctId)
-            addAccountRole(acctId, row.accounts?.name, "Coordinador")
+            addAccountRole(acctId, row.accounts?.account_name, "Coordinador")
           }
         })
 
@@ -715,13 +704,6 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
     const isManagerOrDirector = positionLower.includes("gerente") || 
                                  positionLower.includes("director") ||
                                  positionLower.includes("manager")
-
-    console.log("[v0] WorkloadCard", staff.first_name, staff.last_name, {
-      position: staff.position,
-      isManagerOrDirector,
-      assigned_accounts: staff.assigned_accounts,
-      assigned_projects: staff.assigned_projects,
-    })
     
     // Border style for managers and directors
     const cardBorderClass = isManagerOrDirector 
