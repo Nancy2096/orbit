@@ -831,7 +831,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
           {/* Cuentas */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 font-semibold">
                 <Briefcase className="h-4 w-4" />
                 Cuentas Asignadas
               </span>
@@ -864,18 +864,15 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
             )}
             {/* Desglose de cuentas con su servicio, para quienes no son gerentes/directores */}
             {!isManagerOrDirector && staff.assigned_accounts.length > 0 && (
-              <div className="mt-2 space-y-1.5 rounded-lg border bg-muted/30 p-2">
-                <p className="px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="mt-2 space-y-2 rounded-lg border bg-muted/30 p-2.5">
+                <p className="px-0.5 text-xs font-bold uppercase tracking-wide text-foreground">
                   Detalle por cuenta
                 </p>
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {staff.assigned_accounts.map((acc) => (
-                    <li
-                      key={acc.id}
-                      className="flex items-center justify-between gap-2 rounded-md bg-background px-2 py-1.5"
-                    >
-                      <span className="truncate text-xs font-medium">{acc.name}</span>
-                      <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                    <li key={acc.id} className="rounded-md bg-background p-2">
+                      <p className="text-sm font-semibold leading-snug text-balance">{acc.name}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
                         {acc.services.length > 0 ? (
                           acc.services.map((s) => (
                             <Badge key={s} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
@@ -896,7 +893,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
           {/* Proyectos */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 font-semibold">
                 <FolderKanban className="h-4 w-4" />
                 Proyectos Asignados
               </span>
@@ -928,18 +925,15 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
             )}
             {/* Desglose de proyectos con su servicio, para quienes no son gerentes/directores */}
             {!isManagerOrDirector && staff.assigned_projects.length > 0 && (
-              <div className="mt-2 space-y-1.5 rounded-lg border bg-muted/30 p-2">
-                <p className="px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="mt-2 space-y-2 rounded-lg border bg-muted/30 p-2.5">
+                <p className="px-0.5 text-xs font-bold uppercase tracking-wide text-foreground">
                   Detalle por proyecto
                 </p>
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {staff.assigned_projects.map((proj) => (
-                    <li
-                      key={proj.id}
-                      className="flex items-center justify-between gap-2 rounded-md bg-background px-2 py-1.5"
-                    >
-                      <span className="truncate text-xs font-medium">{proj.name}</span>
-                      <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                    <li key={proj.id} className="rounded-md bg-background p-2">
+                      <p className="text-sm font-semibold leading-snug text-balance">{proj.name}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
                         {proj.services.length > 0 ? (
                           proj.services.map((s) => (
                             <Badge key={s} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
@@ -961,7 +955,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
           {hasSubConfig && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2 font-semibold">
                   <Users className="h-4 w-4" />
                   Subordinados
                 </span>
@@ -1330,9 +1324,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                         {deptName}
                         <Badge variant="secondary" className="ml-2">{staffList.length}</Badge>
                       </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {staffList.map((staff) => (
-                          <WorkloadCard 
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              {staffList.map((staff) => (
+                <WorkloadCard
                             key={staff.id} 
                             staff={staff}
                           />
