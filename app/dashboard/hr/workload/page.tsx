@@ -94,6 +94,12 @@ interface StaffWorkload extends StaffMember {
   projects_as_coordinator: number
   total_projects: number
   total_assignments: number
+  // Detalle de nombres de cuentas y proyectos asignados (para desglose de
+  // empleados que no son gerentes ni directores). Cada entrada relaciona la
+  // cuenta/proyecto con el/los servicio(s) que la persona atiende, según el
+  // departamento de su asignación.
+  assigned_accounts: { id: string; name: string; services: string[] }[]
+  assigned_projects: { id: string; name: string; services: string[] }[]
   // Subordinados (de la relación reports_to_id en staff)
   subordinate_count: number
   // Cargas desde el puesto (Puestos y Cargas de la agencia)
@@ -256,7 +262,7 @@ export default function WorkloadPage() {
     // Columnas comerciales directas en accounts (asesor de ventas / ejecutivo).
     let accountsQuery = supabase
       .from("accounts")
-      .select("id, agency_id, sales_advisor_id, account_manager_id")
+      .select("id, account_name, agency_id, sales_advisor_id, account_manager_id")
       .eq("status", "active")
 
     // Asignaciones operativas reales: una cuenta involucra a varios
@@ -268,7 +274,7 @@ export default function WorkloadPage() {
         manager_id,
         coordinator_id,
         department_id,
-        accounts!inner ( id, agency_id, status )
+        accounts!inner ( id, account_name, agency_id, status )
       `)
       .eq("accounts.status", "active")
 
@@ -279,14 +285,35 @@ export default function WorkloadPage() {
         id,
         manager_id,
         coordinator_id,
+        department_id,
         projects!inner (
           id,
+          name,
           account_id,
           status,
           accounts!inner ( agency_id )
         )
       `)
       .in("projects.status", ["active", "in_progress"])
+
+    // Servicios contratados por cuenta y por proyecto. Cada servicio pertenece
+    // a un departamento, lo que permite relacionar la asignación (por
+    // departamento) de una persona con el servicio concreto que atiende.
+    let accountServicesQuery = supabase
+      .from("account_services")
+      .select(`
+        account_id,
+        custom_name,
+        services ( name, department_id )
+      `)
+      .eq("is_active", true)
+
+    const projectServicesQuery = supabase
+      .from("project_services")
+      .select(`
+        project_id,
+        services ( name, department_id )
+      `)
 
     // Apply agency filter if not "all"
     if (!isAllAgencies) {
@@ -306,13 +333,44 @@ export default function WorkloadPage() {
           supabase.from("staff").select(staffSelectFields).eq("is_global", true).eq("is_active", true).order("first_name")
         ]
 
-    const [deptRes, projectTeamRes, accountsRes, accountTeamRes, ...staffResults] = await Promise.all([
+    const [deptRes, projectTeamRes, accountsRes, accountTeamRes, accountServicesRes, projectServicesRes, ...staffResults] = await Promise.all([
       deptQuery,
       projectTeamQuery,
       accountsQuery,
       accountTeamQuery,
+      accountServicesQuery,
+      projectServicesQuery,
       ...staffPromises,
     ])
+
+    // Mapa: accountId -> departmentId -> nombres de servicio.
+    const accountServicesByDept = new Map<string, Map<string, string[]>>()
+    accountServicesRes.data?.forEach((row: any) => {
+      const deptId = row.services?.department_id
+      const name = row.custom_name || row.services?.name
+      if (!row.account_id || !deptId || !name) return
+      if (!accountServicesByDept.has(row.account_id)) accountServicesByDept.set(row.account_id, new Map())
+      const byDept = accountServicesByDept.get(row.account_id)!
+      if (!byDept.has(deptId)) byDept.set(deptId, [])
+      if (!byDept.get(deptId)!.includes(name)) byDept.get(deptId)!.push(name)
+    })
+
+    // Mapa: projectId -> departmentId -> nombres de servicio.
+    const projectServicesByDept = new Map<string, Map<string, string[]>>()
+    projectServicesRes.data?.forEach((row: any) => {
+      const deptId = row.services?.department_id
+      const name = row.services?.name
+      if (!row.project_id || !deptId || !name) return
+      if (!projectServicesByDept.has(row.project_id)) projectServicesByDept.set(row.project_id, new Map())
+      const byDept = projectServicesByDept.get(row.project_id)!
+      if (!byDept.has(deptId)) byDept.set(deptId, [])
+      if (!byDept.get(deptId)!.includes(name)) byDept.get(deptId)!.push(name)
+    })
+
+    // Mapa de nombres de departamento para usar como respaldo cuando la
+    // cuenta/proyecto no tiene un servicio del departamento de la asignación.
+    const departmentNames = new Map<string, string>()
+    deptRes.data?.forEach((d: any) => departmentNames.set(d.id, d.name))
 
     // Combine staff results and remove duplicates
     let allStaff: any[] = []
@@ -345,27 +403,56 @@ export default function WorkloadPage() {
         const coordinatorAccountIds = new Set<string>()
         const commercialAccountIds = new Set<string>()
         const allAccountIds = new Set<string>()
+        // Mapa de cuentas asignadas con su nombre y los servicios que la
+        // persona atiende (derivados del departamento de su asignación).
+        const accountDetails = new Map<string, { id: string; name: string; services: string[] }>()
 
-        // Equipo comercial (columnas directas en accounts)
+        const addAccountServices = (id: string, name: string, labels: string[]) => {
+          const existing = accountDetails.get(id)
+          if (existing) {
+            labels.forEach((l) => {
+              if (l && !existing.services.includes(l)) existing.services.push(l)
+            })
+          } else {
+            accountDetails.set(id, { id, name: name || "Sin nombre", services: labels.filter(Boolean) })
+          }
+        }
+
+        // Equipo comercial (columnas directas en accounts): no está ligado a un
+        // departamento/servicio específico.
         accountsRes.data?.forEach((a: any) => {
           if (a.sales_advisor_id === staff.id || a.account_manager_id === staff.id) {
             commercialAccountIds.add(a.id)
             allAccountIds.add(a.id)
+            addAccountServices(a.id, a.account_name, ["Comercial"])
           }
         })
 
-        // Equipo operativo (gerentes/coordinadores por departamento)
+        // Equipo operativo (gerentes/coordinadores por departamento). El
+        // servicio se obtiene cruzando el departamento de la asignación con los
+        // servicios contratados de la cuenta.
         accountTeamRes.data?.forEach((row: any) => {
           const acctId = row.accounts?.id
           if (!acctId) return
-          if (row.manager_id === staff.id) {
+          const isManager = row.manager_id === staff.id
+          const isCoordinator = row.coordinator_id === staff.id
+          if (!isManager && !isCoordinator) return
+          if (isManager) {
             managerAccountIds.add(acctId)
             allAccountIds.add(acctId)
           }
-          if (row.coordinator_id === staff.id) {
+          if (isCoordinator) {
             coordinatorAccountIds.add(acctId)
             allAccountIds.add(acctId)
           }
+          const deptId = row.department_id
+          const svc = (deptId && accountServicesByDept.get(acctId)?.get(deptId)) || []
+          const labels = svc.length
+            ? svc
+            : deptId && departmentNames.get(deptId)
+              ? [departmentNames.get(deptId)!]
+              : []
+          addAccountServices(acctId, row.accounts?.account_name, labels)
         })
 
         const accountsAsManager = managerAccountIds.size
@@ -373,6 +460,33 @@ export default function WorkloadPage() {
         const accountsCommercial = commercialAccountIds.size
         // Total de cuentas distintas donde participa el empleado
         const totalAccounts = allAccountIds.size
+
+        // Mapa de proyectos asignados con su nombre y los servicios atendidos.
+        const projectDetails = new Map<string, { id: string; name: string; services: string[] }>()
+        const addProjectServices = (id: string, name: string, labels: string[]) => {
+          const existing = projectDetails.get(id)
+          if (existing) {
+            labels.forEach((l) => {
+              if (l && !existing.services.includes(l)) existing.services.push(l)
+            })
+          } else {
+            projectDetails.set(id, { id, name: name || "Sin nombre", services: labels.filter(Boolean) })
+          }
+        }
+
+        projectTeamRes.data?.forEach((p: any) => {
+          const projId = p.projects?.id
+          if (!projId) return
+          if (p.manager_id !== staff.id && p.coordinator_id !== staff.id) return
+          const deptId = p.department_id
+          const svc = (deptId && projectServicesByDept.get(projId)?.get(deptId)) || []
+          const labels = svc.length
+            ? svc
+            : deptId && departmentNames.get(deptId)
+              ? [departmentNames.get(deptId)!]
+              : []
+          addProjectServices(projId, p.projects?.name, labels)
+        })
 
         const projectsAsManager = projectTeamRes.data?.filter(
           (p) => p.manager_id === staff.id
@@ -404,6 +518,8 @@ export default function WorkloadPage() {
           accounts_as_coordinator: accountsAsCoordinator,
           accounts_commercial: accountsCommercial,
           total_accounts: totalAccounts,
+          assigned_accounts: Array.from(accountDetails.values()).sort((a, b) => a.name.localeCompare(b.name)),
+          assigned_projects: Array.from(projectDetails.values()).sort((a, b) => a.name.localeCompare(b.name)),
           projects_as_manager: projectsAsManager,
           projects_as_coordinator: projectsAsCoordinator,
           total_projects: totalProjects,
@@ -715,7 +831,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
           {/* Cuentas */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 font-semibold">
                 <Briefcase className="h-4 w-4" />
                 Cuentas Asignadas
               </span>
@@ -738,17 +854,46 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                 />
               </div>
             )}
-<div className="flex justify-between text-xs text-muted-foreground">
+{/* Resumen por rol: solo para gerentes/directores */}
+            {isManagerOrDirector && (
+              <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Gerente: {staff.accounts_as_manager}</span>
                 <span>Coordinador: {staff.accounts_as_coordinator}</span>
                 {staff.accounts_commercial > 0 && <span>Comercial: {staff.accounts_commercial}</span>}
               </div>
+            )}
+            {/* Desglose de cuentas con su servicio, para quienes no son gerentes/directores */}
+            {!isManagerOrDirector && staff.assigned_accounts.length > 0 && (
+              <div className="mt-2 space-y-2 rounded-lg border bg-muted/30 p-2.5">
+                <p className="px-0.5 text-xs font-bold uppercase tracking-wide text-foreground">
+                  Detalle por cuenta
+                </p>
+                <ul className="space-y-1.5">
+                  {staff.assigned_accounts.map((acc) => (
+                    <li key={acc.id} className="rounded-md bg-background p-2">
+                      <p className="text-sm font-semibold leading-snug text-balance">{acc.name}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {acc.services.length > 0 ? (
+                          acc.services.map((s) => (
+                            <Badge key={s} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
+                              {s}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">Sin servicio</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           {/* Proyectos */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 font-semibold">
                 <FolderKanban className="h-4 w-4" />
                 Proyectos Asignados
               </span>
@@ -771,17 +916,46 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                 />
               </div>
             )}
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Gerente: {staff.projects_as_manager}</span>
-              <span>Coordinador: {staff.projects_as_coordinator}</span>
-            </div>
+            {/* Resumen por rol: solo para gerentes/directores */}
+            {isManagerOrDirector && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Gerente: {staff.projects_as_manager}</span>
+                <span>Coordinador: {staff.projects_as_coordinator}</span>
+              </div>
+            )}
+            {/* Desglose de proyectos con su servicio, para quienes no son gerentes/directores */}
+            {!isManagerOrDirector && staff.assigned_projects.length > 0 && (
+              <div className="mt-2 space-y-2 rounded-lg border bg-muted/30 p-2.5">
+                <p className="px-0.5 text-xs font-bold uppercase tracking-wide text-foreground">
+                  Detalle por proyecto
+                </p>
+                <ul className="space-y-1.5">
+                  {staff.assigned_projects.map((proj) => (
+                    <li key={proj.id} className="rounded-md bg-background p-2">
+                      <p className="text-sm font-semibold leading-snug text-balance">{proj.name}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {proj.services.length > 0 ? (
+                          proj.services.map((s) => (
+                            <Badge key={s} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
+                              {s}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">Sin servicio</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           {/* Subordinados */}
           {hasSubConfig && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2 font-semibold">
                   <Users className="h-4 w-4" />
                   Subordinados
                 </span>
@@ -1150,9 +1324,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                         {deptName}
                         <Badge variant="secondary" className="ml-2">{staffList.length}</Badge>
                       </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {staffList.map((staff) => (
-                          <WorkloadCard 
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              {staffList.map((staff) => (
+                <WorkloadCard
                             key={staff.id} 
                             staff={staff}
                           />
