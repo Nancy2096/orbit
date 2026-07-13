@@ -94,6 +94,10 @@ interface StaffWorkload extends StaffMember {
   projects_as_coordinator: number
   total_projects: number
   total_assignments: number
+  // Detalle de nombres de cuentas y proyectos asignados (para desglose de
+  // empleados que no son gerentes ni directores).
+  assigned_accounts: { id: string; name: string; roles: string[] }[]
+  assigned_projects: { id: string; name: string; roles: string[] }[]
   // Subordinados (de la relación reports_to_id en staff)
   subordinate_count: number
   // Cargas desde el puesto (Puestos y Cargas de la agencia)
@@ -256,7 +260,7 @@ export default function WorkloadPage() {
     // Columnas comerciales directas en accounts (asesor de ventas / ejecutivo).
     let accountsQuery = supabase
       .from("accounts")
-      .select("id, agency_id, sales_advisor_id, account_manager_id")
+      .select("id, name, agency_id, sales_advisor_id, account_manager_id")
       .eq("status", "active")
 
     // Asignaciones operativas reales: una cuenta involucra a varios
@@ -268,7 +272,7 @@ export default function WorkloadPage() {
         manager_id,
         coordinator_id,
         department_id,
-        accounts!inner ( id, agency_id, status )
+        accounts!inner ( id, name, agency_id, status )
       `)
       .eq("accounts.status", "active")
 
@@ -281,6 +285,7 @@ export default function WorkloadPage() {
         coordinator_id,
         projects!inner (
           id,
+          name,
           account_id,
           status,
           accounts!inner ( agency_id )
@@ -345,12 +350,24 @@ export default function WorkloadPage() {
         const coordinatorAccountIds = new Set<string>()
         const commercialAccountIds = new Set<string>()
         const allAccountIds = new Set<string>()
+        // Mapa de cuentas asignadas con su nombre y los roles del empleado en ella.
+        const accountDetails = new Map<string, { id: string; name: string; roles: string[] }>()
+
+        const addAccountRole = (id: string, name: string, role: string) => {
+          const existing = accountDetails.get(id)
+          if (existing) {
+            if (!existing.roles.includes(role)) existing.roles.push(role)
+          } else {
+            accountDetails.set(id, { id, name: name || "Sin nombre", roles: [role] })
+          }
+        }
 
         // Equipo comercial (columnas directas en accounts)
         accountsRes.data?.forEach((a: any) => {
           if (a.sales_advisor_id === staff.id || a.account_manager_id === staff.id) {
             commercialAccountIds.add(a.id)
             allAccountIds.add(a.id)
+            addAccountRole(a.id, a.name, "Comercial")
           }
         })
 
@@ -361,10 +378,12 @@ export default function WorkloadPage() {
           if (row.manager_id === staff.id) {
             managerAccountIds.add(acctId)
             allAccountIds.add(acctId)
+            addAccountRole(acctId, row.accounts?.name, "Gerente")
           }
           if (row.coordinator_id === staff.id) {
             coordinatorAccountIds.add(acctId)
             allAccountIds.add(acctId)
+            addAccountRole(acctId, row.accounts?.name, "Coordinador")
           }
         })
 
@@ -373,6 +392,24 @@ export default function WorkloadPage() {
         const accountsCommercial = commercialAccountIds.size
         // Total de cuentas distintas donde participa el empleado
         const totalAccounts = allAccountIds.size
+
+        // Mapa de proyectos asignados con su nombre y los roles del empleado.
+        const projectDetails = new Map<string, { id: string; name: string; roles: string[] }>()
+        const addProjectRole = (id: string, name: string, role: string) => {
+          const existing = projectDetails.get(id)
+          if (existing) {
+            if (!existing.roles.includes(role)) existing.roles.push(role)
+          } else {
+            projectDetails.set(id, { id, name: name || "Sin nombre", roles: [role] })
+          }
+        }
+
+        projectTeamRes.data?.forEach((p: any) => {
+          const projId = p.projects?.id
+          if (!projId) return
+          if (p.manager_id === staff.id) addProjectRole(projId, p.projects?.name, "Gerente")
+          if (p.coordinator_id === staff.id) addProjectRole(projId, p.projects?.name, "Coordinador")
+        })
 
         const projectsAsManager = projectTeamRes.data?.filter(
           (p) => p.manager_id === staff.id
@@ -404,6 +441,8 @@ export default function WorkloadPage() {
           accounts_as_coordinator: accountsAsCoordinator,
           accounts_commercial: accountsCommercial,
           total_accounts: totalAccounts,
+          assigned_accounts: Array.from(accountDetails.values()).sort((a, b) => a.name.localeCompare(b.name)),
+          assigned_projects: Array.from(projectDetails.values()).sort((a, b) => a.name.localeCompare(b.name)),
           projects_as_manager: projectsAsManager,
           projects_as_coordinator: projectsAsCoordinator,
           total_projects: totalProjects,
@@ -743,6 +782,17 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                 <span>Coordinador: {staff.accounts_as_coordinator}</span>
                 {staff.accounts_commercial > 0 && <span>Comercial: {staff.accounts_commercial}</span>}
               </div>
+            {/* Desglose de nombres de cuentas para quienes no son gerentes/directores */}
+            {!isManagerOrDirector && staff.assigned_accounts.length > 0 && (
+              <ul className="mt-1 space-y-1">
+                {staff.assigned_accounts.map((acc) => (
+                  <li key={acc.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1 text-xs">
+                    <span className="truncate">{acc.name}</span>
+                    <span className="shrink-0 text-muted-foreground">{acc.roles.join(" · ")}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {/* Proyectos */}
@@ -775,6 +825,17 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
               <span>Gerente: {staff.projects_as_manager}</span>
               <span>Coordinador: {staff.projects_as_coordinator}</span>
             </div>
+            {/* Desglose de nombres de proyectos para quienes no son gerentes/directores */}
+            {!isManagerOrDirector && staff.assigned_projects.length > 0 && (
+              <ul className="mt-1 space-y-1">
+                {staff.assigned_projects.map((proj) => (
+                  <li key={proj.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1 text-xs">
+                    <span className="truncate">{proj.name}</span>
+                    <span className="shrink-0 text-muted-foreground">{proj.roles.join(" · ")}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {/* Subordinados */}
