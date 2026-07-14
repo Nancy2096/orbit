@@ -17,6 +17,12 @@ import {
   Trophy,
   Layers,
   Percent,
+  Gauge,
+  Building2,
+  FolderKanban,
+  CalendarClock,
+  TrendingUp,
+  ArrowRight,
 } from "lucide-react"
 import {
   PieChart,
@@ -25,11 +31,15 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
+  Legend,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
 } from "recharts"
+import { ObjectiveGauge } from "@/components/dashboard/objective-gauge"
 
 // Paleta consistente para gráficas (verde primario + apoyos)
 const PALETTE = ["#16a34a", "#0891b2", "#ca8a04", "#7c3aed", "#dc2626", "#2563eb", "#db2777", "#0d9488", "#9ca3af"]
@@ -97,6 +107,28 @@ interface Stats {
   conversionRate: number
 }
 
+interface Objectives {
+  accountsTarget: number
+  projectsTarget: number
+  accountsMonthlyTarget: number
+  projectsMonthlyTarget: number
+}
+
+interface ObjectiveProgress {
+  accountsCurrent: number
+  projectsCurrent: number
+  accountsThisMonth: number
+  projectsThisMonth: number
+}
+
+interface MonthlyObjectiveItem {
+  month: string
+  cuentas: number
+  proyectos: number
+  metaCuentas: number
+  metaProyectos: number
+}
+
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
 export default function CRMDashboardPage() {
@@ -120,6 +152,20 @@ export default function CRMDashboardPage() {
   const [advisorData, setAdvisorData] = useState<AdvisorItem[]>([])
   const [lossReasons, setLossReasons] = useState<LossItem[]>([])
 
+  const [objectives, setObjectives] = useState<Objectives>({
+    accountsTarget: 0,
+    projectsTarget: 0,
+    accountsMonthlyTarget: 0,
+    projectsMonthlyTarget: 0,
+  })
+  const [objectiveProgress, setObjectiveProgress] = useState<ObjectiveProgress>({
+    accountsCurrent: 0,
+    projectsCurrent: 0,
+    accountsThisMonth: 0,
+    projectsThisMonth: 0,
+  })
+  const [monthlyObjectives, setMonthlyObjectives] = useState<MonthlyObjectiveItem[]>([])
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -135,7 +181,15 @@ export default function CRMDashboardPage() {
     if (!selectedAgencyId) return
     setLoading(true)
 
-    const [{ data: prospects }, { data: stages }, { data: sources }, { data: staff }] = await Promise.all([
+    const [
+      { data: prospects },
+      { data: stages },
+      { data: sources },
+      { data: staff },
+      { data: agency },
+      { data: accounts },
+      { data: projects },
+    ] = await Promise.all([
       supabase
         .from("crm_prospects")
         .select("id, status, estimated_value, created_at, lost_reason, stage_id, source_id, assigned_to")
@@ -146,6 +200,12 @@ export default function CRMDashboardPage() {
         .eq("agency_id", selectedAgencyId),
       supabase.from("crm_lead_sources").select("id, name").eq("agency_id", selectedAgencyId),
       supabase.from("staff").select("id, first_name, last_name").eq("agency_id", selectedAgencyId),
+      supabase.from("agencies").select("settings").eq("id", selectedAgencyId).single(),
+      supabase.from("accounts").select("id, status, created_at").eq("agency_id", selectedAgencyId),
+      supabase
+        .from("projects")
+        .select("id, created_at, accounts!inner(agency_id)")
+        .eq("accounts.agency_id", selectedAgencyId),
     ])
 
     const rows = (prospects || []) as Prospect[]
@@ -257,6 +317,54 @@ export default function CRMDashboardPage() {
       .sort((a, b) => b.value - a.value)
     setLossReasons(losses)
 
+    // ----- Objetivos de operación y venta (desde settings de la agencia) -----
+    const obj = (agency as any)?.settings?.objectives || {}
+    const objectivesData: Objectives = {
+      accountsTarget: Number(obj.accounts_target) || 0,
+      projectsTarget: Number(obj.projects_target) || 0,
+      accountsMonthlyTarget: Number(obj.accounts_monthly_target) || 0,
+      projectsMonthlyTarget: Number(obj.projects_monthly_target) || 0,
+    }
+    setObjectives(objectivesData)
+
+    const accountRows = (accounts || []) as { id: string; status: string | null; created_at: string | null }[]
+    const projectRows = (projects || []) as { id: string; created_at: string | null }[]
+
+    const now = new Date()
+    const curYear = now.getFullYear()
+    const curMonth = now.getMonth()
+
+    const isThisMonth = (iso: string | null) => {
+      if (!iso) return false
+      const d = new Date(iso)
+      return d.getFullYear() === curYear && d.getMonth() === curMonth
+    }
+
+    const accountsCurrent = accountRows.filter((a) => a.status === "active").length
+    const projectsCurrent = projectRows.length
+    const accountsThisMonth = accountRows.filter((a) => isThisMonth(a.created_at)).length
+    const projectsThisMonth = projectRows.filter((p) => isThisMonth(p.created_at)).length
+
+    setObjectiveProgress({ accountsCurrent, projectsCurrent, accountsThisMonth, projectsThisMonth })
+
+    // Serie mensual del año en curso: nuevas cuentas y proyectos vs meta mensual.
+    const monthly: MonthlyObjectiveItem[] = Array.from({ length: 12 }, (_, m) => ({
+      month: MONTHS_ES[m],
+      cuentas: accountRows.filter((a) => {
+        if (!a.created_at) return false
+        const d = new Date(a.created_at)
+        return d.getFullYear() === curYear && d.getMonth() === m
+      }).length,
+      proyectos: projectRows.filter((p) => {
+        if (!p.created_at) return false
+        const d = new Date(p.created_at)
+        return d.getFullYear() === curYear && d.getMonth() === m
+      }).length,
+      metaCuentas: objectivesData.accountsMonthlyTarget,
+      metaProyectos: objectivesData.projectsMonthlyTarget,
+    }))
+    setMonthlyObjectives(monthly)
+
     setLoading(false)
   }
 
@@ -329,13 +437,33 @@ export default function CRMDashboardPage() {
     },
   ]
 
+  // Embudo de venta que conecta el pipeline comercial con el objetivo de cuentas.
+  const salesFunnel = [
+    { name: "Prospectos", value: stats.total, color: "#0891b2" },
+    { name: "En pipeline", value: stats.inPipeline, color: "#2563eb" },
+    { name: "Ganados", value: stats.won, color: "#ca8a04" },
+    { name: "Cuentas activas", value: objectiveProgress.accountsCurrent, color: "#16a34a" },
+  ]
+  const funnelMax = Math.max(...salesFunnel.map((s) => s.value), objectives.accountsTarget, 1)
+
+  const monthPct = (current: number, target: number) =>
+    target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0
+  const accountsMonthPct = monthPct(objectiveProgress.accountsThisMonth, objectives.accountsMonthlyTarget)
+  const projectsMonthPct = monthPct(objectiveProgress.projectsThisMonth, objectives.projectsMonthlyTarget)
+  const currentMonthName = new Date().toLocaleDateString("es-MX", { month: "long" })
+  const hasObjectives =
+    objectives.accountsTarget > 0 ||
+    objectives.projectsTarget > 0 ||
+    objectives.accountsMonthlyTarget > 0 ||
+    objectives.projectsMonthlyTarget > 0
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">Resumen general basado en tus prospectos reales</p>
+          <p className="text-muted-foreground">Desempeño comercial frente a los objetivos de la agencia</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" asChild>
@@ -364,6 +492,208 @@ export default function CRMDashboardPage() {
           </Button>
         </div>
       </div>
+
+      {/* ===== Panel de Objetivos ===== */}
+      {!hasObjectives ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+            <div className="rounded-full bg-muted p-3">
+              <Target className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <h2 className="text-lg font-semibold">Sin objetivos configurados</h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Define los objetivos de operación y de venta en Agencias → Objetivos para ver aquí tu avance con
+              tacómetros e indicadores.
+            </p>
+            <Button variant="outline" size="sm" asChild className="mt-2">
+              <Link href="/dashboard/agencies">
+                <Target className="mr-2 h-4 w-4" />
+                Configurar objetivos
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Tacómetros de objetivos de operación */}
+          <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card">
+            <CardHeader className="border-b bg-card/40">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Gauge className="h-5 w-5 text-primary" />
+                Objetivos de operación
+              </CardTitle>
+              <CardDescription>Avance total de cuentas y proyectos frente a la meta de la agencia.</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_1.1fr]">
+                <div className="flex flex-col items-center justify-center rounded-xl border bg-card/60 p-4">
+                  <ObjectiveGauge
+                    label="Cuentas activas"
+                    current={objectiveProgress.accountsCurrent}
+                    target={objectives.accountsTarget}
+                    color="var(--chart-1)"
+                    icon={Building2}
+                  />
+                </div>
+                <div className="flex flex-col items-center justify-center rounded-xl border bg-card/60 p-4">
+                  <ObjectiveGauge
+                    label="Proyectos"
+                    current={objectiveProgress.projectsCurrent}
+                    target={objectives.projectsTarget}
+                    color="var(--chart-2)"
+                    icon={FolderKanban}
+                  />
+                </div>
+
+                {/* Objetivos del mes en curso */}
+                <div className="flex flex-col gap-3 rounded-xl border bg-card/60 p-4">
+                  <div className="flex items-center gap-2">
+                    <CalendarClock className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-semibold">
+                      Metas de venta · <span className="capitalize">{currentMonthName}</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <Building2 className="h-3.5 w-3.5" /> Cuentas del mes
+                      </span>
+                      <span className="font-semibold tabular-nums">
+                        {objectiveProgress.accountsThisMonth} / {objectives.accountsMonthlyTarget || "—"}
+                      </span>
+                    </div>
+                    <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-[var(--chart-1)] transition-all"
+                        style={{ width: `${accountsMonthPct}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <FolderKanban className="h-3.5 w-3.5" /> Proyectos del mes
+                      </span>
+                      <span className="font-semibold tabular-nums">
+                        {objectiveProgress.projectsThisMonth} / {objectives.projectsMonthlyTarget || "—"}
+                      </span>
+                    </div>
+                    <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-[var(--chart-2)] transition-all"
+                        style={{ width: `${projectsMonthPct}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-auto grid grid-cols-2 gap-2 pt-2">
+                    <div className="rounded-lg bg-muted/60 p-2 text-center">
+                      <div className="text-lg font-bold tabular-nums text-[var(--chart-1)]">{accountsMonthPct}%</div>
+                      <div className="text-[11px] text-muted-foreground">Cuentas</div>
+                    </div>
+                    <div className="rounded-lg bg-muted/60 p-2 text-center">
+                      <div className="text-lg font-bold tabular-nums text-[var(--chart-2)]">{projectsMonthPct}%</div>
+                      <div className="text-[11px] text-muted-foreground">Proyectos</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Embudo de venta hacia el objetivo + Objetivos por mes */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Embudo de venta hacia objetivos */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <TrendingUp className="h-4 w-4 text-primary" />
+                  Embudo de venta hacia el objetivo
+                </CardTitle>
+                <CardDescription>Del prospecto a la cuenta activa, comparado con la meta de cuentas.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {salesFunnel.map((step, i) => {
+                    const width = funnelMax ? (step.value / funnelMax) * 100 : 0
+                    const targetWidth =
+                      objectives.accountsTarget > 0 ? (objectives.accountsTarget / funnelMax) * 100 : 0
+                    const isLast = i === salesFunnel.length - 1
+                    return (
+                      <div key={step.name} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            {step.name}
+                            {!isLast && <ArrowRight className="h-3 w-3 text-muted-foreground" />}
+                          </span>
+                          <span className="tabular-nums text-muted-foreground">{step.value}</span>
+                        </div>
+                        <div className="relative h-7 w-full rounded bg-muted">
+                          <div
+                            className="h-7 rounded transition-all"
+                            style={{ width: `${width}%`, backgroundColor: step.color, minWidth: "6px" }}
+                          />
+                          {isLast && objectives.accountsTarget > 0 && (
+                            <div
+                              className="absolute inset-y-0 border-l-2 border-dashed border-foreground/60"
+                              style={{ left: `${Math.min(100, targetWidth)}%` }}
+                              title={`Meta: ${objectives.accountsTarget}`}
+                            >
+                              <span className="absolute -top-0.5 left-1 whitespace-nowrap text-[10px] font-semibold text-foreground/70">
+                                Meta {objectives.accountsTarget}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Objetivos de cada mes del año */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <CalendarClock className="h-4 w-4 text-primary" />
+                  Objetivos por mes del año
+                </CardTitle>
+                <CardDescription>Cuentas y proyectos nuevos por mes vs. la meta mensual.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={monthlyObjectives}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis dataKey="month" className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
+                      <YAxis className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: "8px",
+                        }}
+                      />
+                      <Legend />
+                      <Bar dataKey="cuentas" name="Cuentas" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="proyectos" name="Proyectos" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                {(objectives.accountsMonthlyTarget > 0 || objectives.projectsMonthlyTarget > 0) && (
+                  <p className="mt-2 text-center text-xs text-muted-foreground">
+                    Meta mensual: {objectives.accountsMonthlyTarget || 0} cuentas · {objectives.projectsMonthlyTarget || 0}{" "}
+                    proyectos
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
 
       {!hasData ? (
         <Card>

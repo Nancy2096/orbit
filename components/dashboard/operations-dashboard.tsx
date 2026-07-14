@@ -31,7 +31,10 @@ import {
   CalendarClock,
   DollarSign,
   Wallet,
+  Target,
+  Gauge,
 } from "lucide-react"
+import { ObjectiveGauge } from "@/components/dashboard/objective-gauge"
 
 const statusLabels: Record<string, string> = {
   active: "Activa",
@@ -66,7 +69,7 @@ function formatCompact(value: number) {
 }
 
 export function OperationsDashboard({ data }: { data: OperationsData }) {
-  const { kpis } = data
+  const { kpis, objectives } = data
 
   const projectionConfig = {
     mxn: { label: "MXN acumulado", color: "var(--chart-1)" },
@@ -77,7 +80,7 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
     mrr: { label: "MRR (MXN)", color: "var(--chart-1)" },
   } satisfies ChartConfig
 
-  const industryConfig = {
+  const clientTypeConfig = {
     count: { label: "Clientes", color: "var(--chart-3)" },
   } satisfies ChartConfig
 
@@ -176,6 +179,56 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
           </Button>
         </div>
       </div>
+
+      {/* Objetivos de operación: tacómetros */}
+      <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 via-card to-card">
+        <CardHeader className="border-b bg-card/40">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Gauge className="size-5 text-primary" aria-hidden="true" />
+            Objetivos de operación
+          </CardTitle>
+          <CardDescription>
+            Avance de cuentas y proyectos frente a los objetivos definidos en Agencias.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="flex flex-col items-center gap-3 rounded-xl border bg-card/60 p-4">
+              <ObjectiveGauge
+                label="Cuentas"
+                current={objectives.accountsCurrent}
+                target={objectives.accountsTarget}
+                color="var(--chart-1)"
+                icon={Layers}
+              />
+              <div className="flex w-full items-center justify-center gap-2 text-xs">
+                <Target className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <span className="text-muted-foreground">Meta mensual:</span>
+                <span className="font-semibold tabular-nums text-foreground">
+                  {objectives.accountsMonthlyTarget.toLocaleString("es-MX")} cuentas
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center gap-3 rounded-xl border bg-card/60 p-4">
+              <ObjectiveGauge
+                label="Proyectos"
+                current={objectives.projectsCurrent}
+                target={objectives.projectsTarget}
+                color="var(--chart-2)"
+                icon={FolderKanban}
+              />
+              <div className="flex w-full items-center justify-center gap-2 text-xs">
+                <Target className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <span className="text-muted-foreground">Meta mensual:</span>
+                <span className="font-semibold tabular-nums text-foreground">
+                  {objectives.projectsMonthlyTarget.toLocaleString("es-MX")} proyectos
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -362,19 +415,19 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
           </CardContent>
         </Card>
 
-        {/* Clientes por industria */}
+        {/* Tipo de Cliente */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Clientes por industria</CardTitle>
-            <CardDescription>Top industrias de la cartera de clientes.</CardDescription>
+            <CardTitle className="text-base">Tipo de Cliente</CardTitle>
+            <CardDescription>Distribución de la cartera por tipo de cliente.</CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={industryConfig} className="h-[300px] w-full">
-              <BarChart data={data.clientsByIndustry} layout="vertical" margin={{ left: 12, right: 16 }}>
+            <ChartContainer config={clientTypeConfig} className="h-[300px] w-full">
+              <BarChart data={data.clientsByType} layout="vertical" margin={{ left: 12, right: 16 }}>
                 <CartesianGrid horizontal={false} />
                 <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
                 <YAxis
-                  dataKey="industry"
+                  dataKey="type"
                   type="category"
                   tickLine={false}
                   axisLine={false}

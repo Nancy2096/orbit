@@ -16,19 +16,22 @@ interface AccountRow {
 async function getOperationsData() {
   const supabase = await createClient()
 
-  const [accountsRes, clientsRes, agenciesRes, currenciesRes] = await Promise.all([
+  const [accountsRes, clientsRes, agenciesRes, currenciesRes, industriesRes] = await Promise.all([
     supabase
       .from("accounts")
       .select("id, account_name, account_type, status, retainer_amount, retainer_currency_id, agency_id"),
-    supabase.from("clients").select("id, status, industry"),
-    supabase.from("agencies").select("id, name"),
+    supabase.from("clients").select("id, status, industry_id"),
+    supabase.from("agencies").select("id, name, settings"),
     supabase.from("currencies").select("id, code"),
+    supabase.from("industries").select("id, name"),
   ])
 
   const accounts = (accountsRes.data || []) as AccountRow[]
-  const clients = (clientsRes.data || []) as { id: string; status: string | null; industry: string | null }[]
-  const agencies = (agenciesRes.data || []) as { id: string; name: string }[]
+  const clients = (clientsRes.data || []) as { id: string; status: string | null; industry_id: string | null }[]
+  const agencies = (agenciesRes.data || []) as { id: string; name: string; settings: any }[]
   const currencies = (currenciesRes.data || []) as { id: string; code: string }[]
+  const industries = (industriesRes.data || []) as { id: string; name: string }[]
+  const industryMap = new Map(industries.map((i) => [i.id, i.name]))
 
   const currencyMap = new Map(currencies.map((c) => [c.id, c.code]))
   const agencyMap = new Map(agencies.map((a) => [a.id, a.name]))
@@ -84,16 +87,41 @@ async function getOperationsData() {
   const topAccountsMXN = topAccounts("MXN")
   const topAccountsUSD = topAccounts("USD")
 
-  // Clientes por industria (top 8)
-  const industryAgg = new Map<string, number>()
+  // Clientes por tipo de cliente (industry_id -> industries.name), top 8
+  const typeAgg = new Map<string, number>()
   for (const c of clients) {
-    if (!c.industry) continue
-    industryAgg.set(c.industry, (industryAgg.get(c.industry) || 0) + 1)
+    const name = c.industry_id ? industryMap.get(c.industry_id) || "Sin tipo" : "Sin tipo"
+    typeAgg.set(name, (typeAgg.get(name) || 0) + 1)
   }
-  const clientsByIndustry = [...industryAgg.entries()]
-    .map(([industry, count]) => ({ industry, count }))
+  const clientsByType = [...typeAgg.entries()]
+    .map(([type, count]) => ({ type, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 8)
+
+  // Objetivos de operación (suma de todas las agencias). Solo se consideran los
+  // objetivos de operación: cuentas y proyectos (totales y mensuales).
+  const objectivesAgg = agencies.reduce(
+    (acc, a) => {
+      const o = a.settings?.objectives
+      if (o) {
+        acc.accountsTarget += Number(o.accounts_target) || 0
+        acc.projectsTarget += Number(o.projects_target) || 0
+        acc.accountsMonthlyTarget += Number(o.accounts_monthly_target) || 0
+        acc.projectsMonthlyTarget += Number(o.projects_monthly_target) || 0
+      }
+      return acc
+    },
+    { accountsTarget: 0, projectsTarget: 0, accountsMonthlyTarget: 0, projectsMonthlyTarget: 0 },
+  )
+
+  const objectives = {
+    accountsTarget: objectivesAgg.accountsTarget,
+    projectsTarget: objectivesAgg.projectsTarget,
+    accountsMonthlyTarget: objectivesAgg.accountsMonthlyTarget,
+    projectsMonthlyTarget: objectivesAgg.projectsMonthlyTarget,
+    accountsCurrent: activeRetainers.length,
+    projectsCurrent: activeProjects.length,
+  }
 
   // Proyección de ingresos recurrentes acumulados a 12 meses (MXN y USD)
   const monthFmt = new Intl.DateTimeFormat("es-MX", { month: "short", year: "2-digit" })
@@ -123,11 +151,12 @@ async function getOperationsData() {
         ? mrrMXN / activeRetainers.filter((a) => codeOf(a.retainer_currency_id) === "MXN").length
         : 0,
     },
+    objectives,
     mrrByAgency,
     accountsByStatus,
     topAccountsMXN,
     topAccountsUSD,
-    clientsByIndustry,
+    clientsByType,
     projection,
     unitByType: [
       { type: "Retainer activas", count: activeRetainers.length },
