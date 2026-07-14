@@ -329,8 +329,10 @@ const [positions, setPositions] = useState<Position[]>([])
     projects_target: "",
     accounts_monthly_target: "",
     projects_monthly_target: "",
-    monthly_revenue_target: "",
-    annual_revenue_target: "",
+    monthly_revenue_target_mxn: "",
+    annual_revenue_target_mxn: "",
+    monthly_revenue_target_usd: "",
+    annual_revenue_target_usd: "",
   })
 
   // Configuración de correos para onboarding (encuestas de satisfacción)
@@ -385,8 +387,23 @@ const [positions, setPositions] = useState<Position[]>([])
             projects_target: obj.projects_target != null ? String(obj.projects_target) : "",
             accounts_monthly_target: obj.accounts_monthly_target != null ? String(obj.accounts_monthly_target) : "",
             projects_monthly_target: obj.projects_monthly_target != null ? String(obj.projects_monthly_target) : "",
-            monthly_revenue_target: obj.monthly_revenue_target != null ? String(obj.monthly_revenue_target) : "",
-            annual_revenue_target: obj.annual_revenue_target != null ? String(obj.annual_revenue_target) : "",
+            // Compatibilidad: valores antiguos sin moneda se interpretan como MXN.
+            monthly_revenue_target_mxn:
+              obj.monthly_revenue_target_mxn != null
+                ? String(obj.monthly_revenue_target_mxn)
+                : obj.monthly_revenue_target != null
+                  ? String(obj.monthly_revenue_target)
+                  : "",
+            annual_revenue_target_mxn:
+              obj.annual_revenue_target_mxn != null
+                ? String(obj.annual_revenue_target_mxn)
+                : obj.annual_revenue_target != null
+                  ? String(obj.annual_revenue_target)
+                  : "",
+            monthly_revenue_target_usd:
+              obj.monthly_revenue_target_usd != null ? String(obj.monthly_revenue_target_usd) : "",
+            annual_revenue_target_usd:
+              obj.annual_revenue_target_usd != null ? String(obj.annual_revenue_target_usd) : "",
           })
         }
       }
@@ -1055,10 +1072,22 @@ const [positions, setPositions] = useState<Position[]>([])
                 objectives.accounts_monthly_target === "" ? null : Number.parseInt(objectives.accounts_monthly_target, 10),
               projects_monthly_target:
                 objectives.projects_monthly_target === "" ? null : Number.parseInt(objectives.projects_monthly_target, 10),
-              monthly_revenue_target:
-                objectives.monthly_revenue_target === "" ? null : Number.parseFloat(objectives.monthly_revenue_target),
-              annual_revenue_target:
-                objectives.annual_revenue_target === "" ? null : Number.parseFloat(objectives.annual_revenue_target),
+              monthly_revenue_target_mxn:
+                objectives.monthly_revenue_target_mxn === ""
+                  ? null
+                  : Number.parseFloat(objectives.monthly_revenue_target_mxn),
+              annual_revenue_target_mxn:
+                objectives.annual_revenue_target_mxn === ""
+                  ? null
+                  : Number.parseFloat(objectives.annual_revenue_target_mxn),
+              monthly_revenue_target_usd:
+                objectives.monthly_revenue_target_usd === ""
+                  ? null
+                  : Number.parseFloat(objectives.monthly_revenue_target_usd),
+              annual_revenue_target_usd:
+                objectives.annual_revenue_target_usd === ""
+                  ? null
+                  : Number.parseFloat(objectives.annual_revenue_target_usd),
             },
           },
           updated_at: new Date().toISOString(),
@@ -1722,44 +1751,89 @@ const [positions, setPositions] = useState<Position[]>([])
                   <div>
                     <h3 className="text-sm font-semibold flex items-center gap-2">
                       <Coins className="h-4 w-4 text-muted-foreground" />
-                      Objetivos de ingresos
+                      Objetivos de ingresos en Pesos Mexicanos (MXN)
                     </h3>
                     <div className="grid gap-4 md:grid-cols-2 mt-3">
                       <div className="grid gap-2">
-                        <Label htmlFor="monthly_revenue_target">Ingresos mensuales</Label>
+                        <Label htmlFor="monthly_revenue_target_mxn">Ingresos mensuales (MXN)</Label>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
                           <Input
-                            id="monthly_revenue_target"
+                            id="monthly_revenue_target_mxn"
                             type="number"
                             min="0"
                             step="0.01"
                             inputMode="decimal"
                             className="pl-7"
-                            value={objectives.monthly_revenue_target}
-                            onChange={(e) => setObjectives({ ...objectives, monthly_revenue_target: e.target.value })}
+                            value={objectives.monthly_revenue_target_mxn}
+                            onChange={(e) => setObjectives({ ...objectives, monthly_revenue_target_mxn: e.target.value })}
                             placeholder="Ej. 500000"
                           />
                         </div>
-                        <p className="text-xs text-muted-foreground">Meta de ingresos por mes.</p>
+                        <p className="text-xs text-muted-foreground">Meta de ingresos por mes en MXN.</p>
                       </div>
                       <div className="grid gap-2">
-                        <Label htmlFor="annual_revenue_target">Ingresos anuales</Label>
+                        <Label htmlFor="annual_revenue_target_mxn">Ingresos anuales (MXN)</Label>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
                           <Input
-                            id="annual_revenue_target"
+                            id="annual_revenue_target_mxn"
                             type="number"
                             min="0"
                             step="0.01"
                             inputMode="decimal"
                             className="pl-7"
-                            value={objectives.annual_revenue_target}
-                            onChange={(e) => setObjectives({ ...objectives, annual_revenue_target: e.target.value })}
+                            value={objectives.annual_revenue_target_mxn}
+                            onChange={(e) => setObjectives({ ...objectives, annual_revenue_target_mxn: e.target.value })}
                             placeholder="Ej. 6000000"
                           />
                         </div>
-                        <p className="text-xs text-muted-foreground">Meta de ingresos por año.</p>
+                        <p className="text-xs text-muted-foreground">Meta de ingresos por año en MXN.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Coins className="h-4 w-4 text-muted-foreground" />
+                      Objetivos de ingresos en Dólares (USD)
+                    </h3>
+                    <div className="grid gap-4 md:grid-cols-2 mt-3">
+                      <div className="grid gap-2">
+                        <Label htmlFor="monthly_revenue_target_usd">Ingresos mensuales (USD)</Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                          <Input
+                            id="monthly_revenue_target_usd"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            className="pl-7"
+                            value={objectives.monthly_revenue_target_usd}
+                            onChange={(e) => setObjectives({ ...objectives, monthly_revenue_target_usd: e.target.value })}
+                            placeholder="Ej. 25000"
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">Meta de ingresos por mes en USD.</p>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="annual_revenue_target_usd">Ingresos anuales (USD)</Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                          <Input
+                            id="annual_revenue_target_usd"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            className="pl-7"
+                            value={objectives.annual_revenue_target_usd}
+                            onChange={(e) => setObjectives({ ...objectives, annual_revenue_target_usd: e.target.value })}
+                            placeholder="Ej. 300000"
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">Meta de ingresos por año en USD.</p>
                       </div>
                     </div>
                   </div>
