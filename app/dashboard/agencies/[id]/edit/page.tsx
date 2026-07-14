@@ -1648,7 +1648,7 @@ const [positions, setPositions] = useState<Position[]>([])
                   <div>
                     <h3 className="text-sm font-semibold flex items-center gap-2">
                       <Briefcase className="h-4 w-4 text-muted-foreground" />
-                      Objetivos de venta
+                      Objetivos Operación
                     </h3>
                     <div className="grid gap-4 md:grid-cols-2 mt-3">
                       <div className="grid gap-2">
@@ -1679,6 +1679,15 @@ const [positions, setPositions] = useState<Position[]>([])
                         />
                         <p className="text-xs text-muted-foreground">Número de proyectos que se busca alcanzar.</p>
                       </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Target className="h-4 w-4 text-muted-foreground" />
+                      Objetivos de Venta
+                    </h3>
+                    <div className="grid gap-4 md:grid-cols-2 mt-3">
                       <div className="grid gap-2">
                         <Label htmlFor="accounts_monthly_target">Objetivo de cuentas mensuales</Label>
                         <Input
