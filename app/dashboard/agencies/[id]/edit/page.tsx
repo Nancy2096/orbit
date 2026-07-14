@@ -327,6 +327,8 @@ const [positions, setPositions] = useState<Position[]>([])
   const [objectives, setObjectives] = useState({
     accounts_target: "",
     projects_target: "",
+    accounts_monthly_target: "",
+    projects_monthly_target: "",
     monthly_revenue_target: "",
     annual_revenue_target: "",
   })
@@ -381,6 +383,8 @@ const [positions, setPositions] = useState<Position[]>([])
           setObjectives({
             accounts_target: obj.accounts_target != null ? String(obj.accounts_target) : "",
             projects_target: obj.projects_target != null ? String(obj.projects_target) : "",
+            accounts_monthly_target: obj.accounts_monthly_target != null ? String(obj.accounts_monthly_target) : "",
+            projects_monthly_target: obj.projects_monthly_target != null ? String(obj.projects_monthly_target) : "",
             monthly_revenue_target: obj.monthly_revenue_target != null ? String(obj.monthly_revenue_target) : "",
             annual_revenue_target: obj.annual_revenue_target != null ? String(obj.annual_revenue_target) : "",
           })
@@ -1047,6 +1051,10 @@ const [positions, setPositions] = useState<Position[]>([])
             objectives: {
               accounts_target: objectives.accounts_target === "" ? null : Number.parseInt(objectives.accounts_target, 10),
               projects_target: objectives.projects_target === "" ? null : Number.parseInt(objectives.projects_target, 10),
+              accounts_monthly_target:
+                objectives.accounts_monthly_target === "" ? null : Number.parseInt(objectives.accounts_monthly_target, 10),
+              projects_monthly_target:
+                objectives.projects_monthly_target === "" ? null : Number.parseInt(objectives.projects_monthly_target, 10),
               monthly_revenue_target:
                 objectives.monthly_revenue_target === "" ? null : Number.parseFloat(objectives.monthly_revenue_target),
               annual_revenue_target:
@@ -1640,7 +1648,7 @@ const [positions, setPositions] = useState<Position[]>([])
                   <div>
                     <h3 className="text-sm font-semibold flex items-center gap-2">
                       <Briefcase className="h-4 w-4 text-muted-foreground" />
-                      Objetivos de operación
+                      Objetivos de venta
                     </h3>
                     <div className="grid gap-4 md:grid-cols-2 mt-3">
                       <div className="grid gap-2">
@@ -1670,6 +1678,34 @@ const [positions, setPositions] = useState<Position[]>([])
                           placeholder="Ej. 120"
                         />
                         <p className="text-xs text-muted-foreground">Número de proyectos que se busca alcanzar.</p>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="accounts_monthly_target">Objetivo de cuentas mensuales</Label>
+                        <Input
+                          id="accounts_monthly_target"
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="numeric"
+                          value={objectives.accounts_monthly_target}
+                          onChange={(e) => setObjectives({ ...objectives, accounts_monthly_target: e.target.value })}
+                          placeholder="Ej. 5"
+                        />
+                        <p className="text-xs text-muted-foreground">Cuentas nuevas que se busca cerrar cada mes.</p>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="projects_monthly_target">Objetivo de proyectos mensuales</Label>
+                        <Input
+                          id="projects_monthly_target"
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="numeric"
+                          value={objectives.projects_monthly_target}
+                          onChange={(e) => setObjectives({ ...objectives, projects_monthly_target: e.target.value })}
+                          placeholder="Ej. 10"
+                        />
+                        <p className="text-xs text-muted-foreground">Proyectos nuevos que se busca cerrar cada mes.</p>
                       </div>
                     </div>
                   </div>
