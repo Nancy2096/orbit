@@ -322,6 +322,15 @@ const [positions, setPositions] = useState<Position[]>([])
   // (costo por hora = salario mensual ÷ horas laborables al mes).
   const [workingHoursPerMonth, setWorkingHoursPerMonth] = useState("160")
 
+  // Objetivos de la agencia (metas). Se guardan en el JSON settings.objectives
+  // y son específicos de cada agencia (no se propagan al sincronizar config).
+  const [objectives, setObjectives] = useState({
+    accounts_target: "",
+    projects_target: "",
+    monthly_revenue_target: "",
+    annual_revenue_target: "",
+  })
+
   // Configuración de correos para onboarding (encuestas de satisfacción)
   const [emailConfig, setEmailConfig] = useState({
     sender_name: "",
@@ -366,6 +375,15 @@ const [positions, setPositions] = useState<Position[]>([])
         }
         if (agency.settings?.working_hours_per_month != null) {
           setWorkingHoursPerMonth(String(agency.settings.working_hours_per_month))
+        }
+        if (agency.settings?.objectives) {
+          const obj = agency.settings.objectives
+          setObjectives({
+            accounts_target: obj.accounts_target != null ? String(obj.accounts_target) : "",
+            projects_target: obj.projects_target != null ? String(obj.projects_target) : "",
+            monthly_revenue_target: obj.monthly_revenue_target != null ? String(obj.monthly_revenue_target) : "",
+            annual_revenue_target: obj.annual_revenue_target != null ? String(obj.annual_revenue_target) : "",
+          })
         }
       }
 
@@ -1026,6 +1044,14 @@ const [positions, setPositions] = useState<Position[]>([])
             },
             onboarding_email: emailConfig,
             working_hours_per_month: Number.parseFloat(workingHoursPerMonth) || 160,
+            objectives: {
+              accounts_target: objectives.accounts_target === "" ? null : Number.parseInt(objectives.accounts_target, 10),
+              projects_target: objectives.projects_target === "" ? null : Number.parseInt(objectives.projects_target, 10),
+              monthly_revenue_target:
+                objectives.monthly_revenue_target === "" ? null : Number.parseFloat(objectives.monthly_revenue_target),
+              annual_revenue_target:
+                objectives.annual_revenue_target === "" ? null : Number.parseFloat(objectives.annual_revenue_target),
+            },
           },
           updated_at: new Date().toISOString(),
         })
@@ -1451,6 +1477,10 @@ const [positions, setPositions] = useState<Position[]>([])
                 <Clock className="h-4 w-4 mr-2" />
                 Horas Laborables
               </TabsTrigger>
+              <TabsTrigger value="objectives" className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-md px-4 py-2">
+                <Target className="h-4 w-4 mr-2" />
+                Objetivos
+              </TabsTrigger>
             </TabsList>
 
           {/* Tab Correos Onboarding */}
@@ -1586,6 +1616,107 @@ const [positions, setPositions] = useState<Position[]>([])
                       </span>
                       .
                     </p>
+                  </div>
+                </FieldGroup>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab Objetivos */}
+          <TabsContent value="objectives">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="h-5 w-5" />
+                  Objetivos
+                </CardTitle>
+                <CardDescription>
+                  Define las metas de esta agencia. Estos objetivos son específicos de cada agencia y sirven de
+                  referencia para medir el desempeño en cuentas, proyectos e ingresos.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FieldGroup>
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Briefcase className="h-4 w-4 text-muted-foreground" />
+                      Objetivos de operación
+                    </h3>
+                    <div className="grid gap-4 md:grid-cols-2 mt-3">
+                      <div className="grid gap-2">
+                        <Label htmlFor="accounts_target">Objetivo de cuentas</Label>
+                        <Input
+                          id="accounts_target"
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="numeric"
+                          value={objectives.accounts_target}
+                          onChange={(e) => setObjectives({ ...objectives, accounts_target: e.target.value })}
+                          placeholder="Ej. 50"
+                        />
+                        <p className="text-xs text-muted-foreground">Número de cuentas activas que se busca alcanzar.</p>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="projects_target">Objetivo de proyectos</Label>
+                        <Input
+                          id="projects_target"
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="numeric"
+                          value={objectives.projects_target}
+                          onChange={(e) => setObjectives({ ...objectives, projects_target: e.target.value })}
+                          placeholder="Ej. 120"
+                        />
+                        <p className="text-xs text-muted-foreground">Número de proyectos que se busca alcanzar.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Coins className="h-4 w-4 text-muted-foreground" />
+                      Objetivos de ingresos
+                    </h3>
+                    <div className="grid gap-4 md:grid-cols-2 mt-3">
+                      <div className="grid gap-2">
+                        <Label htmlFor="monthly_revenue_target">Ingresos mensuales</Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                          <Input
+                            id="monthly_revenue_target"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            className="pl-7"
+                            value={objectives.monthly_revenue_target}
+                            onChange={(e) => setObjectives({ ...objectives, monthly_revenue_target: e.target.value })}
+                            placeholder="Ej. 500000"
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">Meta de ingresos por mes.</p>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="annual_revenue_target">Ingresos anuales</Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                          <Input
+                            id="annual_revenue_target"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            className="pl-7"
+                            value={objectives.annual_revenue_target}
+                            onChange={(e) => setObjectives({ ...objectives, annual_revenue_target: e.target.value })}
+                            placeholder="Ej. 6000000"
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">Meta de ingresos por año.</p>
+                      </div>
+                    </div>
                   </div>
                 </FieldGroup>
               </CardContent>
