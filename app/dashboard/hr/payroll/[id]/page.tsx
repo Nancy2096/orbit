@@ -407,8 +407,45 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       if (error) throw error
 
+      // Marcar como pagadas las comisiones incluidas en este periodo que
+      // aún no lo estén, registrando su fecha de pago. Así no se vuelven a
+      // incluir (como "aprobadas") en la siguiente nómina.
+      const commissionIdsToPay = entries
+        .flatMap((e) => e.commissionItems)
+        .filter((c) => c.status !== "paid")
+        .map((c) => c.id)
+
+      let paidCommissionsCount = 0
+      if (commissionIdsToPay.length > 0) {
+        const { error: commError } = await supabase
+          .from("commissions")
+          .update({ status: "paid", paid_at: new Date().toISOString() })
+          .in("id", commissionIdsToPay)
+
+        if (commError) {
+          console.error("Error updating commissions:", commError)
+          toast.error("La nómina se marcó como pagada, pero no se pudieron actualizar las comisiones")
+        } else {
+          paidCommissionsCount = commissionIdsToPay.length
+        }
+      }
+
       setPeriod({ ...period, status: "paid" })
-      toast.success("Nómina marcada como pagada")
+      // Reflejar el nuevo estado de las comisiones en la vista.
+      setEntries((prev) =>
+        prev.map((e) => ({
+          ...e,
+          commissionItems: e.commissionItems.map((c) =>
+            commissionIdsToPay.includes(c.id) ? { ...c, status: "paid" } : c,
+          ),
+        })),
+      )
+
+      toast.success(
+        paidCommissionsCount > 0
+          ? `Nómina marcada como pagada · ${paidCommissionsCount} comisión(es) actualizada(s)`
+          : "Nómina marcada como pagada",
+      )
     } catch (error) {
       console.error("Error marking as paid:", error)
       toast.error("Error al marcar como pagada")
