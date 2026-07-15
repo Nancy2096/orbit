@@ -31,8 +31,12 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  ComposedChart,
   BarChart,
   Bar,
+  Line,
+  ReferenceLine,
+  LabelList,
   Legend,
   XAxis,
   YAxis,
@@ -437,14 +441,22 @@ export default function CRMDashboardPage() {
     },
   ]
 
-  // Embudo de venta que conecta el pipeline comercial con el objetivo de cuentas.
-  const salesFunnel = [
-    { name: "Prospectos", value: stats.total, color: "#0891b2" },
-    { name: "En pipeline", value: stats.inPipeline, color: "#2563eb" },
-    { name: "Ganados", value: stats.won, color: "#ca8a04" },
-    { name: "Cuentas activas", value: objectiveProgress.accountsCurrent, color: "#16a34a" },
+  // Embudo de venta enfocado: Ganados -> Cuentas activas -> Objetivo de venta.
+  const wonCount = stats.won
+  const activeAccounts = objectiveProgress.accountsCurrent
+  const salesTarget = objectives.accountsTarget
+
+  const funnelStages = [
+    { key: "won", name: "Ganados", value: wonCount, color: "#ca8a04", icon: Trophy },
+    { key: "active", name: "Cuentas activas", value: activeAccounts, color: "#16a34a", icon: Building2 },
+    { key: "target", name: "Objetivo de venta", value: salesTarget, color: "#2563eb", icon: Target },
   ]
-  const funnelMax = Math.max(...salesFunnel.map((s) => s.value), objectives.accountsTarget, 1)
+  const funnelTop = Math.max(wonCount, activeAccounts, salesTarget, 1)
+  // Conversión de ganados a cuentas activas.
+  const wonToActivePct = wonCount > 0 ? Math.round((activeAccounts / wonCount) * 100) : 0
+  // Avance de cuentas activas hacia el objetivo de venta.
+  const targetProgressPct = salesTarget > 0 ? Math.min(100, Math.round((activeAccounts / salesTarget) * 100)) : 0
+  const remainingToTarget = Math.max(0, salesTarget - activeAccounts)
 
   const monthPct = (current: number, target: number) =>
     target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0
@@ -612,44 +624,77 @@ export default function CRMDashboardPage() {
                   <TrendingUp className="h-4 w-4 text-primary" />
                   Embudo de venta hacia el objetivo
                 </CardTitle>
-                <CardDescription>Del prospecto a la cuenta activa, comparado con la meta de cuentas.</CardDescription>
+                <CardDescription>De cuentas ganadas a activas y su avance hacia la meta de venta.</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {salesFunnel.map((step, i) => {
-                    const width = funnelMax ? (step.value / funnelMax) * 100 : 0
-                    const targetWidth =
-                      objectives.accountsTarget > 0 ? (objectives.accountsTarget / funnelMax) * 100 : 0
-                    const isLast = i === salesFunnel.length - 1
+                {/* Funnel visual centrado (trapecios) */}
+                <div className="flex flex-col items-center gap-1.5">
+                  {funnelStages.map((stage, i) => {
+                    const widthPct = Math.max(22, (stage.value / funnelTop) * 100)
+                    const nextWidthPct =
+                      i < funnelStages.length - 1
+                        ? Math.max(22, (funnelStages[i + 1].value / funnelTop) * 100)
+                        : widthPct
+                    const StageIcon = stage.icon
+                    // Etiqueta de conversión entre etapas.
+                    const connectorLabel =
+                      i === 0 ? `${wonToActivePct}% se activan` : i === 1 ? `${targetProgressPct}% del objetivo` : null
                     return (
-                      <div key={step.name} className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="flex items-center gap-1.5 font-medium">
-                            {step.name}
-                            {!isLast && <ArrowRight className="h-3 w-3 text-muted-foreground" />}
-                          </span>
-                          <span className="tabular-nums text-muted-foreground">{step.value}</span>
-                        </div>
-                        <div className="relative h-7 w-full rounded bg-muted">
-                          <div
-                            className="h-7 rounded transition-all"
-                            style={{ width: `${width}%`, backgroundColor: step.color, minWidth: "6px" }}
-                          />
-                          {isLast && objectives.accountsTarget > 0 && (
-                            <div
-                              className="absolute inset-y-0 border-l-2 border-dashed border-foreground/60"
-                              style={{ left: `${Math.min(100, targetWidth)}%` }}
-                              title={`Meta: ${objectives.accountsTarget}`}
-                            >
-                              <span className="absolute -top-0.5 left-1 whitespace-nowrap text-[10px] font-semibold text-foreground/70">
-                                Meta {objectives.accountsTarget}
-                              </span>
+                      <div key={stage.key} className="flex w-full flex-col items-center">
+                        <div
+                          className="relative flex items-center justify-center py-4 text-white shadow-sm transition-all"
+                          style={{
+                            width: `${widthPct}%`,
+                            minWidth: "160px",
+                            backgroundColor: stage.color,
+                            clipPath: `polygon(0 0, 100% 0, ${50 + nextWidthPct / widthPct / 2 * 50}% 100%, ${50 - nextWidthPct / widthPct / 2 * 50}% 100%)`,
+                            borderRadius: i === 0 ? "0.5rem 0.5rem 0 0" : "0",
+                          }}
+                        >
+                          <div className="flex flex-col items-center gap-0.5 px-2 text-center">
+                            <div className="flex items-center gap-1.5">
+                              <StageIcon className="h-4 w-4 opacity-90" />
+                              <span className="text-xs font-medium opacity-95">{stage.name}</span>
                             </div>
-                          )}
+                            <span className="text-2xl font-bold tabular-nums leading-none">{stage.value}</span>
+                          </div>
                         </div>
+                        {connectorLabel && (
+                          <div className="my-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                            <ArrowRight className="h-3 w-3 rotate-90" />
+                            {connectorLabel}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
+                </div>
+
+                {/* Avance hacia el objetivo de venta */}
+                <div className="mt-4 rounded-lg border bg-muted/40 p-3">
+                  <div className="mb-1.5 flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <Target className="h-4 w-4 text-[#2563eb]" />
+                      Avance al objetivo
+                    </span>
+                    <span className="font-bold tabular-nums text-[#2563eb]">{targetProgressPct}%</span>
+                  </div>
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-[#2563eb] transition-all"
+                      style={{ width: `${targetProgressPct}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {remainingToTarget > 0 ? (
+                      <>
+                        Faltan <span className="font-semibold text-foreground">{remainingToTarget}</span> cuentas para
+                        alcanzar la meta de <span className="font-semibold text-foreground">{salesTarget}</span>.
+                      </>
+                    ) : (
+                      <span className="font-semibold text-[#16a34a]">¡Objetivo de venta alcanzado!</span>
+                    )}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -659,28 +704,82 @@ export default function CRMDashboardPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <CalendarClock className="h-4 w-4 text-primary" />
-                  Objetivos por mes del año
+                  Ventas por mes del año
                 </CardTitle>
-                <CardDescription>Cuentas y proyectos nuevos por mes vs. la meta mensual.</CardDescription>
+                <CardDescription>Cuentas y proyectos nuevos por mes frente a la meta mensual.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monthlyObjectives}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="month" className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                      <YAxis className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} />
+                    <ComposedChart data={monthlyObjectives} margin={{ top: 16, right: 8, left: -16, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gradCuentas" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#16a34a" stopOpacity={0.95} />
+                          <stop offset="100%" stopColor="#16a34a" stopOpacity={0.55} />
+                        </linearGradient>
+                        <linearGradient id="gradProyectos" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#2563eb" stopOpacity={0.95} />
+                          <stop offset="100%" stopColor="#2563eb" stopOpacity={0.55} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
+                      <XAxis
+                        dataKey="month"
+                        className="text-xs"
+                        tick={{ fill: "hsl(var(--muted-foreground))" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        className="text-xs"
+                        tick={{ fill: "hsl(var(--muted-foreground))" }}
+                        allowDecimals={false}
+                        tickLine={false}
+                        axisLine={false}
+                      />
                       <Tooltip
+                        cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
                         contentStyle={{
                           backgroundColor: "hsl(var(--card))",
                           border: "1px solid hsl(var(--border))",
                           borderRadius: "8px",
                         }}
                       />
-                      <Legend />
-                      <Bar dataKey="cuentas" name="Cuentas" fill="#16a34a" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="proyectos" name="Proyectos" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                    </BarChart>
+                      <Legend iconType="circle" />
+                      {objectives.accountsMonthlyTarget > 0 && (
+                        <ReferenceLine
+                          y={objectives.accountsMonthlyTarget}
+                          stroke="#16a34a"
+                          strokeDasharray="4 4"
+                          strokeWidth={1.5}
+                          label={{
+                            value: `Meta cuentas ${objectives.accountsMonthlyTarget}`,
+                            position: "insideTopRight",
+                            fill: "#16a34a",
+                            fontSize: 10,
+                          }}
+                        />
+                      )}
+                      <Bar dataKey="cuentas" name="Cuentas" fill="url(#gradCuentas)" radius={[6, 6, 0, 0]} barSize={14}>
+                        <LabelList dataKey="cuentas" position="top" className="fill-muted-foreground text-[10px]" />
+                      </Bar>
+                      <Bar
+                        dataKey="proyectos"
+                        name="Proyectos"
+                        fill="url(#gradProyectos)"
+                        radius={[6, 6, 0, 0]}
+                        barSize={14}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="proyectos"
+                        name="Tendencia proyectos"
+                        stroke="#2563eb"
+                        strokeWidth={2}
+                        dot={{ r: 2.5 }}
+                        legendType="none"
+                      />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
                 {(objectives.accountsMonthlyTarget > 0 || objectives.projectsMonthlyTarget > 0) && (
