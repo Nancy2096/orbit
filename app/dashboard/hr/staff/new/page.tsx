@@ -85,6 +85,7 @@ export default function NewStaffPage() {
     hourly_cost: "",
     monthly_salary: "",
     currency_id: "",
+    payment_frequency: "biweekly",
     commission_percentage: "",
     commission_type: "none",
     is_billable: true,
@@ -403,6 +404,7 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
   hourly_cost: formData.contract_type === "commission" ? 0 : (parseFloat(formData.hourly_cost) || 0),
       monthly_salary: formData.contract_type === "commission" ? 0 : (parseFloat(formData.monthly_salary) || 0),
       currency_id: formData.currency_id || null,
+      payment_frequency: formData.contract_type === "commission" ? "monthly" : (formData.payment_frequency || "biweekly"),
       commission_percentage: (formData.contract_type === "commission" || formData.contract_type === "full_time_variable") ? (parseFloat(formData.commission_percentage) || 0) : 0,
       commission_type: (formData.contract_type === "commission" || formData.contract_type === "full_time_variable") ? formData.commission_type : "none",
   is_billable: formData.is_billable,
@@ -1143,6 +1145,22 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                             </SelectContent>
                           </Select>
                         </Field>
+                        <Field>
+                          <FieldLabel htmlFor="payment_frequency">Frecuencia de pago</FieldLabel>
+                          <Select
+                            value={formData.payment_frequency}
+                            onValueChange={(value) => setFormData({ ...formData, payment_frequency: value })}
+                            disabled={!canEditBilling}
+                          >
+                            <SelectTrigger className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}>
+                              <SelectValue placeholder="Selecciona frecuencia" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="biweekly">Quincenal (día 15 y fin de mes)</SelectItem>
+                              <SelectItem value="monthly">Mensual (fin de mes)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
                       </div>
                       <div className="border-t pt-4 mt-4">
                         <p className="text-sm font-medium mb-3 flex items-center gap-2">
@@ -1217,6 +1235,22 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                         disabled={!canEditBilling}
                         className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}
                       />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="payment_frequency">Frecuencia de pago</FieldLabel>
+                      <Select
+                        value={formData.payment_frequency}
+                        onValueChange={(value) => setFormData({ ...formData, payment_frequency: value })}
+                        disabled={!canEditBilling}
+                      >
+                        <SelectTrigger className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}>
+                          <SelectValue placeholder="Selecciona frecuencia" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="biweekly">Quincenal (día 15 y fin de mes)</SelectItem>
+                          <SelectItem value="monthly">Mensual (fin de mes)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </Field>
                   </div>
                 )}

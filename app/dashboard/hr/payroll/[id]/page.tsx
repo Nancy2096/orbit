@@ -69,6 +69,7 @@ interface Staff {
   monthly_salary: number | null
   hourly_cost: number | null
   contract_type: string
+  payment_frequency: string | null
   is_active: boolean
   agency_id: string | null
 }
@@ -209,7 +210,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       // Create entries from staff data
       const payrollEntries: PayrollEntry[] = (staffData || []).map(staff => {
-        const baseSalary = calculateBaseSalary(staff, periodData.period_type)
+        const baseSalary = calculateBaseSalary(staff, periodData.period_type, periodData.start_date)
         const bonuses = bonusesByStaff[staff.id] || 0
         const commissions = commissionsByStaff[staff.id] || 0
         const deductions = 0
@@ -254,14 +255,25 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
-  const calculateBaseSalary = (staff: Staff, periodType: string): number => {
+  const calculateBaseSalary = (staff: Staff, periodType: string, startDate?: string | null): number => {
     const monthlySalary = staff.monthly_salary || 0
-    
+    // Frecuencia de pago del colaborador (por defecto quincenal).
+    const frequency = staff.payment_frequency || "biweekly"
+
     switch (periodType) {
       case "semanal":
         return monthlySalary / 4
-      case "quincenal":
+      case "quincenal": {
+        // ¿Es la primera o la segunda quincena? Se infiere del día de inicio.
+        const startDay = startDate ? new Date(startDate).getUTCDate() : 1
+        const isFirstHalf = startDay <= 15
+        if (frequency === "monthly") {
+          // A los mensuales se les paga solo en la segunda quincena (fin de mes).
+          return isFirstHalf ? 0 : monthlySalary
+        }
+        // A los quincenales se les paga el 50% en cada quincena.
         return monthlySalary / 2
+      }
       case "mensual":
         return monthlySalary
       default:
@@ -278,7 +290,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       const totalTaxRate = (payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100
       
       const updatedEntries = entries.map(entry => {
-        const baseSalary = calculateBaseSalary(entry.staff, period.period_type)
+        const baseSalary = calculateBaseSalary(entry.staff, period.period_type, period.start_date)
         const grossPay = baseSalary + entry.bonuses + entry.commissions
         const taxes = grossPay * totalTaxRate
         const totalDeductions = entry.deductions + payrollConfig.otherDeductions
@@ -625,6 +637,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                       {entry.staff.agency_id === null && (
                         <Badge variant="outline" className="ml-2 text-xs">Global</Badge>
                       )}
+                      <Badge variant="secondary" className="ml-2 text-xs">
+                        {entry.staff.payment_frequency === "monthly" ? "Mensual" : "Quincenal"}
+                      </Badge>
                     </TableCell>
                     <TableCell>{entry.staff.position}</TableCell>
                     <TableCell className="text-right">{formatCurrency(entry.base_salary)}</TableCell>
