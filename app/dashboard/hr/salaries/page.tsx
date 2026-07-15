@@ -49,6 +49,8 @@ import {
   TrendingDown,
   Minus,
   LineChartIcon,
+  CalendarDays,
+  CalendarClock,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -92,6 +94,7 @@ interface StaffSalary {
   currency_id: string | null
   commission_percentage: number | null
   commission_type: string | null
+  payment_frequency: string | null
 }
 
 // Registro de bitácora de cambios de sueldo/comisión
@@ -113,6 +116,36 @@ interface EditableRow {
   hourly_cost: string
   commission_percentage: string
   currency_id: string
+  payment_frequency: string
+}
+
+const paymentFrequencyLabels: Record<string, string> = {
+  biweekly: "Quincenal",
+  monthly: "Mensual",
+}
+
+// Ajusta una fecha de pago: si cae en sábado o domingo, la recorre al
+// viernes hábil anterior (día más cercano entre semana antes del fin de semana).
+function adjustToBusinessDay(date: Date): Date {
+  const d = new Date(date)
+  const day = d.getDay() // 0 = domingo, 6 = sábado
+  if (day === 6) d.setDate(d.getDate() - 1) // sábado -> viernes
+  else if (day === 0) d.setDate(d.getDate() - 2) // domingo -> viernes
+  return d
+}
+
+// Fecha de pago de la primera quincena (día 15) del mes/año dados, ya ajustada.
+function firstBiweeklyPayDate(year: number, month: number): Date {
+  return adjustToBusinessDay(new Date(year, month, 15))
+}
+
+// Fecha de pago de fin de mes / segunda quincena (último día del mes), ya ajustada.
+function endOfMonthPayDate(year: number, month: number): Date {
+  return adjustToBusinessDay(new Date(year, month + 1, 0))
+}
+
+function formatPayDate(date: Date): string {
+  return date.toLocaleDateString("es-MX", { weekday: "short", day: "2-digit", month: "short" })
 }
 
 const contractTypeLabels: Record<string, string> = {
@@ -155,6 +188,7 @@ export default function SalariesPage() {
   const [search, setSearch] = useState("")
   const [filterAgency, setFilterAgency] = useState("all")
   const [filterContract, setFilterContract] = useState("all")
+  const [filterFrequency, setFilterFrequency] = useState("all")
 
   // Cambios pendientes por id de empleado
   const [edits, setEdits] = useState<Record<string, EditableRow>>({})
@@ -194,7 +228,7 @@ export default function SalariesPage() {
       supabase
         .from("staff")
         .select(
-          "id, employee_code, first_name, last_name, position, department, agency_id, is_global, is_active, contract_type, hourly_cost, monthly_salary, currency_id, commission_percentage, commission_type",
+          "id, employee_code, first_name, last_name, position, department, agency_id, is_global, is_active, contract_type, hourly_cost, monthly_salary, currency_id, commission_percentage, commission_type, payment_frequency",
         )
         .eq("is_active", true)
         .order("first_name"),
@@ -267,6 +301,7 @@ export default function SalariesPage() {
         hourly_cost: s.hourly_cost != null ? String(s.hourly_cost) : "",
         commission_percentage: s.commission_percentage != null ? String(s.commission_percentage) : "",
         currency_id: s.currency_id || "",
+        payment_frequency: s.payment_frequency || "biweekly",
       },
     [edits],
   )
@@ -278,6 +313,7 @@ export default function SalariesPage() {
         hourly_cost: s.hourly_cost != null ? String(s.hourly_cost) : "",
         commission_percentage: s.commission_percentage != null ? String(s.commission_percentage) : "",
         currency_id: s.currency_id || "",
+        payment_frequency: s.payment_frequency || "biweekly",
       }
       return { ...prev, [s.id]: { ...base, [field]: value } }
     })
@@ -288,6 +324,7 @@ export default function SalariesPage() {
       if (filterAgency === "global" ? !!s.agency_id : filterAgency !== "all" && s.agency_id !== filterAgency)
         return false
       if (filterContract !== "all" && (s.contract_type || "") !== filterContract) return false
+      if (filterFrequency !== "all" && (s.payment_frequency || "biweekly") !== filterFrequency) return false
       if (search.trim()) {
         const q = search.trim().toLowerCase()
         const full = `${s.first_name} ${s.last_name} ${s.position || ""} ${s.employee_code || ""}`.toLowerCase()
@@ -295,7 +332,7 @@ export default function SalariesPage() {
       }
       return true
     })
-  }, [staff, filterAgency, filterContract, search])
+  }, [staff, filterAgency, filterContract, filterFrequency, search])
 
   // Totales de nómina base mensual agrupados por moneda.
   const totalsByCurrency = useMemo(() => {
@@ -309,7 +346,50 @@ export default function SalariesPage() {
     return Array.from(map.entries()).filter(([, v]) => v > 0)
   }, [filtered, currencyCode, effective])
 
-  const withCommission = filtered.filter((s) => (Number.parseFloat(effective(s).commission_percentage) || 0) > 0).length
+  // Frecuencia de pago efectiva (usa el valor editado si existe).
+  const effectiveFrequency = useCallback(
+    (s: StaffSalary) => effective(s).payment_frequency || s.payment_frequency || "biweekly",
+    [effective],
+  )
+
+  // Fechas de pago del mes en curso, ya ajustadas a día hábil.
+  const payDates = useMemo(() => {
+    const now = new Date()
+    return {
+      first: firstBiweeklyPayDate(now.getFullYear(), now.getMonth()),
+      end: endOfMonthPayDate(now.getFullYear(), now.getMonth()),
+    }
+  }, [])
+
+  // Reparte la nómina en dos corridas:
+  //  - Primera quincena (día 15): solo el 50% de quienes cobran quincenalmente.
+  //  - Fin de mes: el 50% restante de los quincenales + el 100% de los mensuales.
+  const payrollRuns = useMemo(() => {
+    const first = new Map<string, number>()
+    const end = new Map<string, number>()
+    let biweeklyCount = 0
+    let monthlyCount = 0
+    filtered.forEach((s) => {
+      const code = currencyCode(s.currency_id)
+      const salary = Number.parseFloat(effective(s).monthly_salary) || 0
+      if (salary <= 0) return
+      if (effectiveFrequency(s) === "monthly") {
+        monthlyCount++
+        end.set(code, (end.get(code) || 0) + salary)
+      } else {
+        biweeklyCount++
+        const half = salary / 2
+        first.set(code, (first.get(code) || 0) + half)
+        end.set(code, (end.get(code) || 0) + half)
+      }
+    })
+    return {
+      first: Array.from(first.entries()).filter(([, v]) => v > 0),
+      end: Array.from(end.entries()).filter(([, v]) => v > 0),
+      biweeklyCount,
+      monthlyCount,
+    }
+  }, [filtered, currencyCode, effective, effectiveFrequency])
 
   const contractTypesPresent = useMemo(() => {
     const set = new Set<string>()
@@ -521,6 +601,7 @@ export default function SalariesPage() {
             hourly_cost: hourlyCost,
             commission_percentage: parseNum(row.commission_percentage),
             currency_id: row.currency_id || null,
+            payment_frequency: row.payment_frequency || "biweekly",
           })
           .eq("id", id)
       })
@@ -605,12 +686,13 @@ export default function SalariesPage() {
       <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
         <Info className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Los importes que edites aquí actualizan directamente el salario mensual y la comisión de cada colaborador. El{" "}
-          <span className="font-medium text-foreground">costo por hora se calcula automáticamente</span> dividiendo el
-          salario mensual entre las <span className="font-medium text-foreground">horas laborables</span> configuradas
-          en cada agencia. Estos mismos valores se muestran en{" "}
-          <span className="font-medium text-foreground">Personal → Costos y Facturación</span> y se utilizan al{" "}
-          <span className="font-medium text-foreground">calcular la Nómina</span>.
+          Los importes que edites aquí actualizan el salario mensual y la comisión de cada colaborador, y alimentan el{" "}
+          <span className="font-medium text-foreground">cálculo de Nómina</span>. Cada persona tiene una{" "}
+          <span className="font-medium text-foreground">frecuencia de pago</span>: los{" "}
+          <span className="font-medium text-foreground">quincenales</span> cobran el 50% el día 15 y el 50% a fin de
+          mes; los <span className="font-medium text-foreground">mensuales</span> cobran el total a fin de mes. Si la
+          fecha de pago cae en sábado o domingo, se recorre al{" "}
+          <span className="font-medium text-foreground">viernes hábil anterior</span>.
         </p>
       </div>
 
@@ -663,23 +745,47 @@ export default function SalariesPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Con comisión</CardTitle>
-            <BadgePercent className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Pago 1ª quincena</CardTitle>
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{withCommission}</div>
-            <p className="mt-1 text-xs text-muted-foreground">Perciben porcentaje de comisión</p>
+            {payrollRuns.first.length === 0 ? (
+              <div className="text-2xl font-bold">{formatMoney(0, "MXN")}</div>
+            ) : (
+              <div className="space-y-0.5">
+                {payrollRuns.first.map(([code, total]) => (
+                  <div key={code} className="text-2xl font-bold leading-tight">
+                    {formatMoney(total, code)}
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatPayDate(payDates.first)} · {payrollRuns.biweeklyCount} quincenal(es)
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Monedas</CardTitle>
-            <Banknote className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Pago fin de mes</CardTitle>
+            <CalendarClock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalsByCurrency.length || 1}</div>
-            <p className="mt-1 text-xs text-muted-foreground">Divisas en uso</p>
+            {payrollRuns.end.length === 0 ? (
+              <div className="text-2xl font-bold">{formatMoney(0, "MXN")}</div>
+            ) : (
+              <div className="space-y-0.5">
+                {payrollRuns.end.map(([code, total]) => (
+                  <div key={code} className="text-2xl font-bold leading-tight">
+                    {formatMoney(total, code)}
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatPayDate(payDates.end)} · 2ª quincena + {payrollRuns.monthlyCount} mensual(es)
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -722,6 +828,16 @@ export default function SalariesPage() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={filterFrequency} onValueChange={setFilterFrequency}>
+          <SelectTrigger className="md:w-44">
+            <SelectValue placeholder="Frecuencia" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toda frecuencia</SelectItem>
+            <SelectItem value="biweekly">Quincenal</SelectItem>
+            <SelectItem value="monthly">Mensual</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Tabla */}
@@ -741,17 +857,18 @@ export default function SalariesPage() {
                 <TableRow>
                   <TableHead>Colaborador</TableHead>
                   <TableHead>Agencia</TableHead>
-                  <TableHead>Contrato</TableHead>
+                  <TableHead className="w-36">Frecuencia</TableHead>
                   <TableHead className="w-28">Moneda</TableHead>
                   <TableHead className="text-right">Salario mensual</TableHead>
-                  <TableHead className="text-right">Costo por hora (auto)</TableHead>
+                  <TableHead className="text-right">1ª quincena (día 15)</TableHead>
+                  <TableHead className="text-right">Fin de mes</TableHead>
                   <TableHead className="text-right">Comisión %</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                       No hay colaboradores que coincidan con los filtros
                     </TableCell>
                   </TableRow>
@@ -781,9 +898,19 @@ export default function SalariesPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm text-muted-foreground">
-                            {contractTypeLabels[s.contract_type || ""] || s.contract_type || "-"}
-                          </span>
+                          <Select
+                            value={eff.payment_frequency}
+                            onValueChange={(v) => updateField(s, "payment_frequency", v)}
+                            disabled={!canEdit}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="biweekly">Quincenal</SelectItem>
+                              <SelectItem value="monthly">Mensual</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                         <TableCell>
                           <Select
@@ -815,12 +942,29 @@ export default function SalariesPage() {
                           />
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex h-8 items-center justify-end rounded-md bg-muted px-3 text-sm tabular-nums text-muted-foreground">
-                            {formatMoney(
-                              computeHourlyCost(Number.parseFloat(eff.monthly_salary) || 0, s.agency_id),
-                              currencyCode(eff.currency_id || s.currency_id),
-                            )}
-                          </div>
+                          {(() => {
+                            const salary = Number.parseFloat(eff.monthly_salary) || 0
+                            const code = currencyCode(eff.currency_id || s.currency_id)
+                            const isBiweekly = eff.payment_frequency !== "monthly"
+                            return isBiweekly && salary > 0 ? (
+                              <span className="text-sm tabular-nums">{formatMoney(salary / 2, code)}</span>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">—</span>
+                            )
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(() => {
+                            const salary = Number.parseFloat(eff.monthly_salary) || 0
+                            const code = currencyCode(eff.currency_id || s.currency_id)
+                            const isBiweekly = eff.payment_frequency !== "monthly"
+                            const amount = salary > 0 ? (isBiweekly ? salary / 2 : salary) : 0
+                            return salary > 0 ? (
+                              <span className="text-sm font-medium tabular-nums">{formatMoney(amount, code)}</span>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">—</span>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell className="text-right">
                           <Input

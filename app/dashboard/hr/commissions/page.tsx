@@ -24,7 +24,16 @@ import {
 } from "@/components/ui/select"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Eye } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { toast } from "sonner"
+import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
 
 interface Commission {
@@ -136,6 +145,32 @@ export default function CommissionsPage() {
       console.error("Error fetching data:", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Una comisión pagada queda bloqueada: no se puede editar ni cambiar de estado
+  // (ya fue liquidada en la nómina). Las canceladas también se bloquean.
+  const isLocked = (status: string) => status === "paid" || status === "cancelled"
+
+  const handleChangeStatus = async (commission: Commission, newStatus: string) => {
+    if (isLocked(commission.status)) {
+      toast.error("Esta comisión ya está liquidada y no puede modificarse")
+      return
+    }
+    try {
+      const updates: Record<string, unknown> = { status: newStatus }
+      if (newStatus === "paid") updates.paid_at = new Date().toISOString()
+
+      const { error } = await supabase.from("commissions").update(updates).eq("id", commission.id)
+      if (error) throw error
+
+      setCommissions((prev) =>
+        prev.map((c) => (c.id === commission.id ? { ...c, status: newStatus } : c)),
+      )
+      toast.success(`Comisión marcada como ${statusLabels[newStatus].toLowerCase()}`)
+    } catch (error) {
+      console.error("Error updating commission status:", error)
+      toast.error("No se pudo actualizar el estado de la comisión")
     }
   }
 
@@ -342,8 +377,10 @@ export default function CommissionsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredCommissions.map((commission) => (
-                    <TableRow key={commission.id}>
+                  {filteredCommissions.map((commission) => {
+                    const locked = isLocked(commission.status)
+                    return (
+                    <TableRow key={commission.id} className={locked ? "bg-muted/30" : undefined}>
                       <TableCell className="font-medium">
                         {commission.staff?.first_name} {commission.staff?.last_name}
                       </TableCell>
@@ -359,19 +396,53 @@ export default function CommissionsPage() {
                         {formatCurrency(Number(commission.commission_amount || 0))}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={statusColors[commission.status]}>
+                        <Badge variant={statusColors[commission.status]} className="gap-1">
+                          {locked && <Lock className="h-3 w-3" />}
                           {statusLabels[commission.status] || commission.status}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/dashboard/hr/commissions/${commission.id}`}>
-                            <Eye className="h-4 w-4" />
-                          </Link>
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Acciones</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Cambiar estado</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {locked ? (
+                              <DropdownMenuItem disabled className="gap-2">
+                                <Lock className="h-4 w-4" />
+                                Comisión liquidada (bloqueada)
+                              </DropdownMenuItem>
+                            ) : (
+                              <>
+                                {commission.status === "pending" && (
+                                  <DropdownMenuItem onClick={() => handleChangeStatus(commission, "approved")}>
+                                    Aprobar
+                                  </DropdownMenuItem>
+                                )}
+                                {(commission.status === "pending" || commission.status === "approved") && (
+                                  <DropdownMenuItem onClick={() => handleChangeStatus(commission, "paid")}>
+                                    Marcar como pagada
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => handleChangeStatus(commission, "cancelled")}
+                                >
+                                  Cancelar
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>

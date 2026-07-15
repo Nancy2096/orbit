@@ -105,9 +105,11 @@ export default function NewPayrollPeriodPage() {
   // Auto-calcular fecha de fin basado en tipo de periodo
   useEffect(() => {
     if (formData.start_date && formData.period_type) {
-      const startDate = new Date(formData.start_date)
-      let endDate = new Date(startDate)
-      
+      // Parseamos la fecha de inicio en horario local (evita corrimientos por zona).
+      const [sy, sm, sd] = formData.start_date.split("-").map(Number)
+      const startDate = new Date(sy, sm - 1, sd)
+      const endDate = new Date(startDate)
+
       if (formData.period_type === "semanal") {
         endDate.setDate(startDate.getDate() + 6)
       } else if (formData.period_type === "quincenal") {
@@ -116,15 +118,39 @@ export default function NewPayrollPeriodPage() {
         endDate.setMonth(startDate.getMonth() + 1)
         endDate.setDate(endDate.getDate() - 1)
       }
-      
-      const endDateStr = endDate.toISOString().split("T")[0]
-      setFormData(prev => ({ ...prev, end_date: endDateStr }))
-      
-      // Sugerir fecha de pago (3 dias despues del fin del periodo)
-      const paymentDate = new Date(endDate)
-      paymentDate.setDate(paymentDate.getDate() + 3)
-      const paymentDateStr = paymentDate.toISOString().split("T")[0]
-      setFormData(prev => ({ ...prev, payment_date: paymentDateStr }))
+
+      const toStr = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+
+      // Recorre al viernes hábil anterior si cae en sábado (6) o domingo (0).
+      const adjustToBusinessDay = (d: Date) => {
+        const adj = new Date(d)
+        const day = adj.getDay()
+        if (day === 6) adj.setDate(adj.getDate() - 1)
+        else if (day === 0) adj.setDate(adj.getDate() - 2)
+        return adj
+      }
+
+      setFormData(prev => ({ ...prev, end_date: toStr(endDate) }))
+
+      // Sugerir fecha de pago según la regla de la empresa:
+      //  - Quincenal 1ra quincena: día 15 del mes de inicio.
+      //  - Quincenal 2da quincena / Mensual: último día del mes de fin del periodo.
+      //  - Semanal: el último día del periodo.
+      let paymentDate: Date
+      if (formData.period_type === "quincenal") {
+        if (startDate.getDate() <= 15) {
+          paymentDate = new Date(startDate.getFullYear(), startDate.getMonth(), 15)
+        } else {
+          paymentDate = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0) // último día del mes de fin
+        }
+      } else if (formData.period_type === "mensual") {
+        paymentDate = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0)
+      } else {
+        paymentDate = new Date(endDate)
+      }
+
+      setFormData(prev => ({ ...prev, payment_date: toStr(adjustToBusinessDay(paymentDate)) }))
     }
   }, [formData.start_date, formData.period_type])
 
@@ -299,7 +325,7 @@ export default function NewPayrollPeriodPage() {
                     onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Fecha estimada en que se realizara el pago
+                    Se sugiere el día 15 o el último día del mes según el periodo; si cae en fin de semana, se recorre al viernes hábil anterior. Puedes ajustarla manualmente.
                   </p>
                 </Field>
 
