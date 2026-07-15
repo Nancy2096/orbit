@@ -74,16 +74,37 @@ interface Staff {
   agency_id: string | null
 }
 
+interface CommissionItem {
+  id: string
+  commission_type: string
+  description: string | null
+  commission_amount: number
+  period_date: string | null
+  created_at: string
+  status: string
+}
+
 interface PayrollEntry {
   staff_id: string
   staff: Staff
   base_salary: number
   bonuses: number
   commissions: number
+  commissionItems: CommissionItem[]
   deductions: number
   taxes: number
   gross_pay: number
   net_pay: number
+}
+
+const commissionTypeLabels: Record<string, string> = {
+  appointment: "Por Cita",
+  client: "Por Cliente",
+  project: "Proyecto",
+  sale: "Venta",
+  retention: "Retención",
+  referral: "Referido",
+  other: "Otro",
 }
 
 const statusLabels: Record<string, string> = {
@@ -112,6 +133,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const [calculating, setCalculating] = useState(false)
   const [editingEntry, setEditingEntry] = useState<PayrollEntry | null>(null)
   const [showEditDialog, setShowEditDialog] = useState(false)
+  const [commissionDetailEntry, setCommissionDetailEntry] = useState<PayrollEntry | null>(null)
   const [includeGlobalStaff, setIncludeGlobalStaff] = useState(false)
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [payrollConfig, setPayrollConfig] = useState({
@@ -171,6 +193,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       const staffIds = (staffData || []).map((s) => s.id)
       const bonusesByStaff: Record<string, number> = {}
       const commissionsByStaff: Record<string, number> = {}
+      const commissionItemsByStaff: Record<string, CommissionItem[]> = {}
 
       const start = periodData.start_date // YYYY-MM-DD
       const end = periodData.end_date // YYYY-MM-DD
@@ -190,7 +213,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             .in("status", ["approved", "paid"]),
           supabase
             .from("commissions")
-            .select("staff_id, commission_amount, status, period_date, created_at")
+            .select("id, staff_id, commission_type, description, commission_amount, status, period_date, created_at")
             .in("staff_id", staffIds)
             .in("status", ["approved", "paid"]),
         ])
@@ -205,6 +228,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           if (!inPeriod(c.period_date, c.created_at)) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
+          if (!commissionItemsByStaff[c.staff_id]) commissionItemsByStaff[c.staff_id] = []
+          commissionItemsByStaff[c.staff_id].push({
+            id: c.id,
+            commission_type: c.commission_type,
+            description: c.description,
+            commission_amount: Number(c.commission_amount || 0),
+            period_date: c.period_date,
+            created_at: c.created_at,
+            status: c.status,
+          })
         }
       }
 
@@ -224,6 +257,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           base_salary: baseSalary,
           bonuses: bonuses,
           commissions: commissions,
+          commissionItems: commissionItemsByStaff[staff.id] || [],
           deductions: deductions,
           taxes: taxes,
           gross_pay: grossPay,
@@ -608,6 +642,21 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </CardHeader>
         <CardContent>
+          {entries.some((e) => e.commissionItems.length > 0) && (
+            <div className="mb-4 flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/20">
+              <DollarSign className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                Se incluyen{" "}
+                <span className="font-semibold">
+                  {formatCurrency(entries.reduce((sum, e) => sum + e.commissions, 0))}
+                </span>{" "}
+                en comisiones del apartado <span className="font-medium">Comercial</span> (aprobadas o pagadas) que
+                caen dentro de este periodo. Las comisiones se pagan{" "}
+                <span className="font-medium">quincenalmente</span>. Haz clic en el monto de un colaborador para ver el
+                desglose.
+              </p>
+            </div>
+          )}
           {entries.length === 0 ? (
             <div className="text-center py-8">
               <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -644,7 +693,23 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     <TableCell>{entry.staff.position}</TableCell>
                     <TableCell className="text-right">{formatCurrency(entry.base_salary)}</TableCell>
                     <TableCell className="text-right">{formatCurrency(entry.bonuses)}</TableCell>
-                    <TableCell className="text-right text-blue-600">{formatCurrency(entry.commissions)}</TableCell>
+                    <TableCell className="text-right text-blue-600">
+                      {entry.commissionItems.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setCommissionDetailEntry(entry)}
+                          className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-blue-800"
+                          title="Ver detalle de comisiones"
+                        >
+                          {formatCurrency(entry.commissions)}
+                          <Badge variant="secondary" className="text-[10px]">
+                            {entry.commissionItems.length}
+                          </Badge>
+                        </button>
+                      ) : (
+                        formatCurrency(entry.commissions)
+                      )}
+                    </TableCell>
                     <TableCell className="text-right text-red-600">-{formatCurrency(entry.deductions)}</TableCell>
                     <TableCell className="text-right text-red-600">-{formatCurrency(entry.taxes)}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(entry.gross_pay)}</TableCell>
@@ -766,6 +831,63 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             <Button onClick={handleSaveEntry}>
               <Save className="mr-2 h-4 w-4" />
               Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Commission Detail Dialog */}
+      <Dialog open={!!commissionDetailEntry} onOpenChange={(open) => !open && setCommissionDetailEntry(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Detalle de comisiones</DialogTitle>
+            <DialogDescription>
+              {commissionDetailEntry?.staff.first_name} {commissionDetailEntry?.staff.last_name} · Comisiones del
+              apartado Comercial incluidas en esta quincena
+            </DialogDescription>
+          </DialogHeader>
+          {commissionDetailEntry && (
+            <div className="space-y-3">
+              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                {commissionDetailEntry.commissionItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-border p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          {commissionTypeLabels[item.commission_type] || item.commission_type}
+                        </Badge>
+                        <Badge
+                          variant={item.status === "paid" ? "default" : "secondary"}
+                          className="text-[10px]"
+                        >
+                          {item.status === "paid" ? "Pagada" : "Aprobada"}
+                        </Badge>
+                      </div>
+                      {item.description && (
+                        <p className="mt-1 truncate text-sm text-muted-foreground">{item.description}</p>
+                      )}
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {formatDate(item.period_date || item.created_at)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 font-medium text-blue-600">
+                      {formatCurrency(item.commission_amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between border-t pt-3 font-bold">
+                <span>Total comisiones</span>
+                <span className="text-blue-600">{formatCurrency(commissionDetailEntry.commissions)}</span>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCommissionDetailEntry(null)}>
+              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>
