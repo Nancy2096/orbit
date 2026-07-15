@@ -1672,44 +1672,59 @@ const [editTemplateForm, setEditTemplateForm] = useState({
       const supabase = createClient()
       const newToken = crypto.randomUUID()
       const baseUrl = window.location.origin
-      const newLink = `${baseUrl}/evaluations/take/${newToken}`
-      
+      const expiresAt = new Date()
+
+      let newLink = ""
+
       if (resendEvalData.type === "candidate") {
-        // Actualizar la evaluación del candidato con nuevo token/link
+        expiresAt.setDate(expiresAt.getDate() + 7) // 7 días
+
+        // Invalidar tokens anteriores de esta evaluación
+        await supabase
+          .from("evaluation_tokens")
+          .update({ used_at: new Date().toISOString() })
+          .eq("candidate_evaluation_id", resendEvalData.id)
+          .is("used_at", null)
+
+        // Crear un nuevo token en la tabla correspondiente
         const { error } = await supabase
-          .from("candidate_evaluations")
-          .update({ 
-            evaluation_link: newLink,
+          .from("evaluation_tokens")
+          .insert({
+            candidate_evaluation_id: resendEvalData.id,
             token: newToken,
-            updated_at: new Date().toISOString()
+            expires_at: expiresAt.toISOString(),
           })
-          .eq("id", resendEvalData.id)
-        
+
         if (error) throw error
-        
-        // Actualizar estado local
-        setCandidateEvaluations(prev => prev.map(e => 
-          e.id === resendEvalData.id 
-            ? { ...e, evaluation_link: newLink, token: newToken }
-            : e
-        ))
+
+        newLink = `${baseUrl}/evaluacion/${newToken}`
       } else {
-        // Actualizar la asignación de evaluación de staff con nuevo link
+        expiresAt.setDate(expiresAt.getDate() + 14) // 14 días
+
+        // Invalidar tokens anteriores de esta asignación
+        await supabase
+          .from("staff_evaluation_tokens")
+          .update({ used_at: new Date().toISOString() })
+          .eq("assignment_id", resendEvalData.id)
+          .is("used_at", null)
+
+        // Crear un nuevo token en la tabla correspondiente
         const { error } = await supabase
-          .from("staff_evaluation_assignments")
-          .update({ 
-            evaluation_link: newLink,
+          .from("staff_evaluation_tokens")
+          .insert({
+            assignment_id: resendEvalData.id,
             token: newToken,
-            updated_at: new Date().toISOString()
+            expires_at: expiresAt.toISOString(),
           })
-          .eq("id", resendEvalData.id)
-        
+
         if (error) throw error
+
+        newLink = `${baseUrl}/evaluacion-360/${newToken}`
       }
-      
+
       // Mostrar el nuevo link generado
       setResendEvalData(prev => prev ? { ...prev, currentLink: newLink } : null)
-      
+
       alert(`Nuevo link generado exitosamente. El link ha sido actualizado y puede ser reenviado al evaluado.`)
     } catch (err) {
       console.error("Error al reiniciar evaluación:", err)
