@@ -34,14 +34,31 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Banknote, Users, Wallet, BadgePercent, Save, Search, Info, History } from "lucide-react"
+  Banknote,
+  Users,
+  Wallet,
+  BadgePercent,
+  Save,
+  Search,
+  Info,
+  History,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  LineChartIcon,
+} from "lucide-react"
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts"
 import { toast } from "sonner"
 
 interface Agency {
@@ -144,10 +161,13 @@ export default function SalariesPage() {
   // Diálogo de confirmación antes de guardar cambios de sueldo/comisión.
   const [confirmOpen, setConfirmOpen] = useState(false)
 
+  // Pestaña activa: compensación actual o evolución en el tiempo.
+  const [activeTab, setActiveTab] = useState("current")
+
   // Historial (bitácora) de cambios de sueldo y comisión.
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [historyLoading, setHistoryLoading] = useState(false)
   const [historyLogs, setHistoryLogs] = useState<ChangeLog[]>([])
+  // Empleado seleccionado para ver la evolución de su salario.
+  const [historyStaffId, setHistoryStaffId] = useState<string>("")
 
   // Solo pueden editar quienes tienen acceso al módulo de sueldos y salarios.
   const canEdit = fullAccess || hasAnyModule(["salaries"])
@@ -162,7 +182,7 @@ export default function SalariesPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [staffRes, agenciesRes, currenciesRes] = await Promise.all([
+    const [staffRes, agenciesRes, currenciesRes, logsRes] = await Promise.all([
       supabase
         .from("staff")
         .select(
@@ -172,11 +192,18 @@ export default function SalariesPage() {
         .order("first_name"),
       supabase.from("agencies").select("id, name, settings").order("name"),
       supabase.from("currencies").select("id, code, name").eq("is_active", true).order("code"),
+      supabase
+        .from("salary_change_logs")
+        .select(
+          "id, staff_id, field, old_value, new_value, currency_code, changed_by_name, changed_at, staff(first_name, last_name)",
+        )
+        .order("changed_at", { ascending: true }),
     ])
 
     if (staffRes.data) setStaff(staffRes.data as StaffSalary[])
     if (agenciesRes.data) setAgencies(agenciesRes.data as Agency[])
     if (currenciesRes.data) setCurrencies(currenciesRes.data as Currency[])
+    if (logsRes.data) setHistoryLogs(logsRes.data as unknown as ChangeLog[])
     setLoading(false)
   }, [supabase])
 
@@ -338,25 +365,75 @@ export default function SalariesPage() {
     setConfirmOpen(true)
   }
 
-  // Carga la bitácora de cambios de sueldo/comisión más recientes.
-  const openHistory = async () => {
-    setHistoryOpen(true)
-    setHistoryLoading(true)
-    try {
-      const { data, error } = await supabase
-        .from("salary_change_logs")
-        .select("id, staff_id, field, old_value, new_value, currency_code, changed_by_name, changed_at, staff(first_name, last_name)")
-        .order("changed_at", { ascending: false })
-        .limit(200)
-      if (error) throw new Error(error.message)
-      setHistoryLogs((data as unknown as ChangeLog[]) || [])
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo cargar el historial")
-      setHistoryLogs([])
-    } finally {
-      setHistoryLoading(false)
+  // Solo cambios de salario, ordenados cronológicamente (asc).
+  const salaryLogsAsc = useMemo(
+    () =>
+      historyLogs
+        .filter((l) => l.field === "monthly_salary")
+        .slice()
+        .sort((a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime()),
+    [historyLogs],
+  )
+
+  // Empleados que tienen al menos un cambio de salario registrado.
+  const staffWithHistory = useMemo(() => {
+    const map = new Map<string, string>()
+    salaryLogsAsc.forEach((l) => {
+      const name = l.staff ? `${l.staff.first_name} ${l.staff.last_name}` : "Colaborador"
+      if (!map.has(l.staff_id)) map.set(l.staff_id, name)
+    })
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
+  }, [salaryLogsAsc])
+
+  // Selecciona automáticamente el primer empleado con historial.
+  useEffect(() => {
+    if (!historyStaffId && staffWithHistory.length > 0) {
+      setHistoryStaffId(staffWithHistory[0].id)
     }
-  }
+  }, [staffWithHistory, historyStaffId])
+
+  // Serie de puntos de la trayectoria salarial del empleado seleccionado.
+  const salarySeries = useMemo(() => {
+    if (!historyStaffId) return [] as { label: string; salario: number; fecha: string }[]
+    const rows = salaryLogsAsc.filter((l) => l.staff_id === historyStaffId)
+    if (rows.length === 0) return []
+    const points: { label: string; salario: number; fecha: string }[] = []
+    // Punto inicial: el salario previo al primer cambio.
+    points.push({ label: "Inicial", salario: rows[0].old_value ?? 0, fecha: "Valor previo" })
+    rows.forEach((r) => {
+      points.push({
+        label: new Date(r.changed_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "2-digit" }),
+        salario: r.new_value ?? 0,
+        fecha: new Date(r.changed_at).toLocaleDateString("es-MX", { day: "2-digit", month: "long", year: "numeric" }),
+      })
+    })
+    return points
+  }, [historyStaffId, salaryLogsAsc])
+
+  // Moneda y métricas de la trayectoria seleccionada.
+  const selectedCurrency = useMemo(() => {
+    const rows = salaryLogsAsc.filter((l) => l.staff_id === historyStaffId)
+    return rows[rows.length - 1]?.currency_code || "MXN"
+  }, [historyStaffId, salaryLogsAsc])
+
+  const evolutionStats = useMemo(() => {
+    if (salarySeries.length < 1) return null
+    const first = salarySeries[0].salario
+    const current = salarySeries[salarySeries.length - 1].salario
+    const diff = current - first
+    const pct = first > 0 ? (diff / first) * 100 : 0
+    return { first, current, diff, pct, changes: salarySeries.length - 1 }
+  }, [salarySeries])
+
+  // Bitácora del empleado seleccionado (salario y comisión).
+  const selectedStaffLogs = useMemo(
+    () =>
+      historyLogs
+        .filter((l) => l.staff_id === historyStaffId)
+        .slice()
+        .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime()),
+    [historyLogs, historyStaffId],
+  )
 
   const performSave = async () => {
     if (dirtyCount === 0) return
@@ -450,11 +527,7 @@ export default function SalariesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={openHistory}>
-            <History className="mr-2 h-4 w-4" />
-            Historial
-          </Button>
-          {canEdit && (
+          {canEdit && activeTab === "current" && (
             <Button onClick={handleSaveClick} disabled={dirtyCount === 0 || saving}>
               {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
               Guardar cambios{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
@@ -476,6 +549,19 @@ export default function SalariesPage() {
         </p>
       </div>
 
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="current">
+            <Wallet className="mr-2 h-4 w-4" />
+            Compensación actual
+          </TabsTrigger>
+          <TabsTrigger value="evolution">
+            <LineChartIcon className="mr-2 h-4 w-4" />
+            Evolución en el tiempo
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="current" className="space-y-6">
       {/* Tarjetas resumen */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -691,6 +777,245 @@ export default function SalariesPage() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        {/* ===== Pestaña: Evolución en el tiempo ===== */}
+        <TabsContent value="evolution" className="space-y-6">
+          {staffWithHistory.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <LineChartIcon className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h2 className="text-lg font-semibold">Sin historial de cambios todavía</h2>
+                <p className="max-w-md text-sm text-muted-foreground">
+                  Cuando modifiques el salario de un colaborador desde la pestaña de compensación, aquí verás su
+                  evolución en el tiempo con gráficas y el detalle de cada cambio.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Selector de colaborador */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <span className="text-sm font-medium text-muted-foreground">Colaborador:</span>
+                <Select value={historyStaffId} onValueChange={setHistoryStaffId}>
+                  <SelectTrigger className="sm:w-72">
+                    <SelectValue placeholder="Selecciona un colaborador" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {staffWithHistory.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Métricas de evolución */}
+              {evolutionStats && (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Salario inicial</CardTitle>
+                      <History className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{formatMoney(evolutionStats.first, selectedCurrency)}</div>
+                      <p className="mt-1 text-xs text-muted-foreground">Antes del primer cambio</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Salario actual</CardTitle>
+                      <Wallet className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{formatMoney(evolutionStats.current, selectedCurrency)}</div>
+                      <p className="mt-1 text-xs text-muted-foreground">Último valor registrado</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Variación total</CardTitle>
+                      {evolutionStats.diff > 0 ? (
+                        <TrendingUp className="h-4 w-4 text-[var(--chart-1)]" />
+                      ) : evolutionStats.diff < 0 ? (
+                        <TrendingDown className="h-4 w-4 text-destructive" />
+                      ) : (
+                        <Minus className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <div
+                        className={`text-2xl font-bold ${
+                          evolutionStats.diff > 0
+                            ? "text-[var(--chart-1)]"
+                            : evolutionStats.diff < 0
+                              ? "text-destructive"
+                              : ""
+                        }`}
+                      >
+                        {evolutionStats.diff >= 0 ? "+" : "-"}
+                        {formatMoney(Math.abs(evolutionStats.diff), selectedCurrency)}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {evolutionStats.pct >= 0 ? "+" : ""}
+                        {evolutionStats.pct.toFixed(1)}% desde el inicio
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Ajustes</CardTitle>
+                      <BadgePercent className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{evolutionStats.changes}</div>
+                      <p className="mt-1 text-xs text-muted-foreground">Cambios de salario</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Gráfica de evolución */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <LineChartIcon className="h-4 w-4 text-primary" />
+                    Trayectoria salarial
+                  </CardTitle>
+                  <CardDescription>Evolución del salario mensual a lo largo del tiempo.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={salarySeries} margin={{ top: 16, right: 16, left: 8, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="salaryGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.3} />
+                            <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fill: "hsl(var(--muted-foreground))" }}
+                          className="text-xs"
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          tick={{ fill: "hsl(var(--muted-foreground))" }}
+                          className="text-xs"
+                          tickLine={false}
+                          axisLine={false}
+                          width={70}
+                          tickFormatter={(v: number) =>
+                            new Intl.NumberFormat("es-MX", { notation: "compact", maximumFractionDigits: 1 }).format(v)
+                          }
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "hsl(var(--card))",
+                            border: "1px solid hsl(var(--border))",
+                            borderRadius: "8px",
+                          }}
+                          formatter={(value: number) => [formatMoney(value, selectedCurrency), "Salario"]}
+                        />
+                        <Area
+                          type="stepAfter"
+                          dataKey="salario"
+                          stroke="none"
+                          fill="url(#salaryGrad)"
+                          isAnimationActive={false}
+                        />
+                        <Line
+                          type="stepAfter"
+                          dataKey="salario"
+                          name="Salario"
+                          stroke="var(--chart-1)"
+                          strokeWidth={2.5}
+                          dot={{ r: 4, fill: "var(--chart-1)" }}
+                          activeDot={{ r: 6 }}
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Bitácora detallada del colaborador */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <History className="h-4 w-4" />
+                    Detalle de cambios
+                  </CardTitle>
+                  <CardDescription>
+                    Cada modificación de sueldo y comisión, con el usuario responsable y la fecha.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {selectedStaffLogs.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      Este colaborador no tiene cambios registrados.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {selectedStaffLogs.map((log) => {
+                        const isSalary = log.field === "monthly_salary"
+                        const label = isSalary ? "Salario mensual" : "Comisión"
+                        const up = (log.new_value ?? 0) >= (log.old_value ?? 0)
+                        const change = isSalary
+                          ? `${formatMoney(log.old_value || 0, log.currency_code || "MXN")} → ${formatMoney(log.new_value || 0, log.currency_code || "MXN")}`
+                          : `${log.old_value ?? 0}% → ${log.new_value ?? 0}%`
+                        return (
+                          <div
+                            key={log.id}
+                            className="flex flex-col gap-1 rounded-lg border border-border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                                  up ? "bg-[var(--chart-1)]/10 text-[var(--chart-1)]" : "bg-destructive/10 text-destructive"
+                                }`}
+                              >
+                                {up ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                              </span>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+                                    {label}
+                                  </span>
+                                  <span className="tabular-nums">{change}</span>
+                                </div>
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  Por {log.changed_by_name || "Usuario desconocido"}
+                                </div>
+                              </div>
+                            </div>
+                            <span className="text-xs text-muted-foreground sm:text-right">
+                              {new Date(log.changed_at).toLocaleString("es-MX", {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Confirmación de cambios de sueldo / comisión */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -727,65 +1052,6 @@ export default function SalariesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Historial (bitácora) de cambios de sueldo / comisión */}
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <History className="h-5 w-5" />
-              Historial de cambios
-            </DialogTitle>
-            <DialogDescription>
-              Registro de modificaciones de sueldo y comisión, con el usuario responsable y la fecha.
-            </DialogDescription>
-          </DialogHeader>
-
-          {historyLoading ? (
-            <div className="flex h-40 items-center justify-center">
-              <Spinner className="h-6 w-6" />
-            </div>
-          ) : historyLogs.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Aún no hay cambios registrados.
-            </p>
-          ) : (
-            <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
-              {historyLogs.map((log) => {
-                const name = log.staff ? `${log.staff.first_name} ${log.staff.last_name}` : "Colaborador"
-                const isSalary = log.field === "monthly_salary"
-                const label = isSalary ? "Salario mensual" : "Comisión"
-                const change = isSalary
-                  ? `${formatMoney(log.old_value || 0, log.currency_code || "MXN")} → ${formatMoney(log.new_value || 0, log.currency_code || "MXN")}`
-                  : `${log.old_value ?? 0}% → ${log.new_value ?? 0}%`
-                return (
-                  <div key={log.id} className="rounded-lg border border-border p-3 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(log.changed_at).toLocaleString("es-MX", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-muted-foreground">
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">{label}</span>
-                      <span className="tabular-nums">{change}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Por {log.changed_by_name || "Usuario desconocido"}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
