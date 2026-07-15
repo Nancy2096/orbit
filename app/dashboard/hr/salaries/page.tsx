@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -168,6 +169,13 @@ export default function SalariesPage() {
   const [historyLogs, setHistoryLogs] = useState<ChangeLog[]>([])
   // Empleado seleccionado para ver la evolución de su salario.
   const [historyStaffId, setHistoryStaffId] = useState<string>("")
+  // Modo de visualización de la evolución: individual o comparativa.
+  const [evolutionView, setEvolutionView] = useState<"single" | "compare">("single")
+  // Empleados seleccionados para comparar en la misma gráfica.
+  const [compareStaffIds, setCompareStaffIds] = useState<string[]>([])
+  // Filtro por rango de fechas (formato YYYY-MM-DD, vacío = sin límite).
+  const [dateFrom, setDateFrom] = useState<string>("")
+  const [dateTo, setDateTo] = useState<string>("")
 
   // Solo pueden editar quienes tienen acceso al módulo de sueldos y salarios.
   const canEdit = fullAccess || hasAnyModule(["salaries"])
@@ -365,6 +373,20 @@ export default function SalariesPage() {
     setConfirmOpen(true)
   }
 
+  // Colores para las líneas de comparación.
+  const compareColors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"]
+
+  // ¿La fecha cae dentro del rango seleccionado?
+  const inDateRange = useCallback(
+    (iso: string) => {
+      const t = new Date(iso).getTime()
+      if (dateFrom && t < new Date(dateFrom).getTime()) return false
+      if (dateTo && t > new Date(dateTo + "T23:59:59").getTime()) return false
+      return true
+    },
+    [dateFrom, dateTo],
+  )
+
   // Solo cambios de salario, ordenados cronológicamente (asc).
   const salaryLogsAsc = useMemo(
     () =>
@@ -373,6 +395,12 @@ export default function SalariesPage() {
         .slice()
         .sort((a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime()),
     [historyLogs],
+  )
+
+  // Igual que el anterior, pero acotado al rango de fechas.
+  const salaryLogsFiltered = useMemo(
+    () => salaryLogsAsc.filter((l) => inDateRange(l.changed_at)),
+    [salaryLogsAsc, inDateRange],
   )
 
   // Empleados que tienen al menos un cambio de salario registrado.
@@ -395,7 +423,7 @@ export default function SalariesPage() {
   // Serie de puntos de la trayectoria salarial del empleado seleccionado.
   const salarySeries = useMemo(() => {
     if (!historyStaffId) return [] as { label: string; salario: number; fecha: string }[]
-    const rows = salaryLogsAsc.filter((l) => l.staff_id === historyStaffId)
+    const rows = salaryLogsFiltered.filter((l) => l.staff_id === historyStaffId)
     if (rows.length === 0) return []
     const points: { label: string; salario: number; fecha: string }[] = []
     // Punto inicial: el salario previo al primer cambio.
@@ -408,7 +436,7 @@ export default function SalariesPage() {
       })
     })
     return points
-  }, [historyStaffId, salaryLogsAsc])
+  }, [historyStaffId, salaryLogsFiltered])
 
   // Moneda y métricas de la trayectoria seleccionada.
   const selectedCurrency = useMemo(() => {
@@ -425,14 +453,51 @@ export default function SalariesPage() {
     return { first, current, diff, pct, changes: salarySeries.length - 1 }
   }, [salarySeries])
 
-  // Bitácora del empleado seleccionado (salario y comisión).
+  // Serie combinada para comparar a varios colaboradores en una misma gráfica.
+  // Se construye una función escalón: en cada fecha de cambio, el salario vigente de cada persona.
+  const compareSeries = useMemo(() => {
+    if (compareStaffIds.length === 0) return [] as Record<string, number | string>[]
+    // Fechas de cambio (de los seleccionados) dentro del rango, únicas y ordenadas.
+    const dates = Array.from(
+      new Set(
+        salaryLogsFiltered
+          .filter((l) => compareStaffIds.includes(l.staff_id))
+          .map((l) => l.changed_at),
+      ),
+    ).sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+
+    // Salario vigente de un colaborador en un instante dado.
+    const salaryAt = (staffId: string, t: number): number | null => {
+      const rows = salaryLogsAsc.filter((l) => l.staff_id === staffId)
+      if (rows.length === 0) return null
+      let value = rows[0].old_value ?? 0
+      for (const r of rows) {
+        if (new Date(r.changed_at).getTime() <= t) value = r.new_value ?? value
+      }
+      return value
+    }
+
+    return dates.map((d) => {
+      const t = new Date(d).getTime()
+      const row: Record<string, number | string> = {
+        label: new Date(d).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "2-digit" }),
+      }
+      compareStaffIds.forEach((id) => {
+        const v = salaryAt(id, t)
+        if (v !== null) row[id] = v
+      })
+      return row
+    })
+  }, [compareStaffIds, salaryLogsFiltered, salaryLogsAsc])
+
+  // Bitácora del empleado seleccionado (salario y comisión) dentro del rango.
   const selectedStaffLogs = useMemo(
     () =>
       historyLogs
-        .filter((l) => l.staff_id === historyStaffId)
+        .filter((l) => l.staff_id === historyStaffId && inDateRange(l.changed_at))
         .slice()
         .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime()),
-    [historyLogs, historyStaffId],
+    [historyLogs, historyStaffId, inDateRange],
   )
 
   const performSave = async () => {
@@ -796,6 +861,75 @@ export default function SalariesPage() {
             </Card>
           ) : (
             <>
+              {/* Barra de herramientas: modo de vista y filtro de fechas */}
+              <Card>
+                <CardContent className="flex flex-col gap-4 py-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">Modo de visualización</span>
+                    <div className="inline-flex w-fit rounded-lg border border-border p-1">
+                      <Button
+                        size="sm"
+                        variant={evolutionView === "single" ? "default" : "ghost"}
+                        onClick={() => setEvolutionView("single")}
+                      >
+                        <Users className="mr-2 h-4 w-4" />
+                        Individual
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={evolutionView === "compare" ? "default" : "ghost"}
+                        onClick={() => setEvolutionView("compare")}
+                      >
+                        <LineChartIcon className="mr-2 h-4 w-4" />
+                        Comparar
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor="date-from" className="text-xs text-muted-foreground">
+                        Desde
+                      </Label>
+                      <Input
+                        id="date-from"
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        className="w-40"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor="date-to" className="text-xs text-muted-foreground">
+                        Hasta
+                      </Label>
+                      <Input
+                        id="date-to"
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        className="w-40"
+                      />
+                    </div>
+                    {(dateFrom || dateTo) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setDateFrom("")
+                          setDateTo("")
+                        }}
+                      >
+                        Limpiar
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* ===== Vista individual ===== */}
+              {evolutionView === "single" && (
+              <>
               {/* Selector de colaborador */}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <span className="text-sm font-medium text-muted-foreground">Colaborador:</span>
@@ -1012,6 +1146,142 @@ export default function SalariesPage() {
                   )}
                 </CardContent>
               </Card>
+              </>
+              )}
+
+              {/* ===== Vista comparativa ===== */}
+              {evolutionView === "compare" && (
+                <>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Colaboradores a comparar</CardTitle>
+                      <CardDescription>
+                        Selecciona hasta 5 colaboradores para ver sus salarios en la misma gráfica.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {staffWithHistory.map((s) => {
+                          const idx = compareStaffIds.indexOf(s.id)
+                          const selected = idx !== -1
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() =>
+                                setCompareStaffIds((prev) =>
+                                  prev.includes(s.id)
+                                    ? prev.filter((id) => id !== s.id)
+                                    : prev.length >= 5
+                                      ? prev
+                                      : [...prev, s.id],
+                                )
+                              }
+                              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                                selected
+                                  ? "border-transparent bg-primary text-primary-foreground"
+                                  : "border-border bg-card text-foreground hover:bg-muted"
+                              }`}
+                            >
+                              {selected && (
+                                <span
+                                  className="h-2.5 w-2.5 rounded-full"
+                                  style={{ backgroundColor: compareColors[idx % compareColors.length] }}
+                                />
+                              )}
+                              {s.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <LineChartIcon className="h-4 w-4 text-primary" />
+                        Comparación de trayectorias
+                      </CardTitle>
+                      <CardDescription>Salario mensual de los colaboradores seleccionados en el tiempo.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {compareStaffIds.length === 0 ? (
+                        <p className="py-16 text-center text-sm text-muted-foreground">
+                          Selecciona al menos un colaborador para ver la comparación.
+                        </p>
+                      ) : (
+                        <div className="h-80">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart data={compareSeries} margin={{ top: 16, right: 16, left: 8, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
+                              <XAxis
+                                dataKey="label"
+                                tick={{ fill: "hsl(var(--muted-foreground))" }}
+                                className="text-xs"
+                                tickLine={false}
+                                axisLine={false}
+                              />
+                              <YAxis
+                                tick={{ fill: "hsl(var(--muted-foreground))" }}
+                                className="text-xs"
+                                tickLine={false}
+                                axisLine={false}
+                                width={70}
+                                tickFormatter={(v: number) =>
+                                  new Intl.NumberFormat("es-MX", {
+                                    notation: "compact",
+                                    maximumFractionDigits: 1,
+                                  }).format(v)
+                                }
+                              />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: "hsl(var(--card))",
+                                  border: "1px solid hsl(var(--border))",
+                                  borderRadius: "8px",
+                                }}
+                                formatter={(value: number, name: string) => [
+                                  formatMoney(value, selectedCurrency),
+                                  staffWithHistory.find((s) => s.id === name)?.name || name,
+                                ]}
+                              />
+                              {compareStaffIds.map((id, i) => (
+                                <Line
+                                  key={id}
+                                  type="stepAfter"
+                                  dataKey={id}
+                                  name={id}
+                                  stroke={compareColors[i % compareColors.length]}
+                                  strokeWidth={2.5}
+                                  dot={{ r: 3 }}
+                                  activeDot={{ r: 5 }}
+                                  connectNulls
+                                />
+                              ))}
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+
+                      {/* Leyenda personalizada */}
+                      {compareStaffIds.length > 0 && (
+                        <div className="mt-4 flex flex-wrap gap-4">
+                          {compareStaffIds.map((id, i) => (
+                            <div key={id} className="flex items-center gap-2 text-sm">
+                              <span
+                                className="h-3 w-3 rounded-full"
+                                style={{ backgroundColor: compareColors[i % compareColors.length] }}
+                              />
+                              {staffWithHistory.find((s) => s.id === id)?.name}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
             </>
           )}
         </TabsContent>
