@@ -45,6 +45,12 @@ interface Commission {
   commission_amount: number
   status: string
   period_date: string | null
+  approved_at: string | null
+  approver: {
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+  } | null
   staff: {
     id: string
     first_name: string
@@ -133,6 +139,7 @@ export default function CommissionsPage() {
         .select(`
           *,
           staff:staff(id, first_name, last_name),
+          approver:users!commissions_approved_by_fkey(first_name, last_name, email),
           project:projects(id, name),
           account:accounts(id, account_name),
           agency:agencies(id, name)
@@ -387,6 +394,7 @@ export default function CommissionsPage() {
                     <TableHead>%</TableHead>
                     <TableHead className="text-right">Comisión</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Aprobada por</TableHead>
                     <TableHead className="w-[100px]">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -414,6 +422,24 @@ export default function CommissionsPage() {
                           {locked && <Lock className="h-3 w-3" />}
                           {statusLabels[commission.status] || commission.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {commission.approver ? (
+                          <div className="flex flex-col">
+                            <span className="text-sm">
+                              {[commission.approver.first_name, commission.approver.last_name]
+                                .filter(Boolean)
+                                .join(" ") || commission.approver.email}
+                            </span>
+                            {commission.approved_at && (
+                              <span className="text-xs text-muted-foreground">
+                                {formatDate(commission.approved_at)}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
