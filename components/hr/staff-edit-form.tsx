@@ -15,7 +15,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { ArrowLeft, Users, AlertCircle, Camera, MapPin, Phone, CreditCard, UserCircle, Upload, Globe } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { StaffAvatar } from "@/components/staff-avatar"
-import { StaffDocuments, DOCUMENT_TYPES, type StaffDocument } from "@/components/hr/staff-documents"
+import { StaffDocuments, getApplicableDocumentTypes, type StaffDocument } from "@/components/hr/staff-documents"
 import { StaffLoans } from "@/components/hr/staff-loans"
 import { ProfileCompletionDetail } from "@/components/hr/profile-completion"
 import { EMPLOYMENT_STATUSES } from "@/app/dashboard/hr/staff/page"
@@ -667,10 +667,18 @@ hire_date: formData.hire_date || null,
               <CardDescription>Porcentaje de información completada por categoría</CardDescription>
             </CardHeader>
             <CardContent>
-              <ProfileCompletionDetail
-                staff={formData}
-                documentInfo={{ uploaded: staffDocuments.length, total: DOCUMENT_TYPES.length }}
-              />
+                <ProfileCompletionDetail
+                  staff={formData}
+                  documentInfo={(() => {
+                    // Solo se cuentan los documentos aplicables al país del
+                    // colaborador (RFC y CURP no aplican fuera de México), para
+                    // que el avance de perfil pueda llegar al 100%.
+                    const applicable = getApplicableDocumentTypes(formData.address_country)
+                    const applicableIds = new Set(applicable.map((t) => t.id))
+                    const uploaded = staffDocuments.filter((d) => applicableIds.has(d.document_type)).length
+                    return { uploaded, total: applicable.length }
+                  })()}
+                />
             </CardContent>
           </Card>
 
@@ -1495,11 +1503,12 @@ hire_date: formData.hire_date || null,
 </Card>
 
           {/* Documentos */}
-          <StaffDocuments
-            staffId={id}
-            documents={staffDocuments}
-            onDocumentsChange={setStaffDocuments}
-          />
+              <StaffDocuments
+                staffId={id}
+                documents={staffDocuments}
+                onDocumentsChange={setStaffDocuments}
+                country={formData.address_country}
+              />
 
           {/* Préstamos autorizados */}
           <StaffLoans staffId={id} />
