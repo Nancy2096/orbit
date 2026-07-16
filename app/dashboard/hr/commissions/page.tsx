@@ -159,6 +159,19 @@ export default function CommissionsPage() {
     }
     try {
       const updates: Record<string, unknown> = { status: newStatus }
+
+      if (newStatus === "approved") {
+        // Registrar quién aprueba (users.id del usuario autenticado) y cuándo.
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (!user) {
+          toast.error("Debes iniciar sesión para aprobar comisiones")
+          return
+        }
+        updates.approved_by = user.id
+        updates.approved_at = new Date().toISOString()
+      }
       if (newStatus === "paid") updates.paid_at = new Date().toISOString()
 
       const { error } = await supabase.from("commissions").update(updates).eq("id", commission.id)
@@ -170,7 +183,8 @@ export default function CommissionsPage() {
       toast.success(`Comisión marcada como ${statusLabels[newStatus].toLowerCase()}`)
     } catch (error) {
       console.error("Error updating commission status:", error)
-      toast.error("No se pudo actualizar el estado de la comisión")
+      const message = error instanceof Error ? error.message : "No se pudo actualizar el estado de la comisión"
+      toast.error(message)
     }
   }
 
