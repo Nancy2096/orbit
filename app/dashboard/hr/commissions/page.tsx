@@ -29,8 +29,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 import {
   Dialog,
   DialogContent,
@@ -41,7 +43,7 @@ import {
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
-import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye, FileText, CalendarClock, UserPlus } from "lucide-react"
+import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye, FileText, CalendarClock, UserPlus, Pencil } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
 
 interface Commission {
@@ -141,7 +143,11 @@ export default function CommissionsPage() {
   const [detailCommission, setDetailCommission] = useState<Commission | null>(null)
   const [prospectDetail, setProspectDetail] = useState<ProspectDetail | null>(null)
   const [prospectLoading, setProspectLoading] = useState(false)
+  const { roleName, fullAccess } = usePermissions()
   const supabase = createClient()
+
+  // Solo Super Administrador y Dirección General (o acceso total) pueden editar comisiones.
+  const canEdit = fullAccess || roleName === "superadmin" || roleName === "direccion_general"
 
   useEffect(() => {
     if (selectedAgencyId) {
@@ -545,6 +551,17 @@ export default function CommissionsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {canEdit && (
+                              <>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/dashboard/hr/commissions/${commission.id}/edit`}>
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Editar
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
                             <DropdownMenuLabel>Cambiar estado</DropdownMenuLabel>
                             {locked ? (
                               <DropdownMenuItem disabled className="gap-2">
