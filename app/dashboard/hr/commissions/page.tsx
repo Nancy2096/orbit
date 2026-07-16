@@ -55,6 +55,11 @@ interface Commission {
   period_date: string | null
   approved_at: string | null
   prospect_id: string | null
+  commission_type_id: string | null
+  clientType: {
+    name: string
+    amount: number
+  } | null
   approver: {
     first_name: string | null
     last_name: string | null
@@ -167,6 +172,7 @@ export default function CommissionsPage() {
         .select(`
           *,
           staff:staff(id, first_name, last_name),
+          clientType:agency_commission_types!commission_type_id(name, amount),
           approver:users!commissions_approved_by_fkey(first_name, last_name, email),
           project:projects(id, name),
           account:accounts(id, account_name),
@@ -665,7 +671,12 @@ export default function CommissionsPage() {
                 <div>
                   <p className="text-muted-foreground">Tipo de cliente</p>
                   <p className="font-medium">
-                    {prospectLoading ? "Cargando..." : prospectDetail?.client_type || "-"}
+                    {detailCommission.clientType?.name || "-"}
+                    {detailCommission.clientType?.amount != null && (
+                      <span className="block text-xs text-muted-foreground">
+                        Tarifa: {formatCurrency(Number(detailCommission.clientType.amount))}
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
