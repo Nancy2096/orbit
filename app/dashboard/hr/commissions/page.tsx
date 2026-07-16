@@ -29,7 +29,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -452,7 +451,17 @@ export default function CommissionsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <DropdownMenu>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDetailCommission(commission)}
+                            title="Ver detalle"
+                          >
+                            <Eye className="h-4 w-4" />
+                            <span className="sr-only">Ver detalle</span>
+                          </Button>
+                          <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm">
                               <MoreHorizontal className="h-4 w-4" />
@@ -460,11 +469,6 @@ export default function CommissionsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setDetailCommission(commission)}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Ver detalle
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
                             <DropdownMenuLabel>Cambiar estado</DropdownMenuLabel>
                             {locked ? (
                               <DropdownMenuItem disabled className="gap-2">
@@ -492,7 +496,8 @@ export default function CommissionsPage() {
                               </>
                             )}
                           </DropdownMenuContent>
-                        </DropdownMenu>
+                          </DropdownMenu>
+                        </div>
                       </TableCell>
                     </TableRow>
                     )
