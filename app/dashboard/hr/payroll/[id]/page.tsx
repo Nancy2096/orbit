@@ -72,6 +72,9 @@ interface Staff {
   payment_frequency: string | null
   is_active: boolean
   agency_id: string | null
+  employment_status: string | null
+  finiquito: number | null
+  finiquito_paid_at: string | null
 }
 
 interface CommissionItem {
@@ -91,6 +94,7 @@ interface PayrollEntry {
   bonuses: number
   commissions: number
   commissionItems: CommissionItem[]
+  finiquito: number
   deductions: number
   taxes: number
   gross_pay: number
@@ -165,15 +169,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // Un periodo GLOBAL no tiene agencia (agency_id null) => incluye a todo el personal
       const isGlobalPeriod = !periodData.agency_id
 
-      // Fetch staff for this agency (and optionally global staff)
+      // Fetch staff for this agency (and optionally global staff).
+      // No filtramos por is_active en la consulta: incluimos también a las
+      // bajas para poder liquidar su finiquito pendiente (se filtra en JS).
       let staffQuery = supabase
         .from("staff")
         .select("*")
-        .eq("is_active", true)
         .order("first_name")
 
       if (isGlobalPeriod) {
-        // Periodo global: todo el personal activo de todas las agencias (sin filtrar)
+        // Periodo global: todo el personal de todas las agencias (sin filtrar)
       } else if (includeGlobalStaff) {
         // Include agency staff AND global staff (agency_id is null)
         staffQuery = staffQuery.or(`agency_id.eq.${periodData.agency_id},agency_id.is.null`)
@@ -182,9 +187,22 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         staffQuery = staffQuery.eq("agency_id", periodData.agency_id)
       }
 
-      const { data: staffData, error: staffError } = await staffQuery
+      const { data: staffRaw, error: staffError } = await staffQuery
 
       if (staffError) throw staffError
+
+      // Regla de inclusión:
+      //  - Personal activo: siempre se incluye.
+      //  - Personal en baja: solo si tiene finiquito pendiente (> 0 y no pagado),
+      //    para liquidarlo en esta nómina. El resto de bajas se omite.
+      const staffData = (staffRaw || []).filter((s) => {
+        if (s.is_active) return true
+        return (
+          s.employment_status === "terminated" &&
+          Number(s.finiquito) > 0 &&
+          !s.finiquito_paid_at
+        )
+      })
 
       // Obtener bonos y comisiones (del apartado Comercial) aplicables al periodo.
       // Se consideran solo los aprobados o pagados cuya fecha cae dentro del periodo.
@@ -246,8 +264,13 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const baseSalary = calculateBaseSalary(staff, periodData.period_type, periodData.start_date)
         const bonuses = bonusesByStaff[staff.id] || 0
         const commissions = commissionsByStaff[staff.id] || 0
+        // Finiquito pendiente de la baja (último pago). Se liquida una sola vez.
+        const finiquito =
+          staff.employment_status === "terminated" && !staff.finiquito_paid_at
+            ? Number(staff.finiquito || 0)
+            : 0
         const deductions = 0
-        const grossPay = baseSalary + bonuses + commissions
+        const grossPay = baseSalary + bonuses + commissions + finiquito
         const taxes = grossPay * 0.10 // 10% tax estimate
         const netPay = grossPay - deductions - taxes
 
@@ -258,6 +281,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           bonuses: bonuses,
           commissions: commissions,
           commissionItems: commissionItemsByStaff[staff.id] || [],
+          finiquito: finiquito,
           deductions: deductions,
           taxes: taxes,
           gross_pay: grossPay,
@@ -325,7 +349,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       
       const updatedEntries = entries.map(entry => {
         const baseSalary = calculateBaseSalary(entry.staff, period.period_type, period.start_date)
-        const grossPay = baseSalary + entry.bonuses + entry.commissions
+        const grossPay = baseSalary + entry.bonuses + entry.commissions + entry.finiquito
         const taxes = grossPay * totalTaxRate
         const totalDeductions = entry.deductions + payrollConfig.otherDeductions
         const netPay = grossPay - totalDeductions - taxes
@@ -430,20 +454,49 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         }
       }
 
+      // Marcar como liquidados los finiquitos incluidos en este periodo, para
+      // que no se vuelvan a considerar en nóminas futuras.
+      const finiquitoStaffIds = entries
+        .filter((e) => e.finiquito > 0 && !e.staff.finiquito_paid_at)
+        .map((e) => e.staff_id)
+
+      let paidFiniquitosCount = 0
+      if (finiquitoStaffIds.length > 0) {
+        const { error: finError } = await supabase
+          .from("staff")
+          .update({ finiquito_paid_at: new Date().toISOString() })
+          .in("id", finiquitoStaffIds)
+
+        if (finError) {
+          console.error("Error updating finiquitos:", finError)
+          toast.error("La nómina se marcó como pagada, pero no se pudieron actualizar los finiquitos")
+        } else {
+          paidFiniquitosCount = finiquitoStaffIds.length
+        }
+      }
+
       setPeriod({ ...period, status: "paid" })
-      // Reflejar el nuevo estado de las comisiones en la vista.
+      // Reflejar el nuevo estado de las comisiones y finiquitos en la vista.
+      const paidAt = new Date().toISOString()
       setEntries((prev) =>
         prev.map((e) => ({
           ...e,
           commissionItems: e.commissionItems.map((c) =>
             commissionIdsToPay.includes(c.id) ? { ...c, status: "paid" } : c,
           ),
+          staff: finiquitoStaffIds.includes(e.staff_id)
+            ? { ...e.staff, finiquito_paid_at: paidAt }
+            : e.staff,
         })),
       )
 
+      const extras = [
+        paidCommissionsCount > 0 ? `${paidCommissionsCount} comisión(es)` : null,
+        paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
+      ].filter(Boolean)
       toast.success(
-        paidCommissionsCount > 0
-          ? `Nómina marcada como pagada · ${paidCommissionsCount} comisión(es) actualizada(s)`
+        extras.length > 0
+          ? `Nómina marcada como pagada · ${extras.join(" y ")} liquidada(s)`
           : "Nómina marcada como pagada",
       )
     } catch (error) {
@@ -462,7 +515,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
     // Recalculate entry totals with configured tax rates
     const totalTaxRate = (payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100
-    const grossPay = editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions
+    const grossPay = editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions + editingEntry.finiquito
     const taxes = grossPay * totalTaxRate
     const netPay = grossPay - editingEntry.deductions - taxes
 
@@ -708,6 +761,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   <TableHead className="text-right">Salario Base</TableHead>
                   <TableHead className="text-right">Bonos</TableHead>
                   <TableHead className="text-right">Comisiones</TableHead>
+                  <TableHead className="text-right">Finiquito</TableHead>
                   <TableHead className="text-right">Deducciones</TableHead>
                   <TableHead className="text-right">Impuestos</TableHead>
                   <TableHead className="text-right">Bruto</TableHead>
@@ -723,9 +777,13 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                       {entry.staff.agency_id === null && (
                         <Badge variant="outline" className="ml-2 text-xs">Global</Badge>
                       )}
-                      <Badge variant="secondary" className="ml-2 text-xs">
-                        {entry.staff.payment_frequency === "monthly" ? "Mensual" : "Quincenal"}
-                      </Badge>
+                      {entry.staff.employment_status === "terminated" ? (
+                        <Badge variant="destructive" className="ml-2 text-xs">Baja</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="ml-2 text-xs">
+                          {entry.staff.payment_frequency === "monthly" ? "Mensual" : "Quincenal"}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>{entry.staff.position}</TableCell>
                     <TableCell className="text-right">{formatCurrency(entry.base_salary)}</TableCell>
@@ -745,6 +803,13 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                         </button>
                       ) : (
                         formatCurrency(entry.commissions)
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {entry.finiquito > 0 ? (
+                        <span className="font-medium text-amber-600">{formatCurrency(entry.finiquito)}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right text-red-600">-{formatCurrency(entry.deductions)}</TableCell>
@@ -832,17 +897,28 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   />
                 </div>
               </div>
+              {editingEntry.finiquito > 0 && (
+                <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/20">
+                  <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                  <div className="text-sm text-amber-800 dark:text-amber-200">
+                    <p className="font-medium">Finiquito: {formatCurrency(editingEntry.finiquito)}</p>
+                    <p className="text-xs">
+                      Último pago del colaborador (baja). Se define en Sueldos y Salarios y se liquida en esta nómina.
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="pt-4 border-t space-y-2">
                 <div className="flex justify-between text-sm">
                   <span>Bruto Estimado:</span>
                   <span className="font-medium">
-                    {formatCurrency(editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions)}
+                    {formatCurrency(editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions + editingEntry.finiquito)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span>Impuestos ({payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate}%):</span>
                   <span className="text-red-600">
-                    -{formatCurrency((editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions) * ((payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100))}
+                    -{formatCurrency((editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions + editingEntry.finiquito) * ((payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100))}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -853,7 +929,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   <span>Neto a Pagar:</span>
                   <span className="text-green-600">
                     {formatCurrency(
-                      (editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions) * (1 - (payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100) 
+                      (editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions + editingEntry.finiquito) * (1 - (payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100) 
                       - editingEntry.deductions
                     )}
                   </span>

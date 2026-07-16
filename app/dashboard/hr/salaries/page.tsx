@@ -88,6 +88,7 @@ interface StaffSalary {
   agency_id: string | null
   is_global: boolean | null
   is_active: boolean
+  employment_status: string | null
   contract_type: string | null
   hourly_cost: number | null
   monthly_salary: number | null
@@ -95,6 +96,8 @@ interface StaffSalary {
   commission_percentage: number | null
   commission_type: string | null
   payment_frequency: string | null
+  finiquito: number | null
+  finiquito_paid_at: string | null
 }
 
 // Registro de bitácora de cambios de sueldo/comisión
@@ -117,6 +120,7 @@ interface EditableRow {
   commission_percentage: string
   currency_id: string
   payment_frequency: string
+  finiquito: string
 }
 
 const paymentFrequencyLabels: Record<string, string> = {
@@ -228,9 +232,11 @@ export default function SalariesPage() {
       supabase
         .from("staff")
         .select(
-          "id, employee_code, first_name, last_name, position, department, agency_id, is_global, is_active, contract_type, hourly_cost, monthly_salary, currency_id, commission_percentage, commission_type, payment_frequency",
+          "id, employee_code, first_name, last_name, position, department, agency_id, is_global, is_active, employment_status, contract_type, hourly_cost, monthly_salary, currency_id, commission_percentage, commission_type, payment_frequency, finiquito, finiquito_paid_at",
         )
-        .eq("is_active", true)
+        // Incluye al personal activo y también a quienes están en baja
+        // (employment_status = 'terminated'), para poder gestionar su finiquito.
+        .or("is_active.eq.true,employment_status.eq.terminated")
         .order("first_name"),
       supabase.from("agencies").select("id, name, settings").order("name"),
       supabase.from("currencies").select("id, code, name").eq("is_active", true).order("code"),
@@ -302,6 +308,7 @@ export default function SalariesPage() {
         commission_percentage: s.commission_percentage != null ? String(s.commission_percentage) : "",
         currency_id: s.currency_id || "",
         payment_frequency: s.payment_frequency || "biweekly",
+        finiquito: s.finiquito != null ? String(s.finiquito) : "",
       },
     [edits],
   )
@@ -314,6 +321,7 @@ export default function SalariesPage() {
         commission_percentage: s.commission_percentage != null ? String(s.commission_percentage) : "",
         currency_id: s.currency_id || "",
         payment_frequency: s.payment_frequency || "biweekly",
+        finiquito: s.finiquito != null ? String(s.finiquito) : "",
       }
       return { ...prev, [s.id]: { ...base, [field]: value } }
     })
@@ -334,17 +342,24 @@ export default function SalariesPage() {
     })
   }, [staff, filterAgency, filterContract, filterFrequency, search])
 
+  // Colaboradores activos (excluye bajas), usados para los totales de nómina
+  // base mensual, ya que las bajas no perciben salario recurrente.
+  const activeFiltered = useMemo(
+    () => filtered.filter((s) => s.employment_status !== "terminated"),
+    [filtered],
+  )
+
   // Totales de nómina base mensual agrupados por moneda.
   const totalsByCurrency = useMemo(() => {
     const map = new Map<string, number>()
-    filtered.forEach((s) => {
+    activeFiltered.forEach((s) => {
       const code = currencyCode(s.currency_id)
       const eff = effective(s)
       const salary = Number.parseFloat(eff.monthly_salary) || 0
       map.set(code, (map.get(code) || 0) + salary)
     })
     return Array.from(map.entries()).filter(([, v]) => v > 0)
-  }, [filtered, currencyCode, effective])
+  }, [activeFiltered, currencyCode, effective])
 
   // Frecuencia de pago efectiva (usa el valor editado si existe).
   const effectiveFrequency = useCallback(
@@ -369,7 +384,7 @@ export default function SalariesPage() {
     const end = new Map<string, number>()
     let biweeklyCount = 0
     let monthlyCount = 0
-    filtered.forEach((s) => {
+    activeFiltered.forEach((s) => {
       const code = currencyCode(s.currency_id)
       const salary = Number.parseFloat(effective(s).monthly_salary) || 0
       if (salary <= 0) return
@@ -389,7 +404,7 @@ export default function SalariesPage() {
       biweeklyCount,
       monthlyCount,
     }
-  }, [filtered, currencyCode, effective, effectiveFrequency])
+  }, [activeFiltered, currencyCode, effective, effectiveFrequency])
 
   const contractTypesPresent = useMemo(() => {
     const set = new Set<string>()
@@ -594,6 +609,9 @@ export default function SalariesPage() {
           monthlySalary != null && monthlySalary > 0
             ? computeHourlyCost(monthlySalary, person?.agency_id ?? null)
             : null
+        // El finiquito solo aplica a colaboradores en baja; para el resto se
+        // guarda null para evitar montos residuales.
+        const isTerminated = person?.employment_status === "terminated"
         return supabase
           .from("staff")
           .update({
@@ -602,6 +620,7 @@ export default function SalariesPage() {
             commission_percentage: parseNum(row.commission_percentage),
             currency_id: row.currency_id || null,
             payment_frequency: row.payment_frequency || "biweekly",
+            finiquito: isTerminated ? parseNum(row.finiquito) : null,
           })
           .eq("id", id)
       })
@@ -863,12 +882,13 @@ export default function SalariesPage() {
                   <TableHead className="text-right">1ª quincena (día 15)</TableHead>
                   <TableHead className="text-right">Fin de mes</TableHead>
                   <TableHead className="text-right">Comisión %</TableHead>
+                  <TableHead className="text-right w-40">Finiquito</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                       No hay colaboradores que coincidan con los filtros
                     </TableCell>
                   </TableRow>
@@ -885,6 +905,9 @@ export default function SalariesPage() {
                           >
                             {s.first_name} {s.last_name}
                           </Link>
+                          {s.employment_status === "terminated" && (
+                            <Badge variant="destructive" className="ml-2 text-xs">Baja</Badge>
+                          )}
                           <div className="text-xs text-muted-foreground">
                             {s.position || "Sin puesto"}
                             {s.employee_code ? ` · ${s.employee_code}` : ""}
@@ -976,6 +999,28 @@ export default function SalariesPage() {
                             className="h-8 text-right"
                             placeholder="0"
                           />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {s.employment_status === "terminated" ? (
+                            <div className="space-y-1">
+                              <Input
+                                type="text"
+                                inputMode="decimal"
+                                value={eff.finiquito}
+                                onChange={(e) => updateField(s, "finiquito", sanitizeDecimal(e.target.value))}
+                                disabled={!canEdit || !!s.finiquito_paid_at}
+                                className="h-8 text-right"
+                                placeholder="0.00"
+                              />
+                              {s.finiquito_paid_at && (
+                                <p className="text-[10px] text-muted-foreground">
+                                  Pagado {new Date(s.finiquito_paid_at).toLocaleDateString("es-MX")}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">N/A</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     )
