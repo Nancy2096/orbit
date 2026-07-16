@@ -62,6 +62,10 @@ interface Commission {
     name: string
     amount: number
   } | null
+  prospect: {
+    company_name: string | null
+    contact_name: string | null
+  } | null
   approver: {
     first_name: string | null
     last_name: string | null
@@ -179,6 +183,7 @@ export default function CommissionsPage() {
           *,
           staff:staff(id, first_name, last_name),
           clientType:agency_commission_types!commission_type_id(name, amount),
+          prospect:crm_prospects!prospect_id(company_name, contact_name),
           approver:users!commissions_approved_by_fkey(first_name, last_name, email),
           project:projects(id, name),
           account:accounts(id, account_name),
@@ -479,9 +484,9 @@ export default function CommissionsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Empleado</TableHead>
-                    <TableHead>Tipo</TableHead>
+                    <TableHead>Tipo de cliente</TableHead>
                     <TableHead>Referencia</TableHead>
-                    <TableHead>Base</TableHead>
+                    <TableHead>Prospecto</TableHead>
                     <TableHead>%</TableHead>
                     <TableHead className="text-right">Comisión</TableHead>
                     <TableHead>Estado</TableHead>
@@ -497,11 +502,13 @@ export default function CommissionsPage() {
                       <TableCell className="font-medium">
                         {commission.staff?.first_name} {commission.staff?.last_name}
                       </TableCell>
-                      <TableCell>{typeLabels[commission.commission_type] || commission.commission_type}</TableCell>
+                      <TableCell>{commission.clientType?.name || "-"}</TableCell>
                       <TableCell>
                         {commission.project?.name || commission.account?.account_name || "-"}
                       </TableCell>
-                      <TableCell>{formatCurrency(Number(commission.base_amount || 0))}</TableCell>
+                      <TableCell>
+                        {commission.prospect?.company_name || commission.prospect?.contact_name || "-"}
+                      </TableCell>
                       <TableCell>
                         {commission.commission_percentage ? `${commission.commission_percentage}%` : "-"}
                       </TableCell>

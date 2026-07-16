@@ -18,13 +18,26 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
-import { ArrowLeft, BadgePercent, Save, ShieldAlert } from "lucide-react"
+import { ArrowLeft, BadgePercent, Save, ShieldAlert, User, CalendarClock, FileText } from "lucide-react"
 import { toast } from "sonner"
 
 interface CommissionType {
   id: string
   name: string
   amount: number
+}
+
+interface Quotation {
+  id: string
+  file_name: string
+  file_url: string
+  created_at: string
+}
+
+interface ProspectInfo {
+  name: string | null
+  appointmentDate: string | null
+  quotations: Quotation[]
 }
 
 export default function EditCommissionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -41,6 +54,7 @@ export default function EditCommissionPage({ params }: { params: Promise<{ id: s
   const [notFound, setNotFound] = useState(false)
   const [commissionTypes, setCommissionTypes] = useState<CommissionType[]>([])
   const [staffName, setStaffName] = useState("-")
+  const [prospectInfo, setProspectInfo] = useState<ProspectInfo | null>(null)
 
   const [formData, setFormData] = useState({
     commission_type_id: "",
@@ -61,7 +75,7 @@ export default function EditCommissionPage({ params }: { params: Promise<{ id: s
       const { data, error } = await supabase
         .from("commissions")
         .select(
-          "id, agency_id, commission_type_id, commission_amount, base_amount, description, notes, staff:staff(first_name, last_name)",
+          "id, agency_id, prospect_id, commission_type_id, commission_amount, base_amount, description, notes, staff:staff(first_name, last_name)",
         )
         .eq("id", id)
         .single()
@@ -74,6 +88,36 @@ export default function EditCommissionPage({ params }: { params: Promise<{ id: s
 
       const staff: any = Array.isArray(data.staff) ? data.staff[0] : data.staff
       setStaffName(staff ? `${staff.first_name} ${staff.last_name}` : "-")
+
+      // Cargar la información del prospecto asociado: nombre, fecha de la cita
+      // (actividad tipo "meeting") y cotización(es) subida(s).
+      if (data.prospect_id) {
+        const [prospectRes, appointmentRes, quotationsRes] = await Promise.all([
+          supabase
+            .from("crm_prospects")
+            .select("company_name, contact_name")
+            .eq("id", data.prospect_id)
+            .maybeSingle(),
+          supabase
+            .from("crm_activities")
+            .select("activity_date")
+            .eq("prospect_id", data.prospect_id)
+            .eq("activity_type", "meeting")
+            .order("activity_date", { ascending: true })
+            .limit(1)
+            .maybeSingle(),
+          supabase
+            .from("crm_prospect_quotations")
+            .select("id, file_name, file_url, created_at")
+            .eq("prospect_id", data.prospect_id)
+            .order("created_at", { ascending: false }),
+        ])
+        setProspectInfo({
+          name: prospectRes.data?.company_name || prospectRes.data?.contact_name || null,
+          appointmentDate: appointmentRes.data?.activity_date ?? null,
+          quotations: quotationsRes.data || [],
+        })
+      }
 
       setFormData({
         commission_type_id: data.commission_type_id ?? "",
@@ -143,6 +187,9 @@ export default function EditCommissionPage({ params }: { params: Promise<{ id: s
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount)
+
+  const formatDate = (date: string) =>
+    new Date(date).toLocaleDateString("es-MX", { day: "2-digit", month: "long", year: "numeric" })
 
   if (permsLoading || loading) {
     return (
@@ -275,6 +322,54 @@ export default function EditCommissionPage({ params }: { params: Promise<{ id: s
                 <p className="font-bold text-2xl text-green-600">
                   {formatCurrency(Number(formData.commission_amount || 0))}
                 </p>
+              </div>
+
+              {/* Información del prospecto asociado */}
+              <div className="space-y-3 border-t pt-4">
+                <p className="text-sm font-medium">Prospecto</p>
+                {!prospectInfo ? (
+                  <p className="text-sm text-muted-foreground">
+                    Esta comisión no está ligada a un prospecto.
+                  </p>
+                ) : (
+                  <div className="space-y-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">Nombre:</span>
+                      <span className="font-medium">{prospectInfo.name || "-"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">Cita:</span>
+                      <span className="font-medium">
+                        {prospectInfo.appointmentDate
+                          ? formatDate(prospectInfo.appointmentDate)
+                          : "Sin cita registrada"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Cotización:</span>
+                      {prospectInfo.quotations.length > 0 ? (
+                        <div className="mt-1 space-y-1">
+                          {prospectInfo.quotations.map((q) => (
+                            <a
+                              key={q.id}
+                              href={q.file_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-blue-600 hover:underline"
+                            >
+                              <FileText className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{q.file_name}</span>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="ml-1 font-medium">Sin cotización</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
