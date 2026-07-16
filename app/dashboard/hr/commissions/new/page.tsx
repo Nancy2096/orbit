@@ -299,10 +299,20 @@ const fetchInitialData = async () => {
     setSaving(true)
 
     try {
+      // El aprobador designado es un miembro de "staff", pero la columna
+      // commissions.approved_by tiene FK a users(id) y solo debe poblarse cuando
+      // alguien realmente aprueba la comisión. Por eso NO enviamos el staff.id a
+      // approved_by (causaba una violación de llave foránea al guardar). En su
+      // lugar registramos al aprobador designado en las notas.
+      const approver = managers.find((m) => m.id === formData.approved_by)
+      const approverNote = approver
+        ? `Aprobador designado: ${approver.first_name} ${approver.last_name}`
+        : null
+      const combinedNotes = [formData.notes || null, approverNote].filter(Boolean).join("\n") || null
+
       const { error } = await supabase.from("commissions").insert({
         agency_id: selectedAgencyId,
         staff_id: formData.staff_id,
-        approved_by: formData.approved_by || null,
         commission_type: "sale", // Tipo de comisión válido
         commission_type_id: formData.commission_type_id || null,
         prospect_id: formData.prospect_id,
@@ -310,7 +320,7 @@ const fetchInitialData = async () => {
         commission_amount: parseFloat(formData.commission_amount),
         status: "pending",
         description: formData.description || null,
-        notes: formData.notes || null,
+        notes: combinedNotes,
       })
 
       if (error) throw error
@@ -319,7 +329,8 @@ const fetchInitialData = async () => {
       router.push("/dashboard/hr/commissions")
     } catch (error) {
       console.error("Error saving commission:", error)
-      toast.error("Error al guardar la comision")
+      const message = error instanceof Error ? error.message : "Error al guardar la comision"
+      toast.error(message)
     } finally {
       setSaving(false)
     }

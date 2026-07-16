@@ -45,6 +45,12 @@ interface Commission {
   commission_amount: number
   status: string
   period_date: string | null
+  approved_at: string | null
+  approver: {
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+  } | null
   staff: {
     id: string
     first_name: string
@@ -133,6 +139,7 @@ export default function CommissionsPage() {
         .select(`
           *,
           staff:staff(id, first_name, last_name),
+          approver:users!commissions_approved_by_fkey(first_name, last_name, email),
           project:projects(id, name),
           account:accounts(id, account_name),
           agency:agencies(id, name)
@@ -159,6 +166,19 @@ export default function CommissionsPage() {
     }
     try {
       const updates: Record<string, unknown> = { status: newStatus }
+
+      if (newStatus === "approved") {
+        // Registrar quién aprueba (users.id del usuario autenticado) y cuándo.
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (!user) {
+          toast.error("Debes iniciar sesión para aprobar comisiones")
+          return
+        }
+        updates.approved_by = user.id
+        updates.approved_at = new Date().toISOString()
+      }
       if (newStatus === "paid") updates.paid_at = new Date().toISOString()
 
       const { error } = await supabase.from("commissions").update(updates).eq("id", commission.id)
@@ -170,7 +190,8 @@ export default function CommissionsPage() {
       toast.success(`Comisión marcada como ${statusLabels[newStatus].toLowerCase()}`)
     } catch (error) {
       console.error("Error updating commission status:", error)
-      toast.error("No se pudo actualizar el estado de la comisión")
+      const message = error instanceof Error ? error.message : "No se pudo actualizar el estado de la comisión"
+      toast.error(message)
     }
   }
 
@@ -373,6 +394,7 @@ export default function CommissionsPage() {
                     <TableHead>%</TableHead>
                     <TableHead className="text-right">Comisión</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Aprobada por</TableHead>
                     <TableHead className="w-[100px]">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -400,6 +422,24 @@ export default function CommissionsPage() {
                           {locked && <Lock className="h-3 w-3" />}
                           {statusLabels[commission.status] || commission.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {commission.approver ? (
+                          <div className="flex flex-col">
+                            <span className="text-sm">
+                              {[commission.approver.first_name, commission.approver.last_name]
+                                .filter(Boolean)
+                                .join(" ") || commission.approver.email}
+                            </span>
+                            {commission.approved_at && (
+                              <span className="text-xs text-muted-foreground">
+                                {formatDate(commission.approved_at)}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
