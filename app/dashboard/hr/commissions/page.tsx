@@ -32,8 +32,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
-import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal } from "lucide-react"
+import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
 
 interface Commission {
@@ -108,6 +117,7 @@ export default function CommissionsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [salesRepFilter, setSalesRepFilter] = useState<string>("all")
+  const [detailCommission, setDetailCommission] = useState<Commission | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -450,8 +460,12 @@ export default function CommissionsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Cambiar estado</DropdownMenuLabel>
+                            <DropdownMenuItem onClick={() => setDetailCommission(commission)}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              Ver detalle
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
+                            <DropdownMenuLabel>Cambiar estado</DropdownMenuLabel>
                             {locked ? (
                               <DropdownMenuItem disabled className="gap-2">
                                 <Lock className="h-4 w-4" />
@@ -489,6 +503,101 @@ export default function CommissionsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Detalle de comisión */}
+      <Dialog open={!!detailCommission} onOpenChange={(open) => !open && setDetailCommission(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Detalle de la comisión</DialogTitle>
+            <DialogDescription>
+              {detailCommission?.staff?.first_name} {detailCommission?.staff?.last_name}
+            </DialogDescription>
+          </DialogHeader>
+          {detailCommission && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Estado</span>
+                <Badge variant={statusColors[detailCommission.status]} className="gap-1">
+                  {isLocked(detailCommission.status) && <Lock className="h-3 w-3" />}
+                  {statusLabels[detailCommission.status] || detailCommission.status}
+                </Badge>
+              </div>
+              <Separator />
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Tipo</p>
+                  <p className="font-medium">
+                    {typeLabels[detailCommission.commission_type] || detailCommission.commission_type}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Referencia</p>
+                  <p className="font-medium">
+                    {detailCommission.project?.name || detailCommission.account?.account_name || "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Monto base</p>
+                  <p className="font-medium">{formatCurrency(Number(detailCommission.base_amount || 0))}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Porcentaje</p>
+                  <p className="font-medium">
+                    {detailCommission.commission_percentage ? `${detailCommission.commission_percentage}%` : "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Comisión</p>
+                  <p className="font-semibold text-blue-600">
+                    {formatCurrency(Number(detailCommission.commission_amount || 0))}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Fecha del periodo</p>
+                  <p className="font-medium">
+                    {detailCommission.period_date ? formatDate(detailCommission.period_date) : "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Agencia</p>
+                  <p className="font-medium">{detailCommission.agency?.name || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Aprobada por</p>
+                  <p className="font-medium">
+                    {detailCommission.approver
+                      ? [detailCommission.approver.first_name, detailCommission.approver.last_name]
+                          .filter(Boolean)
+                          .join(" ") ||
+                        detailCommission.approver.email ||
+                        "-"
+                      : "-"}
+                    {detailCommission.approved_at && (
+                      <span className="block text-xs text-muted-foreground">
+                        {formatDate(detailCommission.approved_at)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              {detailCommission.description && (
+                <>
+                  <Separator />
+                  <div className="text-sm">
+                    <p className="text-muted-foreground">Descripción</p>
+                    <p className="mt-1 whitespace-pre-wrap">{detailCommission.description}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailCommission(null)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
