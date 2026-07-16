@@ -32,8 +32,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
-import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal } from "lucide-react"
+import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye, FileText, CalendarClock, UserPlus, Pencil } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
 
 interface Commission {
@@ -46,6 +56,12 @@ interface Commission {
   status: string
   period_date: string | null
   approved_at: string | null
+  prospect_id: string | null
+  commission_type_id: string | null
+  clientType: {
+    name: string
+    amount: number
+  } | null
   approver: {
     first_name: string | null
     last_name: string | null
@@ -100,6 +116,22 @@ interface SalesRep {
   last_name: string
 }
 
+interface Quotation {
+  id: string
+  file_name: string
+  file_url: string
+  created_at: string
+}
+
+interface ProspectDetail {
+  company_name: string | null
+  contact_name: string | null
+  created_at: string | null
+  client_type: string | null
+  quotations: Quotation[]
+  appointmentDate: string | null
+}
+
 export default function CommissionsPage() {
   const { selectedAgencyId, loading: agencyLoading } = useAgency()
   const [commissions, setCommissions] = useState<Commission[]>([])
@@ -108,7 +140,14 @@ export default function CommissionsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [salesRepFilter, setSalesRepFilter] = useState<string>("all")
+  const [detailCommission, setDetailCommission] = useState<Commission | null>(null)
+  const [prospectDetail, setProspectDetail] = useState<ProspectDetail | null>(null)
+  const [prospectLoading, setProspectLoading] = useState(false)
+  const { roleName, fullAccess } = usePermissions()
   const supabase = createClient()
+
+  // Solo Super Administrador y Dirección General (o acceso total) pueden editar comisiones.
+  const canEdit = fullAccess || roleName === "superadmin" || roleName === "direccion_general"
 
   useEffect(() => {
     if (selectedAgencyId) {
@@ -139,6 +178,7 @@ export default function CommissionsPage() {
         .select(`
           *,
           staff:staff(id, first_name, last_name),
+          clientType:agency_commission_types!commission_type_id(name, amount),
           approver:users!commissions_approved_by_fkey(first_name, last_name, email),
           project:projects(id, name),
           account:accounts(id, account_name),
@@ -152,6 +192,57 @@ export default function CommissionsPage() {
       console.error("Error fetching data:", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Abre el detalle de la comisión y carga los datos del prospecto asociado
+  // (tipo de cliente, cotización, fecha de registro y fecha de la cita).
+  const openDetail = async (commission: Commission) => {
+    setDetailCommission(commission)
+    setProspectDetail(null)
+    if (!commission.prospect_id) return
+
+    setProspectLoading(true)
+    try {
+      const [prospectRes, quotationsRes, appointmentRes] = await Promise.all([
+        supabase
+          .from("crm_prospects")
+          .select("company_name, contact_name, created_at, client_type:agency_commission_types(name)")
+          .eq("id", commission.prospect_id)
+          .maybeSingle(),
+        supabase
+          .from("crm_prospect_quotations")
+          .select("id, file_name, file_url, created_at")
+          .eq("prospect_id", commission.prospect_id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("crm_activities")
+          .select("activity_date")
+          .eq("prospect_id", commission.prospect_id)
+          .eq("activity_type", "meeting")
+          .order("activity_date", { ascending: true })
+          .limit(1)
+          .maybeSingle(),
+      ])
+
+      const prospect = prospectRes.data as
+        | { company_name: string | null; contact_name: string | null; created_at: string | null; client_type: { name: string } | { name: string }[] | null }
+        | null
+      const clientTypeRel = prospect?.client_type
+      const clientType = Array.isArray(clientTypeRel) ? clientTypeRel[0]?.name ?? null : clientTypeRel?.name ?? null
+
+      setProspectDetail({
+        company_name: prospect?.company_name ?? null,
+        contact_name: prospect?.contact_name ?? null,
+        created_at: prospect?.created_at ?? null,
+        client_type: clientType,
+        quotations: quotationsRes.data || [],
+        appointmentDate: appointmentRes.data?.activity_date ?? null,
+      })
+    } catch (error) {
+      console.error("Error fetching prospect detail:", error)
+    } finally {
+      setProspectLoading(false)
     }
   }
 
@@ -442,7 +533,17 @@ export default function CommissionsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <DropdownMenu>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openDetail(commission)}
+                            title="Ver detalle"
+                          >
+                            <Eye className="h-4 w-4" />
+                            <span className="sr-only">Ver detalle</span>
+                          </Button>
+                          <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm">
                               <MoreHorizontal className="h-4 w-4" />
@@ -450,8 +551,18 @@ export default function CommissionsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {canEdit && (
+                              <>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/dashboard/hr/commissions/${commission.id}/edit`}>
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Editar
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
                             <DropdownMenuLabel>Cambiar estado</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
                             {locked ? (
                               <DropdownMenuItem disabled className="gap-2">
                                 <Lock className="h-4 w-4" />
@@ -478,7 +589,8 @@ export default function CommissionsPage() {
                               </>
                             )}
                           </DropdownMenuContent>
-                        </DropdownMenu>
+                          </DropdownMenu>
+                        </div>
                       </TableCell>
                     </TableRow>
                     )
@@ -489,6 +601,178 @@ export default function CommissionsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Detalle de comisión */}
+      <Dialog
+        open={!!detailCommission}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetailCommission(null)
+            setProspectDetail(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Detalle de la comisión</DialogTitle>
+            <DialogDescription>
+              {detailCommission?.staff?.first_name} {detailCommission?.staff?.last_name}
+            </DialogDescription>
+          </DialogHeader>
+          {detailCommission && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Estado</span>
+                <Badge variant={statusColors[detailCommission.status]} className="gap-1">
+                  {isLocked(detailCommission.status) && <Lock className="h-3 w-3" />}
+                  {statusLabels[detailCommission.status] || detailCommission.status}
+                </Badge>
+              </div>
+              <Separator />
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Tipo</p>
+                  <p className="font-medium">
+                    {typeLabels[detailCommission.commission_type] || detailCommission.commission_type}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Referencia</p>
+                  <p className="font-medium">
+                    {detailCommission.project?.name || detailCommission.account?.account_name || "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Monto base</p>
+                  <p className="font-medium">{formatCurrency(Number(detailCommission.base_amount || 0))}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Porcentaje</p>
+                  <p className="font-medium">
+                    {detailCommission.commission_percentage ? `${detailCommission.commission_percentage}%` : "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Comisión</p>
+                  <p className="font-semibold text-blue-600">
+                    {formatCurrency(Number(detailCommission.commission_amount || 0))}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Fecha del periodo</p>
+                  <p className="font-medium">
+                    {detailCommission.period_date ? formatDate(detailCommission.period_date) : "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Agencia</p>
+                  <p className="font-medium">{detailCommission.agency?.name || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Aprobada por</p>
+                  <p className="font-medium">
+                    {detailCommission.approver
+                      ? [detailCommission.approver.first_name, detailCommission.approver.last_name]
+                          .filter(Boolean)
+                          .join(" ") ||
+                        detailCommission.approver.email ||
+                        "-"
+                      : "-"}
+                    {detailCommission.approved_at && (
+                      <span className="block text-xs text-muted-foreground">
+                        {formatDate(detailCommission.approved_at)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Tipo de cliente</p>
+                  <p className="font-medium">
+                    {detailCommission.clientType?.name || "-"}
+                    {detailCommission.clientType?.amount != null && (
+                      <span className="block text-xs text-muted-foreground">
+                        Tarifa: {formatCurrency(Number(detailCommission.clientType.amount))}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Información del prospecto (CRM) */}
+              <Separator />
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Información del prospecto</p>
+                {!detailCommission.prospect_id ? (
+                  <p className="text-sm text-muted-foreground">Esta comisión no está ligada a un prospecto.</p>
+                ) : prospectLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner className="h-4 w-4" />
+                    Cargando información...
+                  </div>
+                ) : (
+                  <div className="space-y-3 text-sm">
+                    {(prospectDetail?.company_name || prospectDetail?.contact_name) && (
+                      <p className="font-medium">
+                        {prospectDetail?.company_name || prospectDetail?.contact_name}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <UserPlus className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">Registro del prospecto:</span>
+                      <span className="font-medium">
+                        {prospectDetail?.created_at ? formatDate(prospectDetail.created_at) : "-"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">Cita:</span>
+                      <span className="font-medium">
+                        {prospectDetail?.appointmentDate ? formatDate(prospectDetail.appointmentDate) : "Sin cita registrada"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Cotización:</span>
+                      {prospectDetail && prospectDetail.quotations.length > 0 ? (
+                        <div className="mt-1 space-y-1">
+                          {prospectDetail.quotations.map((q) => (
+                            <a
+                              key={q.id}
+                              href={q.file_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-blue-600 hover:underline"
+                            >
+                              <FileText className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{q.file_name}</span>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="ml-1 font-medium">Sin cotización</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {detailCommission.description && (
+                <>
+                  <Separator />
+                  <div className="text-sm">
+                    <p className="text-muted-foreground">Descripción</p>
+                    <p className="mt-1 whitespace-pre-wrap">{detailCommission.description}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailCommission(null)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

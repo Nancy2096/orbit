@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select"
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
-import { ArrowLeft, BadgePercent, Save, UserCheck } from "lucide-react"
+import { ArrowLeft, BadgePercent, Save, UserCheck, CheckCircle2, XCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { useAgency } from "@/contexts/agency-context"
@@ -73,6 +73,13 @@ export default function NewCommissionPage() {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [currentUserStaff, setCurrentUserStaff] = useState<Staff | null>(null)
   const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(null)
+  // Requisitos para poder mandar la comisión a aprobación: el prospecto debe
+  // tener al menos una cita (actividad tipo "meeting") y al menos una cotización.
+  const [requirements, setRequirements] = useState<{
+    loading: boolean
+    hasMeeting: boolean
+    hasQuotation: boolean
+  }>({ loading: false, hasMeeting: false, hasQuotation: false })
   
   const [formData, setFormData] = useState({
     staff_id: "",
@@ -264,6 +271,38 @@ const fetchInitialData = async () => {
         commission_amount: ""
       }))
     }
+
+    // Validar requisitos (cita y cotización) del prospecto seleccionado.
+    checkProspectRequirements(prospectId)
+  }
+
+  const checkProspectRequirements = async (prospectId: string) => {
+    if (!prospectId) {
+      setRequirements({ loading: false, hasMeeting: false, hasQuotation: false })
+      return
+    }
+    setRequirements({ loading: true, hasMeeting: false, hasQuotation: false })
+    try {
+      const [meetingRes, quotationRes] = await Promise.all([
+        supabase
+          .from("crm_activities")
+          .select("id", { count: "exact", head: true })
+          .eq("prospect_id", prospectId)
+          .eq("activity_type", "meeting"),
+        supabase
+          .from("crm_prospect_quotations")
+          .select("id", { count: "exact", head: true })
+          .eq("prospect_id", prospectId),
+      ])
+      setRequirements({
+        loading: false,
+        hasMeeting: (meetingRes.count ?? 0) > 0,
+        hasQuotation: (quotationRes.count ?? 0) > 0,
+      })
+    } catch (error) {
+      console.error("Error checking prospect requirements:", error)
+      setRequirements({ loading: false, hasMeeting: false, hasQuotation: false })
+    }
   }
 
   const handleCommissionTypeChange = (commissionTypeId: string) => {
@@ -293,6 +332,16 @@ const fetchInitialData = async () => {
     }
     if (!formData.commission_amount) {
       toast.error("No hay monto de comision definido")
+      return
+    }
+    // El prospecto debe tener cita registrada Y cotización para poder enviarse
+    // a aprobación.
+    if (!requirements.hasMeeting || !requirements.hasQuotation) {
+      const faltantes = [
+        !requirements.hasMeeting ? "una cita registrada" : null,
+        !requirements.hasQuotation ? "una cotización cargada" : null,
+      ].filter(Boolean)
+      toast.error(`No se puede mandar a aprobación: el prospecto necesita ${faltantes.join(" y ")}.`)
       return
     }
 
@@ -490,6 +539,40 @@ const fetchInitialData = async () => {
                       Este prospecto no tiene un tipo de cliente asignado. Puedes asignarlo manualmente abajo o editarlo en el CRM.
                     </div>
                   )}
+
+                  {/* Requisitos para mandar a aprobación */}
+                  <div className="space-y-2 border-t pt-3">
+                    <p className="text-sm font-medium">Requisitos para aprobación</p>
+                    {requirements.loading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Spinner className="h-4 w-4" />
+                        Verificando cita y cotización...
+                      </div>
+                    ) : (
+                      <ul className="space-y-1 text-sm">
+                        <li className="flex items-center gap-2">
+                          {requirements.hasMeeting ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-600" />
+                          )}
+                          <span className={requirements.hasMeeting ? "" : "text-red-600"}>
+                            Cita registrada
+                          </span>
+                        </li>
+                        <li className="flex items-center gap-2">
+                          {requirements.hasQuotation ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-600" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-600" />
+                          )}
+                          <span className={requirements.hasQuotation ? "" : "text-red-600"}>
+                            Cotización cargada
+                          </span>
+                        </li>
+                      </ul>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -584,6 +667,14 @@ const fetchInitialData = async () => {
                   La comision se creara con estado "Pendiente" y requerira aprobacion antes de ser pagada.
                 </p>
               </div>
+
+              {selectedProspect && !requirements.loading && (!requirements.hasMeeting || !requirements.hasQuotation) && (
+                <div className="p-4 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-900">
+                  <p className="text-sm text-red-700 dark:text-red-300">
+                    Este prospecto no cumple los requisitos para mandarse a aprobación. Registra una cita y carga una cotización en el CRM antes de continuar.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -592,7 +683,16 @@ const fetchInitialData = async () => {
           <Button type="button" variant="outline" asChild>
             <Link href="/dashboard/hr/commissions">Cancelar</Link>
           </Button>
-          <Button type="submit" disabled={saving}>
+          <Button
+            type="submit"
+            disabled={
+              saving ||
+              requirements.loading ||
+              !selectedProspect ||
+              !requirements.hasMeeting ||
+              !requirements.hasQuotation
+            }
+          >
             {saving ? (
               <>
                 <Spinner className="mr-2 h-4 w-4" />
