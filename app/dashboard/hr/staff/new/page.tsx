@@ -1513,6 +1513,7 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
           <StaffDocuments
             pendingUploads={pendingDocuments}
             onPendingUploadsChange={setPendingDocuments}
+            country={formData.address_country}
           />
   
   {/* Notas */}

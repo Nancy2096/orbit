@@ -59,6 +59,30 @@ const DOCUMENT_TYPES: DocumentType[] = [
   { id: "rfc", label: "RFC", description: "Constancia de Situación Fiscal (RFC)", required: false },
 ]
 
+// Documentos que solo aplican para colaboradores en México (trámites fiscales
+// nacionales). Si el país del colaborador no es México, no se les solicitan ni
+// se cuentan en el avance de perfil, permitiéndoles llegar al 100%.
+const MEXICO_ONLY_DOCUMENT_TYPES = ["rfc", "curp"]
+
+// Determina si el país corresponde a México. El campo es de texto libre, así
+// que se aceptan las variantes más comunes. Un valor vacío se trata como México
+// (es el valor por defecto del formulario).
+export function isMexicoCountry(country?: string | null): boolean {
+  if (!country || country.trim() === "") return true
+  const normalized = country
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // quitar acentos
+  return ["mexico", "mx", "mex", "estados unidos mexicanos"].includes(normalized)
+}
+
+// Devuelve los tipos de documento aplicables según el país del colaborador.
+export function getApplicableDocumentTypes(country?: string | null): DocumentType[] {
+  if (isMexicoCountry(country)) return DOCUMENT_TYPES
+  return DOCUMENT_TYPES.filter((t) => !MEXICO_ONLY_DOCUMENT_TYPES.includes(t.id))
+}
+
 interface StaffDocumentsProps {
   staffId?: string // undefined for new staff
   documents?: StaffDocument[]
@@ -66,6 +90,8 @@ interface StaffDocumentsProps {
   pendingUploads?: Map<string, File> // For new staff - files pending upload
   onPendingUploadsChange?: (uploads: Map<string, File>) => void
   readOnly?: boolean
+  /** País del colaborador. Si no es México, se ocultan RFC y CURP. */
+  country?: string | null
 }
 
 export function StaffDocuments({ 
@@ -74,8 +100,11 @@ export function StaffDocuments({
   onDocumentsChange,
   pendingUploads = new Map(),
   onPendingUploadsChange,
-  readOnly = false 
+  readOnly = false,
+  country,
 }: StaffDocumentsProps) {
+  // Solo se muestran los documentos aplicables según el país del colaborador.
+  const applicableDocumentTypes = getApplicableDocumentTypes(country)
   const [uploading, setUploading] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -247,7 +276,7 @@ export function StaffDocuments({
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {DOCUMENT_TYPES.map((docType) => {
+            {applicableDocumentTypes.map((docType) => {
               const existingDoc = getDocumentForType(docType.id)
               const pendingFile = getPendingFileForType(docType.id)
               const isUploading = uploading === docType.id
