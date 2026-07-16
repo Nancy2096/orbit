@@ -633,6 +633,14 @@ async function fetchAgencyDepartments(agencyId: string) {
     setError(null)
     setLoading(true)
 
+    // La moneda de la cuenta se define con el selector de moneda de los
+    // servicios (MXN/USD). Mapeamos ese código a su id en la tabla currencies
+    // para persistir retainer_currency_id, que es lo que muestra la lista.
+    const resolvedCurrencyId =
+      formData.retainer_currency_id ||
+      currencies.find((c) => c.code === selectedServiceCurrency)?.id ||
+      null
+
     // Update account
     const { error: updateError } = await supabase
       .from("accounts")
@@ -645,7 +653,7 @@ async function fetchAgencyDepartments(agencyId: string) {
         sales_advisor_id: formData.sales_advisor_id || null,
         account_type: formData.account_type,
         retainer_amount: formData.retainer_amount ? parseFloat(formData.retainer_amount) : null,
-        retainer_currency_id: formData.retainer_currency_id || null,
+        retainer_currency_id: resolvedCurrencyId,
         contract_start_date: formData.contract_start_date || null,
         contract_end_date: formData.contract_end_date || null,
         payment_terms: parseInt(formData.payment_terms) || 30,
