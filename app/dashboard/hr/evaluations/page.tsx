@@ -1505,7 +1505,7 @@ const [editTemplateForm, setEditTemplateForm] = useState({
   }
 
   // Start a staff evaluation
-  const handleStartStaffEvaluation = async (staffId: string, evalType: string) => {
+  const handleStartStaffEvaluation = async (staffId: string, evalType: string, preselectTemplateId = "") => {
     // Onboarding y Objetivos pueden tener varias evaluaciones por colaborador
     // (p. ej. encuestas a 1 semana, 30 y 90 días), por lo que no se bloquean.
     const allowsMultiple = evalType === "onboarding" || evalType === "objectives"
@@ -1528,7 +1528,7 @@ const [editTemplateForm, setEditTemplateForm] = useState({
 
     // Show method selection dialog
     setStaffEvalMethodData({ staffId, evalType, staffName, staff })
-    setStaffEvalTemplate("")
+    setStaffEvalTemplate(preselectTemplateId)
     setStaffEvalEvaluators([
       { type: "self", name: staffName, email: staff.email || "" }
     ])
@@ -2600,6 +2600,155 @@ const handleCreateTemplate = () => {
     return <Minus className="h-4 w-4 text-gray-500" />
   }
 
+  // Tabla reutilizable con el desglose de colaboradores activos para un apartado
+  // (Permanencia, Objetivos u Onboarding). Las columnas se generan dinámicamente
+  // a partir de las encuestas (plantillas) ligadas a ese scope.
+  const renderScopeStaffTable = (
+    scope: "permanence" | "objectives" | "onboarding",
+    opts?: { showTenure?: boolean; rowFilter?: (staff: StaffMember) => boolean },
+  ) => {
+    const scopeTemplates = templatesList.filter((t) => t.scope === scope)
+    const allowsMultiple = scope === "objectives" || scope === "onboarding"
+    const tenureDays = (d?: string | null) =>
+      d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null
+    const rows = opts?.rowFilter ? filteredStaff.filter(opts.rowFilter) : filteredStaff
+
+    // Busca la evaluación de un colaborador para una encuesta concreta.
+    // Prioriza el template_id; si el registro es antiguo y no lo tiene, usa la
+    // categoría siempre que sea única dentro del scope para no duplicar.
+    const findTemplateEval = (staffId: string, template: (typeof scopeTemplates)[number]) => {
+      let ev = staffEvaluations.find((e) => e.staff_id === staffId && e.template_id === template.id)
+      if (ev) return ev
+      const categoryUnique =
+        scopeTemplates.filter((t) => t.category === template.category).length === 1
+      if (categoryUnique) {
+        ev = staffEvaluations.find(
+          (e) => e.staff_id === staffId && !e.template_id && e.evaluation_type === template.category,
+        )
+      }
+      return ev || null
+    }
+
+    const startTypeFor = (template: (typeof scopeTemplates)[number]) =>
+      scope === "permanence" ? template.category : scope
+
+    const colSpan = 2 + (opts?.showTenure ? 1 : 0) + scopeTemplates.length + 1
+
+    return (
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Colaborador</TableHead>
+                  <TableHead>Departamento</TableHead>
+                  {opts?.showTenure && <TableHead>Ingreso</TableHead>}
+                  {scopeTemplates.map((t) => (
+                    <TableHead key={t.id}>{t.name}</TableHead>
+                  ))}
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingStaff ? (
+                  <TableRow>
+                    <TableCell colSpan={colSpan} className="text-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                    </TableCell>
+                  </TableRow>
+                ) : scopeTemplates.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={colSpan} className="text-center py-8 text-muted-foreground">
+                      No hay encuestas configuradas para este apartado
+                    </TableCell>
+                  </TableRow>
+                ) : rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={colSpan} className="text-center py-8 text-muted-foreground">
+                      No hay colaboradores activos
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((staff) => {
+                    const t = tenureDays(staff.hire_date)
+                    return (
+                      <TableRow key={staff.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                {staff.first_name[0]}{staff.last_name[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium">{staff.first_name} {staff.last_name}</div>
+                              <div className="text-xs text-muted-foreground">{staff.position || "Sin puesto"}</div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>{staff.department || "-"}</TableCell>
+                        {opts?.showTenure && (
+                          <TableCell className="text-sm text-muted-foreground">
+                            {staff.hire_date ? formatScheduleDate(staff.hire_date) : "—"}
+                            {t !== null && <span className="block text-xs">{t} días</span>}
+                          </TableCell>
+                        )}
+                        {scopeTemplates.map((template) => {
+                          const ev = findTemplateEval(staff.id, template)
+                          return (
+                            <TableCell key={template.id}>
+                              {ev?.status === "completed" ? (
+                                <Badge className="bg-green-100 text-green-700">{ev.score ?? 0}%</Badge>
+                              ) : ev?.status === "in_progress" ? (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700">En proceso</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-muted-foreground">Sin evaluar</Badge>
+                              )}
+                            </TableCell>
+                          )
+                        })}
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {scopeTemplates.map((template) => {
+                                const ev = findTemplateEval(staff.id, template)
+                                const disabled = !allowsMultiple && ev !== null
+                                return (
+                                  <DropdownMenuItem
+                                    key={template.id}
+                                    onClick={() =>
+                                      handleStartStaffEvaluation(staff.id, startTypeFor(template), template.id)
+                                    }
+                                    disabled={disabled}
+                                  >
+                                    <Play className="h-4 w-4 mr-2" />
+                                    {ev && !allowsMultiple
+                                      ? `${template.name} (${ev.status === "completed" ? "completada" : "en proceso"})`
+                                      : `Iniciar: ${template.name}`}
+                                  </DropdownMenuItem>
+                                )
+                              })}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header */}
@@ -3435,7 +3584,9 @@ const handleCreateTemplate = () => {
         </div>
 
         {/* Staff Table */}
-        <Card>
+        {renderScopeStaffTable("permanence")}
+        {false && (
+          <Card>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
@@ -3627,7 +3778,8 @@ const handleCreateTemplate = () => {
               </TableBody>
             </Table>
           </CardContent>
-        </Card>
+          </Card>
+        )}
       </TabsContent>
 
       {/* Objetivos Tab */}
@@ -3770,6 +3922,17 @@ const handleCreateTemplate = () => {
             })}
           </div>
         )}
+
+        {/* Desglose de colaboradores activos con las encuestas de Objetivos */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-base font-semibold">Colaboradores</h3>
+            <p className="text-sm text-muted-foreground">
+              Todos los colaboradores activos y el estatus de las encuestas ligadas a Objetivos.
+            </p>
+          </div>
+          {renderScopeStaffTable("objectives")}
+        </div>
       </TabsContent>
 
       {/* Onboarding Tab */}
@@ -3969,125 +4132,26 @@ const handleCreateTemplate = () => {
         </div>
 
         {/* Onboarding Collaborators Table */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Colaboradores en Onboarding</CardTitle>
-            <CardDescription>
-              Personal que está en su proceso de incorporación y quienes ya lo completaron.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Colaborador</TableHead>
-                  <TableHead>Departamento</TableHead>
-                  <TableHead>Ingreso</TableHead>
-                  <TableHead>Etapa</TableHead>
-                  <TableHead>Encuesta</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(() => {
-                  const tenureDays = (d?: string | null) =>
-                    d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null
-                  const rows = filteredStaff
-                    .map((staff) => {
-                      const t = tenureDays(staff.hire_date)
-                      const onbEval = staffEvaluations.find(
-                        (e) => e.staff_id === staff.id && e.evaluation_type === "onboarding"
-                      )
-                      const inProcess = t !== null && t <= 90
-                      return { staff, t, onbEval, inProcess }
-                    })
-                    .filter(({ inProcess, onbEval }) => {
-                      if (onboardingFilter === "in_process") return inProcess
-                      if (onboardingFilter === "completed") return !inProcess || onbEval?.status === "completed"
-                      return true
-                    })
-
-                  if (loadingStaff) {
-                    return (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8">
-                          <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                        </TableCell>
-                      </TableRow>
-                    )
-                  }
-                  if (rows.length === 0) {
-                    return (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                          No hay colaboradores en esta vista
-                        </TableCell>
-                      </TableRow>
-                    )
-                  }
-
-                  return rows.map(({ staff, t, onbEval, inProcess }) => {
-                    const stageLabel =
-                      t === null ? "—" : t <= 7 ? "1ª Semana" : t <= 30 ? "30 Días" : t <= 90 ? "90 Días" : "Completado"
-                    return (
-                      <TableRow key={staff.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-8 w-8">
-                              <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                                {staff.first_name[0]}{staff.last_name[0]}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <div className="font-medium">{staff.first_name} {staff.last_name}</div>
-                              <div className="text-xs text-muted-foreground">{staff.position || "Sin puesto"}</div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{staff.department || "-"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {staff.hire_date ? formatScheduleDate(staff.hire_date) : "—"}
-                          {t !== null && <span className="block text-xs">{t} días</span>}
-                        </TableCell>
-                        <TableCell>
-                          {inProcess ? (
-                            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                              {stageLabel}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-muted-foreground">Completado</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {onbEval?.status === "completed" ? (
-                            <Badge className="bg-green-100 text-green-700">{onbEval.score ?? 0}%</Badge>
-                          ) : onbEval?.status === "in_progress" ? (
-                            <Badge variant="outline" className="bg-blue-50 text-blue-700">En proceso</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-muted-foreground">Sin evaluar</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setStartScopedEvalScope("onboarding")
-                              setStartScopedEvalStaffId(staff.id)
-                            }}
-                          >
-                            <Play className="mr-2 h-4 w-4" />
-                            Iniciar
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                })()}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-base font-semibold">Colaboradores en Onboarding</h3>
+            <p className="text-sm text-muted-foreground">
+              Todos los colaboradores activos y el estatus de las encuestas de onboarding (1 semana, 30 y 90 días).
+            </p>
+          </div>
+          {renderScopeStaffTable("onboarding", {
+            showTenure: true,
+            rowFilter: (staff) => {
+              const t = staff.hire_date
+                ? Math.floor((Date.now() - new Date(staff.hire_date).getTime()) / 86400000)
+                : null
+              const inProcess = t !== null && t <= 90
+              if (onboardingFilter === "in_process") return inProcess
+              if (onboardingFilter === "completed") return !inProcess
+              return true
+            },
+          })}
+        </div>
       </TabsContent>
 
       {/* Nine Box Tab */}
