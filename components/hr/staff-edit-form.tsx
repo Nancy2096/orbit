@@ -103,6 +103,7 @@ export function StaffEditForm({
     first_name: "",
     last_name: "",
     email: "",
+    agency_email: "",
     phone: "",
     position: "",
     position_id: "",
@@ -251,6 +252,7 @@ export function StaffEditForm({
         first_name: s.first_name || "",
         last_name: s.last_name || "",
         email: s.email || "",
+        agency_email: s.agency_email || "",
         phone: s.phone || "",
         position: s.position || "",
         position_id: s.position_id || "",
@@ -498,6 +500,7 @@ function handlePositionChange(value: string) {
         first_name: formData.first_name,
         last_name: formData.last_name,
         email: formData.email,
+        agency_email: formData.agency_email || null,
         phone: formData.phone || null,
         position: formData.position,
         position_id: formData.position_id || null,
@@ -791,7 +794,7 @@ hire_date: formData.hire_date || null,
 
                 <div className="grid grid-cols-2 gap-4">
                   <Field>
-                    <FieldLabel htmlFor="email">Correo electrónico *</FieldLabel>
+                    <FieldLabel htmlFor="email">Correo electrónico (Personal) *</FieldLabel>
                     <Input
                       id="email"
                       type="email"
@@ -851,6 +854,17 @@ hire_date: formData.hire_date || null,
                     </div>
                   </div>
                 )}
+
+                <Field>
+                  <FieldLabel htmlFor="agency_email">Correo electrónico de la agencia</FieldLabel>
+                  <Input
+                    id="agency_email"
+                    type="email"
+                    value={formData.agency_email}
+                    onChange={(e) => setFormData({ ...formData, agency_email: e.target.value })}
+                    placeholder="nombre@agencia.com"
+                  />
+                </Field>
 
                 <div className="grid grid-cols-2 gap-4">
                   <Field>
