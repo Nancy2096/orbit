@@ -257,9 +257,15 @@ export default function NewProspectPage() {
 
     setSaving(true)
 
+    // Si el prospecto se crea ya con un asesor comercial, registramos la fecha
+    // y hora de la asignación inicial.
+    const assignmentTimestamp = new Date().toISOString()
+    const hasInitialAssignment = !!formData.assigned_to
+
     const { data: prospect, error } = await supabase.from("crm_prospects").insert({
       agency_id: selectedAgencyId,
       assigned_to: formData.assigned_to || null,
+      assigned_at: hasInitialAssignment ? assignmentTimestamp : null,
       contact_name: formData.contact_name,
       contact_email: formData.contact_email || null,
       contact_phone: formData.contact_phone || null,
@@ -289,6 +295,17 @@ export default function NewProspectPage() {
       toast.error("Error al crear el prospecto")
       console.error(error)
       return
+    }
+
+    // Registrar la asignación inicial del asesor en el historial.
+    if (prospect && hasInitialAssignment) {
+      const { data: authData } = await supabase.auth.getUser()
+      await supabase.from("crm_prospect_assignments").insert({
+        prospect_id: prospect.id,
+        assigned_to: formData.assigned_to,
+        assigned_by: authData?.user?.id ?? null,
+        created_at: assignmentTimestamp,
+      })
     }
 
     // Insert additional contacts if any
