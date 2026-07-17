@@ -130,23 +130,11 @@ async function getOperationsData(agencyId: string | null) {
     accountsMonthlyTarget: objectivesAgg.accountsMonthlyTarget,
     projectsMonthlyTarget: objectivesAgg.projectsMonthlyTarget,
     accountsCurrent: activeRetainers.length,
-    projectsCurrent: activeProjects.length,
+    // El tacómetro compara el total de proyectos (activos + inactivos) vs la meta.
+    projectsCurrent: projects.length,
+    projectsActive: activeProjects.length,
+    projectsInactive: projects.length - activeProjects.length,
   }
-
-  // Serie anual acumulada de proyectos (Ene-Dic): total de proyectos creados
-  // hasta cada mes, separando los activos del resto, para compararlos contra la
-  // meta anual de proyectos.
-  const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-  const curYear = new Date().getFullYear()
-  const yearProjects = projects.filter((p) => p.created_at && new Date(p.created_at).getFullYear() === curYear)
-  let cumActivos = 0
-  let cumNoActivos = 0
-  const projectsAnnual = MONTHS_ES.map((month, m) => {
-    const monthProjects = yearProjects.filter((p) => new Date(p.created_at as string).getMonth() === m)
-    cumActivos += monthProjects.filter((p) => isActive(p.status)).length
-    cumNoActivos += monthProjects.filter((p) => !isActive(p.status)).length
-    return { month, activos: cumActivos, noActivos: cumNoActivos, total: cumActivos + cumNoActivos }
-  })
 
   // Proyección de ingresos recurrentes acumulados a 12 meses (MXN y USD)
   const monthFmt = new Intl.DateTimeFormat("es-MX", { month: "short", year: "2-digit" })
@@ -185,7 +173,6 @@ async function getOperationsData(agencyId: string | null) {
     topAccountsUSD,
     clientsByType,
     projection,
-    projectsAnnual,
     unitByType: [
       { type: "Retainer activas", count: activeRetainers.length },
       { type: "Proyectos activos", count: activeProjects.length },

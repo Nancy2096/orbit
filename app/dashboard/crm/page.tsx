@@ -35,7 +35,6 @@ import {
   ComposedChart,
   BarChart,
   Bar,
-  Line,
   ReferenceLine,
   LabelList,
   Legend,
@@ -122,6 +121,8 @@ interface Objectives {
 interface ObjectiveProgress {
   accountsCurrent: number
   projectsCurrent: number
+  projectsActive: number
+  projectsInactive: number
   accountsThisMonth: number
   projectsThisMonth: number
 }
@@ -132,14 +133,6 @@ interface MonthlyObjectiveItem {
   proyectos: number
   metaCuentas: number
   metaProyectos: number
-}
-
-// Serie anual acumulada de proyectos (Ene-Dic) para comparar contra la meta anual.
-interface ProjectAnnualItem {
-  month: string
-  activos: number
-  noActivos: number
-  total: number
 }
 
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
@@ -175,11 +168,12 @@ export default function CRMDashboardPage() {
   const [objectiveProgress, setObjectiveProgress] = useState<ObjectiveProgress>({
     accountsCurrent: 0,
     projectsCurrent: 0,
+    projectsActive: 0,
+    projectsInactive: 0,
     accountsThisMonth: 0,
     projectsThisMonth: 0,
   })
   const [monthlyObjectives, setMonthlyObjectives] = useState<MonthlyObjectiveItem[]>([])
-  const [projectsAnnual, setProjectsAnnual] = useState<ProjectAnnualItem[]>([])
 
   const supabase = createClient()
 
@@ -410,10 +404,19 @@ export default function CRMDashboardPage() {
 
     const accountsCurrent = retainerRows.filter((a) => a.status === "active").length
     const projectsCurrent = projectRows.length
+    const projectsActive = projectRows.filter((p) => p.status === "in_progress").length
+    const projectsInactive = projectsCurrent - projectsActive
     const accountsThisMonth = retainerRows.filter((a) => isThisMonth(a.created_at)).length
     const projectsThisMonth = projectRows.filter((p) => isThisMonth(p.created_at)).length
 
-    setObjectiveProgress({ accountsCurrent, projectsCurrent, accountsThisMonth, projectsThisMonth })
+    setObjectiveProgress({
+      accountsCurrent,
+      projectsCurrent,
+      projectsActive,
+      projectsInactive,
+      accountsThisMonth,
+      projectsThisMonth,
+    })
 
     // Serie mensual del año en curso: nuevas cuentas y proyectos vs meta mensual.
     const monthly: MonthlyObjectiveItem[] = Array.from({ length: 12 }, (_, m) => ({
@@ -432,28 +435,6 @@ export default function CRMDashboardPage() {
       metaProyectos: objectivesData.projectsMonthlyTarget,
     }))
     setMonthlyObjectives(monthly)
-
-    // Serie anual acumulada de proyectos (Ene-Dic): total de proyectos creados
-    // hasta cada mes, separando los activos (en progreso) del resto para
-    // compararlos contra la meta anual de proyectos.
-    const yearProjects = projectRows.filter((p) => {
-      if (!p.created_at) return false
-      return new Date(p.created_at).getFullYear() === curYear
-    })
-    let cumActivos = 0
-    let cumNoActivos = 0
-    const projectsSeries: ProjectAnnualItem[] = Array.from({ length: 12 }, (_, m) => {
-      const monthProjects = yearProjects.filter((p) => new Date(p.created_at as string).getMonth() === m)
-      cumActivos += monthProjects.filter((p) => p.status === "in_progress").length
-      cumNoActivos += monthProjects.filter((p) => p.status !== "in_progress").length
-      return {
-        month: MONTHS_ES[m],
-        activos: cumActivos,
-        noActivos: cumNoActivos,
-        total: cumActivos + cumNoActivos,
-      }
-    })
-    setProjectsAnnual(projectsSeries)
 
     setLoading(false)
     setRefreshing(false)
@@ -629,7 +610,7 @@ export default function CRMDashboardPage() {
                     icon={Building2}
                   />
                 </div>
-                <div className="flex flex-col items-center justify-center rounded-xl border bg-card/60 p-4">
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border bg-card/60 p-4">
                   <ObjectiveGauge
                     label="Proyectos"
                     current={objectiveProgress.projectsCurrent}
@@ -637,6 +618,22 @@ export default function CRMDashboardPage() {
                     color="var(--chart-2)"
                     icon={FolderKanban}
                   />
+                  <div className="flex items-center justify-center gap-4 text-xs">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-[var(--chart-2)]" aria-hidden="true" />
+                      <span className="text-muted-foreground">Activos</span>
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {objectiveProgress.projectsActive}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40" aria-hidden="true" />
+                      <span className="text-muted-foreground">Inactivos</span>
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {objectiveProgress.projectsInactive}
+                      </span>
+                    </span>
+                  </div>
                 </div>
 
                 {/* Objetivos del mes en curso */}
@@ -856,89 +853,6 @@ export default function CRMDashboardPage() {
               </CardContent>
             </Card>
           </div>
-
-          {/* Proyectos del año (acumulado) frente a la meta anual */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <CalendarClock className="h-4 w-4 text-primary" />
-                Proyectos del año vs meta anual
-              </CardTitle>
-              <CardDescription>
-                Total acumulado de proyectos (Ene-Dic) frente a la meta anual. Los proyectos en progreso se destacan en
-                color.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={projectsAnnual} margin={{ top: 20, right: 8, left: -16, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
-                    <XAxis
-                      dataKey="month"
-                      className="text-xs"
-                      tick={{ fill: "hsl(var(--muted-foreground))" }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      className="text-xs"
-                      tick={{ fill: "hsl(var(--muted-foreground))" }}
-                      allowDecimals={false}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "8px",
-                      }}
-                    />
-                    <Legend iconType="circle" />
-                    {objectives.projectsTarget > 0 && (
-                      <ReferenceLine
-                        y={objectives.projectsTarget}
-                        stroke="#dc2626"
-                        strokeDasharray="4 4"
-                        strokeWidth={1.5}
-                        label={{
-                          value: `Meta anual ${objectives.projectsTarget}`,
-                          position: "insideTopRight",
-                          fill: "#dc2626",
-                          fontSize: 10,
-                        }}
-                      />
-                    )}
-                    <Bar
-                      dataKey="activos"
-                      name="En progreso"
-                      stackId="p"
-                      fill="#16a34a"
-                      radius={[0, 0, 0, 0]}
-                      barSize={22}
-                    />
-                    <Bar
-                      dataKey="noActivos"
-                      name="Otros estatus"
-                      stackId="p"
-                      fill="#94a3b8"
-                      radius={[6, 6, 0, 0]}
-                      barSize={22}
-                    >
-                      <LabelList dataKey="total" position="top" className="fill-muted-foreground text-[10px]" />
-                    </Bar>
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              {objectives.projectsTarget > 0 && (
-                <p className="mt-2 text-center text-xs text-muted-foreground">
-                  Meta anual: {objectives.projectsTarget} proyectos
-                </p>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
 
