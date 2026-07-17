@@ -49,6 +49,7 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   // CRM
   ["/dashboard/crm/pipeline", ["crm_pipeline"]],
   ["/dashboard/crm/prospects", ["crm_prospects"]],
+  ["/dashboard/crm/team", ["crm_prospects"]],
   ["/dashboard/crm/tasks", ["crm_tasks"]],
   ["/dashboard/crm/calendar", ["crm_tasks"]],
   ["/dashboard/crm/metrics", ["crm_metrics"]],

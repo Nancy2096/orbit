@@ -13,6 +13,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
+const GLOBAL_VALUE = "__global__"
+
 function AgencySelector() {
   const { agencies, selectedAgencyId, setSelectedAgencyId, loading } = useAgency()
 
@@ -48,13 +50,14 @@ function AgencySelector() {
           <span>Agencia:</span>
         </div>
         <Select 
-          value={selectedAgencyId || ""} 
-          onValueChange={(value) => setSelectedAgencyId(value || null)}
+          value={selectedAgencyId ?? GLOBAL_VALUE} 
+          onValueChange={(value) => setSelectedAgencyId(value === GLOBAL_VALUE ? null : value)}
         >
           <SelectTrigger className="w-[250px] bg-background">
             <SelectValue placeholder="Selecciona una agencia" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={GLOBAL_VALUE}>Global (todas las agencias)</SelectItem>
             {agencies.map((agency) => (
               <SelectItem key={agency.id} value={agency.id}>
                 {agency.name}
@@ -63,8 +66,8 @@ function AgencySelector() {
           </SelectContent>
         </Select>
         {!selectedAgencyId && (
-          <span className="text-sm text-amber-600 dark:text-amber-400">
-            Selecciona una agencia para ver los datos
+          <span className="text-sm text-muted-foreground">
+            Mostrando datos de todas las agencias
           </span>
         )}
       </div>

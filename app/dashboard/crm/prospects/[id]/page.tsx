@@ -112,6 +112,13 @@ interface SalesRep {
   last_name: string
 }
 
+interface AssignmentHistoryEntry {
+  id: string
+  assigned_to: string | null
+  created_at: string
+  staff: { first_name: string; last_name: string } | null
+}
+
 interface ActivityItem {
   id: string
   activity_type: string
@@ -208,6 +215,11 @@ export default function ProspectDetailPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [calendarDate, setCalendarDate] = useState(new Date())
   
+  // Seguimiento de la asignación del asesor comercial
+  const [initialAssignedTo, setInitialAssignedTo] = useState<string | null>(null)
+  const [assignedAt, setAssignedAt] = useState<string | null>(null)
+  const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistoryEntry[]>([])
+
   // Metadatos del prospecto necesarios para la conversión a cliente
   const [prospectAgencyId, setProspectAgencyId] = useState<string | null>(null)
   const [convertedClientId, setConvertedClientId] = useState<string | null>(null)
@@ -315,6 +327,25 @@ export default function ProspectDetailPage() {
       return
     }
 
+    // Guardar el asesor asignado actual y su fecha para detectar reasignaciones.
+    setInitialAssignedTo(prospectData.assigned_to || null)
+    setAssignedAt(prospectData.assigned_at || null)
+
+    // Cargar el historial de asignaciones (más reciente primero).
+    const { data: historyData } = await supabase
+      .from("crm_prospect_assignments")
+      .select("id, assigned_to, created_at, staff:staff(first_name, last_name)")
+      .eq("prospect_id", prospectId)
+      .order("created_at", { ascending: false })
+    if (historyData) {
+      setAssignmentHistory(
+        historyData.map((h: any) => ({
+          ...h,
+          staff: Array.isArray(h.staff) ? h.staff[0] ?? null : h.staff,
+        })),
+      )
+    }
+
     // Populate form data
     setFormData({
       assigned_to: prospectData.assigned_to || "",
@@ -407,6 +438,15 @@ state_province: prospectData.state_province || "",
     setLoading(false)
   }
 
+  const formatAssignmentDateTime = (value: string) =>
+    new Date(value).toLocaleString("es-MX", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+
   const handleSave = async () => {
     if (!formData.contact_name.trim()) {
       toast.error("El nombre del contacto es requerido")
@@ -420,9 +460,15 @@ state_province: prospectData.state_province || "",
 
     setSaving(true)
 
+    // Detectar si cambió el asesor comercial asignado para registrar la fecha
+    // y hora de la (re)asignación y guardar el historial.
+    const newAssignedTo = formData.assigned_to || null
+    const assignmentChanged = newAssignedTo !== initialAssignedTo
+    const assignmentTimestamp = new Date().toISOString()
+
     const stage = stages.find(s => s.id === formData.stage_id)
     const updateData: Record<string, unknown> = {
-      assigned_to: formData.assigned_to || null,
+      assigned_to: newAssignedTo,
       contact_name: formData.contact_name,
       contact_email: formData.contact_email || null,
       contact_phone: formData.contact_phone || null,
@@ -454,6 +500,10 @@ state_province: prospectData.state_province || "",
     if (stage?.is_lost) {
       updateData.lost_date = new Date().toISOString()
     }
+    // Actualizar la fecha/hora de asignación solo cuando cambia el asesor.
+    if (assignmentChanged) {
+      updateData.assigned_at = newAssignedTo ? assignmentTimestamp : null
+    }
 
     const { error } = await supabase
       .from("crm_prospects")
@@ -465,6 +515,34 @@ state_province: prospectData.state_province || "",
       toast.error("Error al guardar los cambios")
       console.error(error)
       return
+    }
+
+    // Registrar en el historial de asignaciones cuando hay un nuevo asesor.
+    if (assignmentChanged && newAssignedTo) {
+      const { data: authData } = await supabase.auth.getUser()
+      await supabase.from("crm_prospect_assignments").insert({
+        prospect_id: prospectId,
+        assigned_to: newAssignedTo,
+        assigned_by: authData?.user?.id ?? null,
+        created_at: assignmentTimestamp,
+      })
+      // Reflejar los cambios en el estado local.
+      setInitialAssignedTo(newAssignedTo)
+      setAssignedAt(assignmentTimestamp)
+      const rep = salesReps.find((r) => r.id === newAssignedTo)
+      setAssignmentHistory((prev) => [
+        {
+          id: `temp-${assignmentTimestamp}`,
+          assigned_to: newAssignedTo,
+          created_at: assignmentTimestamp,
+          staff: rep ? { first_name: rep.first_name, last_name: rep.last_name } : null,
+        },
+        ...prev,
+      ])
+    } else if (assignmentChanged && !newAssignedTo) {
+      // Se quitó la asignación.
+      setInitialAssignedTo(null)
+      setAssignedAt(null)
     }
 
     // Delete removed contacts
@@ -1410,6 +1488,33 @@ state_province: prospectData.state_province || "",
                       ))}
                     </SelectContent>
                   </Select>
+
+                  {/* Fecha y hora de la asignación actual */}
+                  {assignedAt && (
+                    <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      Asignado el {formatAssignmentDateTime(assignedAt)}
+                    </p>
+                  )}
+
+                  {/* Historial de asignaciones */}
+                  {assignmentHistory.length > 0 && (
+                    <div className="mt-4 border-t pt-3">
+                      <p className="mb-2 text-sm font-medium">Historial de asignaciones</p>
+                      <ul className="space-y-2">
+                        {assignmentHistory.map((h) => (
+                          <li key={h.id} className="flex items-center justify-between text-sm">
+                            <span className="font-medium">
+                              {h.staff ? `${h.staff.first_name} ${h.staff.last_name}` : "Sin asesor"}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {formatAssignmentDateTime(h.created_at)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

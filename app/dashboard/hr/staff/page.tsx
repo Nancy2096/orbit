@@ -220,6 +220,7 @@ export default function StaffPage() {
         first_name,
         last_name,
         email,
+        agency_email,
         phone,
         position,
         department,

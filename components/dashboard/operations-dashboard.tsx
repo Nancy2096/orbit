@@ -1,10 +1,18 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useTransition } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import type { OperationsData } from "@/app/dashboard/operations/page"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   ChartContainer,
   ChartTooltip,
@@ -68,8 +76,22 @@ function formatCompact(value: number) {
   )
 }
 
+const GLOBAL_VALUE = "global"
+
 export function OperationsDashboard({ data }: { data: OperationsData }) {
   const { kpis, objectives } = data
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
+  const handleAgencyChange = (value: string) => {
+    startTransition(() => {
+      router.push(value === GLOBAL_VALUE ? "/dashboard/operations" : `/dashboard/operations?agency=${value}`)
+    })
+  }
+
+  const selectedAgencyName = data.selectedAgencyId
+    ? data.agencies.find((a) => a.id === data.selectedAgencyId)?.name ?? "Agencia"
+    : null
 
   const projectionConfig = {
     mxn: { label: "MXN acumulado", color: "var(--chart-1)" },
@@ -167,10 +189,29 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-balance">Dashboard de Operaciones</h1>
           <p className="text-sm text-muted-foreground text-pretty">
-            Indicadores de clientes, cuentas y proyectos con valores mensuales y proyección a futuro.
+            {selectedAgencyName
+              ? `Indicadores de ${selectedAgencyName} con valores mensuales y proyección a futuro.`
+              : "Indicadores globales de todas las agencias con valores mensuales y proyección a futuro."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={data.selectedAgencyId ?? GLOBAL_VALUE}
+            onValueChange={handleAgencyChange}
+            disabled={isPending}
+          >
+            <SelectTrigger className="w-[220px]" aria-label="Filtrar por agencia">
+              <SelectValue placeholder="Selecciona agencia" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={GLOBAL_VALUE}>Global (todas las agencias)</SelectItem>
+              {data.agencies.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button asChild variant="outline" size="sm">
             <Link href="/dashboard/accounts">Ver cuentas</Link>
           </Button>
@@ -218,11 +259,20 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
                 color="var(--chart-2)"
                 icon={FolderKanban}
               />
-              <div className="flex w-full items-center justify-center gap-2 text-xs">
-                <Target className="size-3.5 text-muted-foreground" aria-hidden="true" />
-                <span className="text-muted-foreground">Meta mensual:</span>
-                <span className="font-semibold tabular-nums text-foreground">
-                  {objectives.projectsMonthlyTarget.toLocaleString("es-MX")} proyectos
+              <div className="flex w-full items-center justify-center gap-4 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-full bg-[var(--chart-2)]" aria-hidden="true" />
+                  <span className="text-muted-foreground">Activos</span>
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {objectives.projectsActive.toLocaleString("es-MX")}
+                  </span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-full bg-muted-foreground/40" aria-hidden="true" />
+                  <span className="text-muted-foreground">Inactivos</span>
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {objectives.projectsInactive.toLocaleString("es-MX")}
+                  </span>
                 </span>
               </div>
             </div>

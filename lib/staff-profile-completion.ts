@@ -18,6 +18,7 @@ export interface StaffProfileFields {
   reports_to_id?: string | null
   contract_type_id?: string | null
   contract_type?: string | null
+  agency_email?: string | null
   // Contacto personal
   personal_email?: string | null
   personal_phone?: string | null
@@ -83,6 +84,7 @@ const CATEGORY_DEFINITIONS: {
       ["department_id", "department"],
       "reports_to_id",
       ["contract_type_id", "contract_type"],
+      "agency_email",
     ],
   },
   {

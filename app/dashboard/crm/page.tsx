@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ import {
   CalendarClock,
   TrendingUp,
   ArrowRight,
+  RefreshCw,
 } from "lucide-react"
 import {
   PieChart,
@@ -34,7 +35,6 @@ import {
   ComposedChart,
   BarChart,
   Bar,
-  Line,
   ReferenceLine,
   LabelList,
   Legend,
@@ -121,6 +121,8 @@ interface Objectives {
 interface ObjectiveProgress {
   accountsCurrent: number
   projectsCurrent: number
+  projectsActive: number
+  projectsInactive: number
   accountsThisMonth: number
   projectsThisMonth: number
 }
@@ -136,8 +138,9 @@ interface MonthlyObjectiveItem {
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
 export default function CRMDashboardPage() {
-  const { selectedAgencyId, loading: agencyLoading } = useAgency()
+  const { selectedAgencyId, selectedAgency, loading: agencyLoading } = useAgency()
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [hasData, setHasData] = useState(false)
 
   const [stats, setStats] = useState<Stats>({
@@ -165,6 +168,8 @@ export default function CRMDashboardPage() {
   const [objectiveProgress, setObjectiveProgress] = useState<ObjectiveProgress>({
     accountsCurrent: 0,
     projectsCurrent: 0,
+    projectsActive: 0,
+    projectsInactive: 0,
     accountsThisMonth: 0,
     projectsThisMonth: 0,
   })
@@ -172,18 +177,44 @@ export default function CRMDashboardPage() {
 
   const supabase = createClient()
 
+  // Referencia estable a la última versión de la carga, para invocarla desde
+  // listeners sin capturar valores obsoletos.
+  const fetchRef = useRef<(silent?: boolean) => void>(() => {})
+
   useEffect(() => {
-    if (selectedAgencyId) {
+    // Esperar a que el contexto de agencias termine de cargar; luego cargar
+    // datos tanto para una agencia específica como para el modo global.
+    if (!agencyLoading) {
       fetchDashboardData()
-    } else {
-      setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgencyId])
+  }, [selectedAgencyId, agencyLoading])
 
-  const fetchDashboardData = async () => {
-    if (!selectedAgencyId) return
-    setLoading(true)
+  // Refrescar automáticamente al regresar a la página (cambio de pestaña o de
+  // ruta), para reflejar cambios en cuentas, proyectos, metas y prospectos
+  // hechos en otras secciones.
+  useEffect(() => {
+    const onFocus = () => fetchRef.current?.(true)
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") fetchRef.current?.(true)
+    }
+    window.addEventListener("focus", onFocus)
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [])
+
+  const fetchDashboardData = async (silent = false) => {
+    if (silent) setRefreshing(true)
+    else setLoading(true)
+
+    // Modo global: sin agencia seleccionada se muestran datos de todas las agencias.
+    const isGlobal = !selectedAgencyId
+    // Aplica el filtro por agencia solo cuando hay una seleccionada.
+    const byAgency = <T extends { eq: (col: string, val: any) => T }>(q: T): T =>
+      isGlobal ? q : q.eq("agency_id", selectedAgencyId)
 
     const [
       { data: prospects },
@@ -192,24 +223,24 @@ export default function CRMDashboardPage() {
       { data: staff },
       { data: agency },
       { data: accounts },
-      { data: projects },
     ] = await Promise.all([
-      supabase
-        .from("crm_prospects")
-        .select("id, status, estimated_value, created_at, lost_reason, stage_id, source_id, assigned_to")
-        .eq("agency_id", selectedAgencyId),
-      supabase
-        .from("crm_pipeline_stages")
-        .select("id, name, color, is_won, is_lost, sort_order")
-        .eq("agency_id", selectedAgencyId),
-      supabase.from("crm_lead_sources").select("id, name").eq("agency_id", selectedAgencyId),
-      supabase.from("staff").select("id, first_name, last_name").eq("agency_id", selectedAgencyId),
-      supabase.from("agencies").select("settings").eq("id", selectedAgencyId).single(),
-      supabase.from("accounts").select("id, status, created_at").eq("agency_id", selectedAgencyId),
-      supabase
-        .from("projects")
-        .select("id, created_at, accounts!inner(agency_id)")
-        .eq("accounts.agency_id", selectedAgencyId),
+      byAgency(
+        supabase
+          .from("crm_prospects")
+          .select("id, status, estimated_value, created_at, lost_reason, stage_id, source_id, assigned_to"),
+      ),
+      byAgency(
+        supabase.from("crm_pipeline_stages").select("id, name, color, is_won, is_lost, sort_order"),
+      ),
+      byAgency(supabase.from("crm_lead_sources").select("id, name")),
+      byAgency(supabase.from("staff").select("id, first_name, last_name")),
+      // Settings (metas): una agencia o todas. Siempre se resuelve como arreglo.
+      isGlobal
+        ? supabase.from("agencies").select("settings")
+        : supabase.from("agencies").select("settings").eq("id", selectedAgencyId),
+      // Cuentas y proyectos provienen de la tabla accounts: retainer = cuentas,
+      // project = proyectos. Se filtran por agencia o se traen todas (global).
+      byAgency(supabase.from("accounts").select("id, status, created_at, account_type")),
     ])
 
     const rows = (prospects || []) as Prospect[]
@@ -321,18 +352,33 @@ export default function CRMDashboardPage() {
       .sort((a, b) => b.value - a.value)
     setLossReasons(losses)
 
-    // ----- Objetivos de operación y venta (desde settings de la agencia) -----
-    const obj = (agency as any)?.settings?.objectives || {}
-    const objectivesData: Objectives = {
-      accountsTarget: Number(obj.accounts_target) || 0,
-      projectsTarget: Number(obj.projects_target) || 0,
-      accountsMonthlyTarget: Number(obj.accounts_monthly_target) || 0,
-      projectsMonthlyTarget: Number(obj.projects_monthly_target) || 0,
-    }
+    // ----- Objetivos de operación y venta (settings de la agencia) -----
+    // En modo global se suman las metas de todas las agencias.
+    const agencyList = (Array.isArray(agency) ? agency : agency ? [agency] : []) as any[]
+    const objectivesData: Objectives = agencyList.reduce(
+      (acc, a) => {
+        const o = a?.settings?.objectives || {}
+        acc.accountsTarget += Number(o.accounts_target) || 0
+        acc.projectsTarget += Number(o.projects_target) || 0
+        acc.accountsMonthlyTarget += Number(o.accounts_monthly_target) || 0
+        acc.projectsMonthlyTarget += Number(o.projects_monthly_target) || 0
+        return acc
+      },
+      { accountsTarget: 0, projectsTarget: 0, accountsMonthlyTarget: 0, projectsMonthlyTarget: 0 } as Objectives,
+    )
     setObjectives(objectivesData)
 
-    const accountRows = (accounts || []) as { id: string; status: string | null; created_at: string | null }[]
-    const projectRows = (projects || []) as { id: string; created_at: string | null }[]
+    const accountRows = (accounts || []) as {
+      id: string
+      status: string | null
+      created_at: string | null
+      account_type: string | null
+    }[]
+
+    // "Cuentas" = tipo retainer; "Proyectos" = tipo project (igual que el
+    // Dashboard de Operaciones, ya que la tabla projects no se usa).
+    const retainerRows = accountRows.filter((a) => a.account_type === "retainer")
+    const projectRows = accountRows.filter((a) => a.account_type === "project")
 
     const now = new Date()
     const curYear = now.getFullYear()
@@ -344,17 +390,26 @@ export default function CRMDashboardPage() {
       return d.getFullYear() === curYear && d.getMonth() === curMonth
     }
 
-    const accountsCurrent = accountRows.filter((a) => a.status === "active").length
+    const accountsCurrent = retainerRows.filter((a) => a.status === "active").length
     const projectsCurrent = projectRows.length
-    const accountsThisMonth = accountRows.filter((a) => isThisMonth(a.created_at)).length
+    const projectsActive = projectRows.filter((p) => p.status === "active").length
+    const projectsInactive = projectsCurrent - projectsActive
+    const accountsThisMonth = retainerRows.filter((a) => isThisMonth(a.created_at)).length
     const projectsThisMonth = projectRows.filter((p) => isThisMonth(p.created_at)).length
 
-    setObjectiveProgress({ accountsCurrent, projectsCurrent, accountsThisMonth, projectsThisMonth })
+    setObjectiveProgress({
+      accountsCurrent,
+      projectsCurrent,
+      projectsActive,
+      projectsInactive,
+      accountsThisMonth,
+      projectsThisMonth,
+    })
 
     // Serie mensual del año en curso: nuevas cuentas y proyectos vs meta mensual.
     const monthly: MonthlyObjectiveItem[] = Array.from({ length: 12 }, (_, m) => ({
       month: MONTHS_ES[m],
-      cuentas: accountRows.filter((a) => {
+      cuentas: retainerRows.filter((a) => {
         if (!a.created_at) return false
         const d = new Date(a.created_at)
         return d.getFullYear() === curYear && d.getMonth() === m
@@ -370,7 +425,11 @@ export default function CRMDashboardPage() {
     setMonthlyObjectives(monthly)
 
     setLoading(false)
+    setRefreshing(false)
   }
+
+  // Mantener el ref apuntando a la función más reciente en cada render.
+  fetchRef.current = fetchDashboardData
 
   const formatCurrency = (amount: number) => {
     if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`
@@ -396,22 +455,6 @@ export default function CRMDashboardPage() {
           {[1, 2].map((i) => (
             <Skeleton key={i} className="h-72" />
           ))}
-        </div>
-      </div>
-    )
-  }
-
-  if (!selectedAgencyId) {
-    return (
-      <div className="p-6">
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="rounded-full bg-muted p-4 mb-4">
-            <Target className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <h2 className="text-xl font-semibold mb-2">Selecciona una Agencia</h2>
-          <p className="text-muted-foreground max-w-md">
-            Para ver el dashboard del CRM, primero selecciona una agencia en el selector de arriba.
-          </p>
         </div>
       </div>
     )
@@ -475,9 +518,17 @@ export default function CRMDashboardPage() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">Desempeño comercial frente a los objetivos de la agencia</p>
+          <p className="text-muted-foreground">
+            {selectedAgency
+              ? `Desempeño comercial de ${selectedAgency.name} frente a sus objetivos`
+              : "Desempeño comercial global de todas las agencias"}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => fetchDashboardData(true)} disabled={refreshing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Actualizando..." : "Actualizar"}
+          </Button>
           <Button variant="outline" size="sm" asChild>
             <Link href="/dashboard/crm/pipeline/settings">
               <Settings2 className="mr-2 h-4 w-4" />
@@ -547,7 +598,7 @@ export default function CRMDashboardPage() {
                     icon={Building2}
                   />
                 </div>
-                <div className="flex flex-col items-center justify-center rounded-xl border bg-card/60 p-4">
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border bg-card/60 p-4">
                   <ObjectiveGauge
                     label="Proyectos"
                     current={objectiveProgress.projectsCurrent}
@@ -555,6 +606,22 @@ export default function CRMDashboardPage() {
                     color="var(--chart-2)"
                     icon={FolderKanban}
                   />
+                  <div className="flex items-center justify-center gap-4 text-xs">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-[var(--chart-2)]" aria-hidden="true" />
+                      <span className="text-muted-foreground">Activos</span>
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {objectiveProgress.projectsActive}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40" aria-hidden="true" />
+                      <span className="text-muted-foreground">Inactivos</span>
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {objectiveProgress.projectsInactive}
+                      </span>
+                    </span>
+                  </div>
                 </div>
 
                 {/* Objetivos del mes en curso */}
@@ -706,7 +773,7 @@ export default function CRMDashboardPage() {
                   <CalendarClock className="h-4 w-4 text-primary" />
                   Ventas por mes del año
                 </CardTitle>
-                <CardDescription>Cuentas y proyectos nuevos por mes frente a la meta mensual.</CardDescription>
+                <CardDescription>Cuentas nuevas por mes frente a la meta mensual.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-64">
@@ -760,32 +827,15 @@ export default function CRMDashboardPage() {
                           }}
                         />
                       )}
-                      <Bar dataKey="cuentas" name="Cuentas" fill="url(#gradCuentas)" radius={[6, 6, 0, 0]} barSize={14}>
+                      <Bar dataKey="cuentas" name="Cuentas" fill="url(#gradCuentas)" radius={[6, 6, 0, 0]} barSize={18}>
                         <LabelList dataKey="cuentas" position="top" className="fill-muted-foreground text-[10px]" />
                       </Bar>
-                      <Bar
-                        dataKey="proyectos"
-                        name="Proyectos"
-                        fill="url(#gradProyectos)"
-                        radius={[6, 6, 0, 0]}
-                        barSize={14}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="proyectos"
-                        name="Tendencia proyectos"
-                        stroke="#2563eb"
-                        strokeWidth={2}
-                        dot={{ r: 2.5 }}
-                        legendType="none"
-                      />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
-                {(objectives.accountsMonthlyTarget > 0 || objectives.projectsMonthlyTarget > 0) && (
+                {objectives.accountsMonthlyTarget > 0 && (
                   <p className="mt-2 text-center text-xs text-muted-foreground">
-                    Meta mensual: {objectives.accountsMonthlyTarget || 0} cuentas · {objectives.projectsMonthlyTarget || 0}{" "}
-                    proyectos
+                    Meta mensual: {objectives.accountsMonthlyTarget} cuentas
                   </p>
                 )}
               </CardContent>

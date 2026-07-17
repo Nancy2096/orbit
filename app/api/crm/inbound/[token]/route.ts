@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { getAssignmentSettings, pickNextAssignee, assignProspect } from "@/lib/crm/lead-assignment"
 
 // Endpoint público de captura de leads. Lo usan Meta Lead Ads, Google Lead
 // Forms, Zapier y los formularios de la página web. Se autentica con el token
@@ -150,5 +151,30 @@ export async function POST(
     return NextResponse.json({ error: "No se pudo crear el prospecto" }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, prospect_id: prospect?.id, source: sourceName })
+  // Auto-asignar el lead nuevo según la configuración del equipo comercial.
+  let assignedTo: string | null = null
+  if (prospect?.id) {
+    try {
+      const settings = await getAssignmentSettings(supabase, agencyId)
+      const staffId = await pickNextAssignee(supabase, agencyId, settings)
+      if (staffId) {
+        await assignProspect(supabase, {
+          prospectId: prospect.id as string,
+          agencyId,
+          staffId,
+          assignedBy: null,
+        })
+        assignedTo = staffId
+      }
+    } catch (e) {
+      console.log("[v0] Error auto-asignando lead:", (e as Error).message)
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    prospect_id: prospect?.id,
+    source: sourceName,
+    assigned_to: assignedTo,
+  })
 }

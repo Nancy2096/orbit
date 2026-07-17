@@ -266,6 +266,11 @@ const crmNavItems = [
     icon: UserPlus,
   },
   {
+    title: "Equipo Comercial",
+    url: "/dashboard/crm/team",
+    icon: UserCog,
+  },
+  {
     title: "Tareas",
     url: "/dashboard/crm/tasks",
     icon: ListTodo,
