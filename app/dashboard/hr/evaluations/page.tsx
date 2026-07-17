@@ -4800,86 +4800,52 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Nueva Evaluación */}
       <Dialog open={showNewEvaluationDialog} onOpenChange={setShowNewEvaluationDialog}>
-        <DialogContent className="top-0 left-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 rounded-none border-0 sm:max-w-none overflow-y-auto">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Nueva Evaluación</DialogTitle>
             <DialogDescription>
-              Crea una nueva evaluación para candidatos o colaboradores
+              Elige el tipo de evaluación que quieres crear
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4 mx-auto w-full max-w-3xl">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Tipo de Evaluación</Label>
-                <Select defaultValue="selection">
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="selection">Selección</SelectItem>
-                    <SelectItem value="permanence">Permanencia</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Categoría</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona categoría" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="psychometric">Psicométrico</SelectItem>
-                    <SelectItem value="personality">Personalidad</SelectItem>
-                    <SelectItem value="technical">Técnico</SelectItem>
-                    <SelectItem value="medical">Médico</SelectItem>
-                    <SelectItem value="360">360°</SelectItem>
-                    <SelectItem value="kpi">KPIs</SelectItem>
-                    <SelectItem value="competencies">Competencias</SelectItem>
-                    <SelectItem value="climate">Clima Laboral</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Nombre de la Evaluación</Label>
-              <Input placeholder="Ej: Evaluación Técnica - Frontend Developer" />
-            </div>
-            <div className="space-y-2">
-              <Label>Descripci��n</Label>
-              <Textarea placeholder="Descripción de la evaluación..." />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Fecha de Inicio</Label>
-                <Input type="date" />
-              </div>
-              <div className="space-y-2">
-                <Label>Fecha de Vencimiento</Label>
-                <Input type="date" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Plantilla Base</Label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona una plantilla (opcional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {evaluationTemplates.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name} ({template.questions} preguntas, {template.time} min)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid gap-3 py-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewEvaluationDialog(false)
+                setActiveTab("selection")
+                setShowStartCandidateEvalDialog(true)
+              }}
+              className="flex flex-col items-start gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary hover:bg-accent"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <UserPlus className="h-5 w-5" />
+              </span>
+              <span className="font-medium">Evaluación de Selección</span>
+              <span className="text-sm text-muted-foreground">
+                Aplica una evaluación a un candidato en proceso de selección.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewEvaluationDialog(false)
+                setActiveTab("permanence")
+                setShowStartPermanenceEvalDialog(true)
+              }}
+              className="flex flex-col items-start gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary hover:bg-accent"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Users className="h-5 w-5" />
+              </span>
+              <span className="font-medium">Evaluación de Permanencia</span>
+              <span className="text-sm text-muted-foreground">
+                Aplica una evaluación a un colaborador activo de la organización.
+              </span>
+            </button>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNewEvaluationDialog(false)}>
               Cancelar
-            </Button>
-            <Button onClick={() => setShowNewEvaluationDialog(false)}>
-              Crear Evaluación
             </Button>
           </DialogFooter>
         </DialogContent>
