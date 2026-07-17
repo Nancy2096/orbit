@@ -28,6 +28,7 @@ import {
   Cell,
   Pie,
   PieChart,
+  ReferenceLine,
   XAxis,
   YAxis,
 } from "recharts"
@@ -112,6 +113,11 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
 
   const unitConfig = {
     count: { label: "Cantidad", color: "var(--chart-4)" },
+  } satisfies ChartConfig
+
+  const projectsAnnualConfig = {
+    activos: { label: "Activos", color: "var(--chart-2)" },
+    noActivos: { label: "No activos", color: "var(--muted-foreground)" },
   } satisfies ChartConfig
 
   const statusData = useMemo(
@@ -352,6 +358,50 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
               />
             </AreaChart>
           </ChartContainer>
+        </CardContent>
+      </Card>
+
+      {/* Proyectos del año vs meta anual */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FolderKanban className="size-4 text-muted-foreground" aria-hidden="true" />
+            Proyectos del año vs meta anual
+          </CardTitle>
+          <CardDescription>
+            Total acumulado de proyectos (Ene-Dic) frente a la meta anual. Los proyectos activos se destacan en color.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer config={projectsAnnualConfig} className="h-[300px] w-full">
+            <BarChart data={data.projectsAnnual} margin={{ left: 12, right: 12, top: 16 }}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+              <YAxis tickLine={false} axisLine={false} tickMargin={8} width={40} allowDecimals={false} />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              {objectives.projectsTarget > 0 && (
+                <ReferenceLine
+                  y={objectives.projectsTarget}
+                  stroke="var(--destructive)"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
+                  label={{
+                    value: `Meta anual ${objectives.projectsTarget}`,
+                    position: "insideTopRight",
+                    fill: "var(--destructive)",
+                    fontSize: 11,
+                  }}
+                />
+              )}
+              <Bar dataKey="activos" stackId="p" fill="var(--color-activos)" />
+              <Bar dataKey="noActivos" stackId="p" fill="var(--color-noActivos)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ChartContainer>
+          {objectives.projectsTarget > 0 && (
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              Meta anual: {objectives.projectsTarget.toLocaleString("es-MX")} proyectos
+            </p>
+          )}
         </CardContent>
       </Card>
 

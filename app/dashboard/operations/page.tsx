@@ -11,6 +11,7 @@ interface AccountRow {
   retainer_amount: number | null
   retainer_currency_id: string | null
   agency_id: string | null
+  created_at: string | null
 }
 
 async function getOperationsData(agencyId: string | null) {
@@ -19,7 +20,7 @@ async function getOperationsData(agencyId: string | null) {
   // Aplica el filtro por agencia solo cuando se selecciona una específica.
   let accountsQuery = supabase
     .from("accounts")
-    .select("id, account_name, account_type, status, retainer_amount, retainer_currency_id, agency_id")
+    .select("id, account_name, account_type, status, retainer_amount, retainer_currency_id, agency_id, created_at")
   let clientsQuery = supabase.from("clients").select("id, status, industry_id")
   if (agencyId) {
     accountsQuery = accountsQuery.eq("agency_id", agencyId)
@@ -132,6 +133,21 @@ async function getOperationsData(agencyId: string | null) {
     projectsCurrent: activeProjects.length,
   }
 
+  // Serie anual acumulada de proyectos (Ene-Dic): total de proyectos creados
+  // hasta cada mes, separando los activos del resto, para compararlos contra la
+  // meta anual de proyectos.
+  const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+  const curYear = new Date().getFullYear()
+  const yearProjects = projects.filter((p) => p.created_at && new Date(p.created_at).getFullYear() === curYear)
+  let cumActivos = 0
+  let cumNoActivos = 0
+  const projectsAnnual = MONTHS_ES.map((month, m) => {
+    const monthProjects = yearProjects.filter((p) => new Date(p.created_at as string).getMonth() === m)
+    cumActivos += monthProjects.filter((p) => isActive(p.status)).length
+    cumNoActivos += monthProjects.filter((p) => !isActive(p.status)).length
+    return { month, activos: cumActivos, noActivos: cumNoActivos, total: cumActivos + cumNoActivos }
+  })
+
   // Proyección de ingresos recurrentes acumulados a 12 meses (MXN y USD)
   const monthFmt = new Intl.DateTimeFormat("es-MX", { month: "short", year: "2-digit" })
   const projection: { month: string; mxn: number; usd: number }[] = []
@@ -169,6 +185,7 @@ async function getOperationsData(agencyId: string | null) {
     topAccountsUSD,
     clientsByType,
     projection,
+    projectsAnnual,
     unitByType: [
       { type: "Retainer activas", count: activeRetainers.length },
       { type: "Proyectos activos", count: activeProjects.length },
