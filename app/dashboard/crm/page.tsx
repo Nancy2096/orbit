@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ import {
   CalendarClock,
   TrendingUp,
   ArrowRight,
+  RefreshCw,
 } from "lucide-react"
 import {
   PieChart,
@@ -138,6 +139,7 @@ const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep"
 export default function CRMDashboardPage() {
   const { selectedAgencyId, loading: agencyLoading } = useAgency()
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [hasData, setHasData] = useState(false)
 
   const [stats, setStats] = useState<Stats>({
@@ -172,6 +174,10 @@ export default function CRMDashboardPage() {
 
   const supabase = createClient()
 
+  // Referencia estable a la última versión de la carga, para invocarla desde
+  // listeners sin capturar valores obsoletos.
+  const fetchRef = useRef<(silent?: boolean) => void>(() => {})
+
   useEffect(() => {
     if (selectedAgencyId) {
       fetchDashboardData()
@@ -181,9 +187,26 @@ export default function CRMDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAgencyId])
 
-  const fetchDashboardData = async () => {
+  // Refrescar automáticamente al regresar a la página (cambio de pestaña o de
+  // ruta), para reflejar cambios en cuentas, proyectos, metas y prospectos
+  // hechos en otras secciones.
+  useEffect(() => {
+    const onFocus = () => fetchRef.current?.(true)
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") fetchRef.current?.(true)
+    }
+    window.addEventListener("focus", onFocus)
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [])
+
+  const fetchDashboardData = async (silent = false) => {
     if (!selectedAgencyId) return
-    setLoading(true)
+    if (silent) setRefreshing(true)
+    else setLoading(true)
 
     const [
       { data: prospects },
@@ -205,7 +228,7 @@ export default function CRMDashboardPage() {
       supabase.from("crm_lead_sources").select("id, name").eq("agency_id", selectedAgencyId),
       supabase.from("staff").select("id, first_name, last_name").eq("agency_id", selectedAgencyId),
       supabase.from("agencies").select("settings").eq("id", selectedAgencyId).single(),
-      supabase.from("accounts").select("id, status, created_at").eq("agency_id", selectedAgencyId),
+      supabase.from("accounts").select("id, status, created_at, account_type").eq("agency_id", selectedAgencyId),
       supabase
         .from("projects")
         .select("id, created_at, accounts!inner(agency_id)")
@@ -331,8 +354,16 @@ export default function CRMDashboardPage() {
     }
     setObjectives(objectivesData)
 
-    const accountRows = (accounts || []) as { id: string; status: string | null; created_at: string | null }[]
+    const accountRows = (accounts || []) as {
+      id: string
+      status: string | null
+      created_at: string | null
+      account_type: string | null
+    }[]
     const projectRows = (projects || []) as { id: string; created_at: string | null }[]
+
+    // "Cuentas" se define igual que la sección Cuentas: solo tipo retainer.
+    const retainerRows = accountRows.filter((a) => a.account_type === "retainer")
 
     const now = new Date()
     const curYear = now.getFullYear()
@@ -344,9 +375,9 @@ export default function CRMDashboardPage() {
       return d.getFullYear() === curYear && d.getMonth() === curMonth
     }
 
-    const accountsCurrent = accountRows.filter((a) => a.status === "active").length
+    const accountsCurrent = retainerRows.filter((a) => a.status === "active").length
     const projectsCurrent = projectRows.length
-    const accountsThisMonth = accountRows.filter((a) => isThisMonth(a.created_at)).length
+    const accountsThisMonth = retainerRows.filter((a) => isThisMonth(a.created_at)).length
     const projectsThisMonth = projectRows.filter((p) => isThisMonth(p.created_at)).length
 
     setObjectiveProgress({ accountsCurrent, projectsCurrent, accountsThisMonth, projectsThisMonth })
@@ -354,7 +385,7 @@ export default function CRMDashboardPage() {
     // Serie mensual del año en curso: nuevas cuentas y proyectos vs meta mensual.
     const monthly: MonthlyObjectiveItem[] = Array.from({ length: 12 }, (_, m) => ({
       month: MONTHS_ES[m],
-      cuentas: accountRows.filter((a) => {
+      cuentas: retainerRows.filter((a) => {
         if (!a.created_at) return false
         const d = new Date(a.created_at)
         return d.getFullYear() === curYear && d.getMonth() === m
@@ -370,7 +401,11 @@ export default function CRMDashboardPage() {
     setMonthlyObjectives(monthly)
 
     setLoading(false)
+    setRefreshing(false)
   }
+
+  // Mantener el ref apuntando a la función más reciente en cada render.
+  fetchRef.current = fetchDashboardData
 
   const formatCurrency = (amount: number) => {
     if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`
@@ -478,6 +513,10 @@ export default function CRMDashboardPage() {
           <p className="text-muted-foreground">Desempeño comercial frente a los objetivos de la agencia</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => fetchDashboardData(true)} disabled={refreshing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Actualizando..." : "Actualizar"}
+          </Button>
           <Button variant="outline" size="sm" asChild>
             <Link href="/dashboard/crm/pipeline/settings">
               <Settings2 className="mr-2 h-4 w-4" />
