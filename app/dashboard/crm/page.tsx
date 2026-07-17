@@ -137,7 +137,7 @@ interface MonthlyObjectiveItem {
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
 export default function CRMDashboardPage() {
-  const { selectedAgencyId, loading: agencyLoading } = useAgency()
+  const { selectedAgencyId, selectedAgency, loading: agencyLoading } = useAgency()
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [hasData, setHasData] = useState(false)
@@ -179,13 +179,13 @@ export default function CRMDashboardPage() {
   const fetchRef = useRef<(silent?: boolean) => void>(() => {})
 
   useEffect(() => {
-    if (selectedAgencyId) {
+    // Esperar a que el contexto de agencias termine de cargar; luego cargar
+    // datos tanto para una agencia específica como para el modo global.
+    if (!agencyLoading) {
       fetchDashboardData()
-    } else {
-      setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgencyId])
+  }, [selectedAgencyId, agencyLoading])
 
   // Refrescar automáticamente al regresar a la página (cambio de pestaña o de
   // ruta), para reflejar cambios en cuentas, proyectos, metas y prospectos
@@ -204,9 +204,14 @@ export default function CRMDashboardPage() {
   }, [])
 
   const fetchDashboardData = async (silent = false) => {
-    if (!selectedAgencyId) return
     if (silent) setRefreshing(true)
     else setLoading(true)
+
+    // Modo global: sin agencia seleccionada se muestran datos de todas las agencias.
+    const isGlobal = !selectedAgencyId
+    // Aplica el filtro por agencia solo cuando hay una seleccionada.
+    const byAgency = <T extends { eq: (col: string, val: any) => T }>(q: T): T =>
+      isGlobal ? q : q.eq("agency_id", selectedAgencyId)
 
     const [
       { data: prospects },
@@ -217,24 +222,35 @@ export default function CRMDashboardPage() {
       { data: accounts },
       { data: projects },
     ] = await Promise.all([
-      supabase
-        .from("crm_prospects")
-        .select("id, status, estimated_value, created_at, lost_reason, stage_id, source_id, assigned_to")
-        .eq("agency_id", selectedAgencyId),
-      supabase
-        .from("crm_pipeline_stages")
-        .select("id, name, color, is_won, is_lost, sort_order")
-        .eq("agency_id", selectedAgencyId),
-      supabase.from("crm_lead_sources").select("id, name").eq("agency_id", selectedAgencyId),
-      supabase.from("staff").select("id, first_name, last_name").eq("agency_id", selectedAgencyId),
-      supabase.from("agencies").select("settings").eq("id", selectedAgencyId).single(),
-      // Cuentas se cuenta igual que la sección Cuentas: cuentas tipo retainer de
-      // todas las agencias (sin filtrar por la agencia seleccionada).
-      supabase.from("accounts").select("id, status, created_at, account_type").eq("account_type", "retainer"),
-      supabase
-        .from("projects")
-        .select("id, created_at, accounts!inner(agency_id)")
-        .eq("accounts.agency_id", selectedAgencyId),
+      byAgency(
+        supabase
+          .from("crm_prospects")
+          .select("id, status, estimated_value, created_at, lost_reason, stage_id, source_id, assigned_to"),
+      ),
+      byAgency(
+        supabase.from("crm_pipeline_stages").select("id, name, color, is_won, is_lost, sort_order"),
+      ),
+      byAgency(supabase.from("crm_lead_sources").select("id, name")),
+      byAgency(supabase.from("staff").select("id, first_name, last_name")),
+      // Settings (metas): una agencia o todas. Siempre se resuelve como arreglo.
+      isGlobal
+        ? supabase.from("agencies").select("settings")
+        : supabase.from("agencies").select("settings").eq("id", selectedAgencyId),
+      // Cuentas: solo tipo retainer, filtradas por agencia o globales.
+      isGlobal
+        ? supabase.from("accounts").select("id, status, created_at, account_type").eq("account_type", "retainer")
+        : supabase
+            .from("accounts")
+            .select("id, status, created_at, account_type")
+            .eq("account_type", "retainer")
+            .eq("agency_id", selectedAgencyId),
+      // Proyectos: todos o los de las cuentas de la agencia seleccionada.
+      isGlobal
+        ? supabase.from("projects").select("id, created_at")
+        : supabase
+            .from("projects")
+            .select("id, created_at, accounts!inner(agency_id)")
+            .eq("accounts.agency_id", selectedAgencyId),
     ])
 
     const rows = (prospects || []) as Prospect[]
@@ -346,14 +362,20 @@ export default function CRMDashboardPage() {
       .sort((a, b) => b.value - a.value)
     setLossReasons(losses)
 
-    // ----- Objetivos de operación y venta (desde settings de la agencia) -----
-    const obj = (agency as any)?.settings?.objectives || {}
-    const objectivesData: Objectives = {
-      accountsTarget: Number(obj.accounts_target) || 0,
-      projectsTarget: Number(obj.projects_target) || 0,
-      accountsMonthlyTarget: Number(obj.accounts_monthly_target) || 0,
-      projectsMonthlyTarget: Number(obj.projects_monthly_target) || 0,
-    }
+    // ----- Objetivos de operación y venta (settings de la agencia) -----
+    // En modo global se suman las metas de todas las agencias.
+    const agencyList = (Array.isArray(agency) ? agency : agency ? [agency] : []) as any[]
+    const objectivesData: Objectives = agencyList.reduce(
+      (acc, a) => {
+        const o = a?.settings?.objectives || {}
+        acc.accountsTarget += Number(o.accounts_target) || 0
+        acc.projectsTarget += Number(o.projects_target) || 0
+        acc.accountsMonthlyTarget += Number(o.accounts_monthly_target) || 0
+        acc.projectsMonthlyTarget += Number(o.projects_monthly_target) || 0
+        return acc
+      },
+      { accountsTarget: 0, projectsTarget: 0, accountsMonthlyTarget: 0, projectsMonthlyTarget: 0 } as Objectives,
+    )
     setObjectives(objectivesData)
 
     const accountRows = (accounts || []) as {
@@ -438,22 +460,6 @@ export default function CRMDashboardPage() {
     )
   }
 
-  if (!selectedAgencyId) {
-    return (
-      <div className="p-6">
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="rounded-full bg-muted p-4 mb-4">
-            <Target className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <h2 className="text-xl font-semibold mb-2">Selecciona una Agencia</h2>
-          <p className="text-muted-foreground max-w-md">
-            Para ver el dashboard del CRM, primero selecciona una agencia en el selector de arriba.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   const kpis = [
     { label: "Prospectos totales", value: stats.total.toLocaleString("es-MX"), icon: Users, hint: `${stats.active} activos` },
     { label: "En pipeline", value: stats.inPipeline.toLocaleString("es-MX"), icon: Layers, hint: "Sin cerrar" },
@@ -512,7 +518,11 @@ export default function CRMDashboardPage() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">Desempeño comercial frente a los objetivos de la agencia</p>
+          <p className="text-muted-foreground">
+            {selectedAgency
+              ? `Desempeño comercial de ${selectedAgency.name} frente a sus objetivos`
+              : "Desempeño comercial global de todas las agencias"}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => fetchDashboardData(true)} disabled={refreshing}>
