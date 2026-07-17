@@ -223,7 +223,6 @@ export default function CRMDashboardPage() {
       { data: staff },
       { data: agency },
       { data: accounts },
-      { data: projects },
     ] = await Promise.all([
       byAgency(
         supabase
@@ -239,21 +238,9 @@ export default function CRMDashboardPage() {
       isGlobal
         ? supabase.from("agencies").select("settings")
         : supabase.from("agencies").select("settings").eq("id", selectedAgencyId),
-      // Cuentas: solo tipo retainer, filtradas por agencia o globales.
-      isGlobal
-        ? supabase.from("accounts").select("id, status, created_at, account_type").eq("account_type", "retainer")
-        : supabase
-            .from("accounts")
-            .select("id, status, created_at, account_type")
-            .eq("account_type", "retainer")
-            .eq("agency_id", selectedAgencyId),
-      // Proyectos: todos o los de las cuentas de la agencia seleccionada.
-      isGlobal
-        ? supabase.from("projects").select("id, created_at, status")
-        : supabase
-            .from("projects")
-            .select("id, created_at, status, accounts!inner(agency_id)")
-            .eq("accounts.agency_id", selectedAgencyId),
+      // Cuentas y proyectos provienen de la tabla accounts: retainer = cuentas,
+      // project = proyectos. Se filtran por agencia o se traen todas (global).
+      byAgency(supabase.from("accounts").select("id, status, created_at, account_type")),
     ])
 
     const rows = (prospects || []) as Prospect[]
@@ -387,10 +374,11 @@ export default function CRMDashboardPage() {
       created_at: string | null
       account_type: string | null
     }[]
-    const projectRows = (projects || []) as { id: string; created_at: string | null; status: string | null }[]
 
-    // "Cuentas" se define igual que la sección Cuentas: solo tipo retainer.
+    // "Cuentas" = tipo retainer; "Proyectos" = tipo project (igual que el
+    // Dashboard de Operaciones, ya que la tabla projects no se usa).
     const retainerRows = accountRows.filter((a) => a.account_type === "retainer")
+    const projectRows = accountRows.filter((a) => a.account_type === "project")
 
     const now = new Date()
     const curYear = now.getFullYear()
@@ -404,7 +392,7 @@ export default function CRMDashboardPage() {
 
     const accountsCurrent = retainerRows.filter((a) => a.status === "active").length
     const projectsCurrent = projectRows.length
-    const projectsActive = projectRows.filter((p) => p.status === "in_progress").length
+    const projectsActive = projectRows.filter((p) => p.status === "active").length
     const projectsInactive = projectsCurrent - projectsActive
     const accountsThisMonth = retainerRows.filter((a) => isThisMonth(a.created_at)).length
     const projectsThisMonth = projectRows.filter((p) => isThisMonth(p.created_at)).length
