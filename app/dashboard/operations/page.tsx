@@ -13,14 +13,22 @@ interface AccountRow {
   agency_id: string | null
 }
 
-async function getOperationsData() {
+async function getOperationsData(agencyId: string | null) {
   const supabase = await createClient()
 
+  // Aplica el filtro por agencia solo cuando se selecciona una específica.
+  let accountsQuery = supabase
+    .from("accounts")
+    .select("id, account_name, account_type, status, retainer_amount, retainer_currency_id, agency_id")
+  let clientsQuery = supabase.from("clients").select("id, status, industry_id")
+  if (agencyId) {
+    accountsQuery = accountsQuery.eq("agency_id", agencyId)
+    clientsQuery = clientsQuery.eq("agency_id", agencyId)
+  }
+
   const [accountsRes, clientsRes, agenciesRes, currenciesRes, industriesRes] = await Promise.all([
-    supabase
-      .from("accounts")
-      .select("id, account_name, account_type, status, retainer_amount, retainer_currency_id, agency_id"),
-    supabase.from("clients").select("id, status, industry_id"),
+    accountsQuery,
+    clientsQuery,
     supabase.from("agencies").select("id, name, settings"),
     supabase.from("currencies").select("id, code"),
     supabase.from("industries").select("id, name"),
@@ -98,9 +106,10 @@ async function getOperationsData() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 8)
 
-  // Objetivos de operación (suma de todas las agencias). Solo se consideran los
-  // objetivos de operación: cuentas y proyectos (totales y mensuales).
-  const objectivesAgg = agencies.reduce(
+  // Objetivos de operación. En modo global se suman los de todas las agencias;
+  // con una agencia seleccionada se usan solo los suyos.
+  const objectivesSource = agencyId ? agencies.filter((a) => a.id === agencyId) : agencies
+  const objectivesAgg = objectivesSource.reduce(
     (acc, a) => {
       const o = a.settings?.objectives
       if (o) {
@@ -137,6 +146,8 @@ async function getOperationsData() {
   }
 
   return {
+    agencies: agencies.map((a) => ({ id: a.id, name: a.name })),
+    selectedAgencyId: agencyId,
     kpis: {
       mrrMXN,
       mrrUSD,
@@ -167,8 +178,14 @@ async function getOperationsData() {
   }
 }
 
-export default async function OperationsDashboardPage() {
-  const data = await getOperationsData()
+export default async function OperationsDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ agency?: string }>
+}) {
+  const { agency } = await searchParams
+  const agencyId = agency && agency !== "global" ? agency : null
+  const data = await getOperationsData(agencyId)
   return <OperationsDashboard data={data} />
 }
 
