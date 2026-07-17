@@ -228,7 +228,9 @@ export default function CRMDashboardPage() {
       supabase.from("crm_lead_sources").select("id, name").eq("agency_id", selectedAgencyId),
       supabase.from("staff").select("id, first_name, last_name").eq("agency_id", selectedAgencyId),
       supabase.from("agencies").select("settings").eq("id", selectedAgencyId).single(),
-      supabase.from("accounts").select("id, status, created_at, account_type").eq("agency_id", selectedAgencyId),
+      // Cuentas se cuenta igual que la sección Cuentas: cuentas tipo retainer de
+      // todas las agencias (sin filtrar por la agencia seleccionada).
+      supabase.from("accounts").select("id, status, created_at, account_type").eq("account_type", "retainer"),
       supabase
         .from("projects")
         .select("id, created_at, accounts!inner(agency_id)")
