@@ -41,10 +41,12 @@ import {
   AlertCircle,
   ChevronRight,
   Loader2,
-  Upload
+  Upload,
+  Workflow
 } from "lucide-react"
 import { upload } from "@vercel/blob/client"
 import { DepartmentFilter } from "@/components/hr/department-filter"
+import { ProcessesModule } from "@/components/hr/processes-module"
 
 const supabase = createClient()
 
@@ -697,7 +699,7 @@ export default function TrainingPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="courses" className="flex items-center gap-2">
             <BookOpen className="h-4 w-4" />
             Cursos
@@ -713,6 +715,10 @@ export default function TrainingPage() {
           <TabsTrigger value="evaluations" className="flex items-center gap-2">
             <ClipboardList className="h-4 w-4" />
             Evaluaciones
+          </TabsTrigger>
+          <TabsTrigger value="processes" className="flex items-center gap-2">
+            <Workflow className="h-4 w-4" />
+            Procesos
           </TabsTrigger>
           <TabsTrigger value="team" className="flex items-center gap-2">
             <Users className="h-4 w-4" />
@@ -1155,6 +1161,19 @@ export default function TrainingPage() {
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <ClipboardList className="h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">Selecciona un curso para ver sus evaluaciones</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Processes Tab */}
+        <TabsContent value="processes" className="space-y-4">
+          {selectedAgency ? (
+            <ProcessesModule agencyId={selectedAgency} />
+          ) : (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                Selecciona una agencia para gestionar sus procesos.
               </CardContent>
             </Card>
           )}
