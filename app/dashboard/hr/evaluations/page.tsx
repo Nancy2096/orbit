@@ -859,6 +859,8 @@ export default function EvaluationsPage() {
     score: number | null
     started_at: string | null
     completed_at: string | null
+    template_id?: string | null
+    notes?: string | null
   }>>([])
   const [newCandidateForm, setNewCandidateForm] = useState({
     first_name: "",
@@ -955,6 +957,39 @@ export default function EvaluationsPage() {
   const [restartEvalNewEvaluatorId, setRestartEvalNewEvaluatorId] = useState<string>("")
   const [restartingEval, setRestartingEval] = useState(false)
   const [restartEvalKeepEvaluator, setRestartEvalKeepEvaluator] = useState(true)
+
+  // Ver Resultados
+  type EvalResultItem = {
+    id: string
+    title: string
+    status: string
+    score: number | null
+    notes: string | null
+    startedAt: string | null
+    completedAt: string | null
+    responses: { question: string; answer: string }[]
+    evaluators?: {
+      name: string
+      status: string
+      score: number | null
+      responses: { question: string; answer: string }[]
+    }[]
+  }
+  const [showResultsDialog, setShowResultsDialog] = useState(false)
+  const [resultsLoading, setResultsLoading] = useState(false)
+  const [resultsTitle, setResultsTitle] = useState("")
+  const [resultsSubtitle, setResultsSubtitle] = useState("")
+  const [resultsItems, setResultsItems] = useState<EvalResultItem[]>([])
+
+  // Eliminar evaluación
+  const [showDeleteEvalDialog, setShowDeleteEvalDialog] = useState(false)
+  const [deletingEval, setDeletingEval] = useState(false)
+  const [deleteEvalData, setDeleteEvalData] = useState<{
+    id: string
+    type: "candidate" | "staff"
+    label: string
+    personName: string
+  } | null>(null)
   
   const [selectedTemplate, setSelectedTemplate] = useState<typeof evaluationTemplates[0] | null>(null)
   const [templatesList, setTemplatesList] = useState(evaluationTemplates)
@@ -1949,6 +1984,233 @@ const [editTemplateForm, setEditTemplateForm] = useState({
     setShowRestartEvalDialog(true)
   }
 
+  // ---- Ver Resultados ----
+  const answerToText = (answerText: string | null, answerValue: number | null) => {
+    if (answerText && answerText.trim() !== "") return answerText
+    if (answerValue !== null && answerValue !== undefined) return String(answerValue)
+    return "Sin respuesta"
+  }
+
+  // Resultados de un candidato (Selección)
+  const openCandidateResults = async (candidateId: string, candidateName: string) => {
+    setResultsTitle(candidateName)
+    setResultsSubtitle("Evaluaciones de Selección")
+    setResultsItems([])
+    setShowResultsDialog(true)
+    setResultsLoading(true)
+    try {
+      const supabase = createClient()
+      const { data: evals } = await supabase
+        .from("candidate_evaluations")
+        .select("*")
+        .eq("candidate_id", candidateId)
+        .order("created_at", { ascending: true })
+
+      const items: EvalResultItem[] = []
+      for (const ev of evals || []) {
+        const [{ data: responses }, { data: questions }] = await Promise.all([
+          supabase
+            .from("evaluation_responses")
+            .select("question_id, answer_value, answer_text")
+            .eq("candidate_evaluation_id", ev.id),
+          supabase
+            .from("evaluation_questions")
+            .select("id, question_text, question_order")
+            .eq("evaluation_type", ev.evaluation_type)
+            .order("question_order", { ascending: true }),
+        ])
+        const qMap = new Map((questions || []).map((q) => [q.id, q]))
+        const mapped = (responses || [])
+          .map((r) => {
+            const q = qMap.get(r.question_id)
+            return {
+              order: q?.question_order ?? 9999,
+              question: q?.question_text ?? "Pregunta",
+              answer: answerToText(r.answer_text, r.answer_value),
+            }
+          })
+          .sort((a, b) => a.order - b.order)
+          .map(({ question, answer }) => ({ question, answer }))
+
+        items.push({
+          id: ev.id,
+          title: categoryConfig[ev.evaluation_type]?.label ?? ev.evaluation_type,
+          status: ev.status,
+          score: ev.score,
+          notes: ev.notes,
+          startedAt: ev.started_at,
+          completedAt: ev.completed_at,
+          responses: mapped,
+        })
+      }
+      setResultsItems(items)
+    } catch (err) {
+      console.error("Error cargando resultados del candidato:", err)
+    } finally {
+      setResultsLoading(false)
+    }
+  }
+
+  // Resultados de un colaborador (Permanencia / Objetivos)
+  const openStaffResults = async (
+    staffId: string,
+    staffName: string,
+    scope: "permanence" | "objectives",
+  ) => {
+    setResultsTitle(staffName)
+    setResultsSubtitle(scope === "permanence" ? "Evaluaciones de Permanencia" : "Evaluaciones de Objetivos")
+    setResultsItems([])
+    setShowResultsDialog(true)
+    setResultsLoading(true)
+    try {
+      const supabase = createClient()
+      const { data: evals } = await supabase
+        .from("staff_evaluations")
+        .select("*")
+        .eq("staff_id", staffId)
+        .order("created_at", { ascending: true })
+
+      const scopeTemplates = templatesList.filter((t) => t.scope === scope)
+      const scopeTemplateIds = new Set(scopeTemplates.map((t) => t.id))
+      const scopeCategories = new Set(scopeTemplates.map((t) => t.category))
+      const relevant = (evals || []).filter(
+        (ev) =>
+          (ev.template_id && scopeTemplateIds.has(ev.template_id)) ||
+          scopeCategories.has(ev.evaluation_type) ||
+          ev.evaluation_type === scope,
+      )
+
+      const items: EvalResultItem[] = []
+      for (const ev of relevant) {
+        const template = scopeTemplates.find((t) => t.id === ev.template_id)
+        const sampleQuestions = (template?.sampleQuestions ?? []) as { question: string }[]
+        const title =
+          template?.name ?? categoryConfig[ev.evaluation_type]?.label ?? ev.evaluation_type
+
+        const { data: assignments } = await supabase
+          .from("staff_evaluation_assignments")
+          .select("*")
+          .eq("staff_evaluation_id", ev.id)
+
+        const evaluators: NonNullable<EvalResultItem["evaluators"]> = []
+        for (const a of assignments || []) {
+          const { data: responses } = await supabase
+            .from("staff_evaluation_responses")
+            .select("question_index, answer_value, answer_text")
+            .eq("assignment_id", a.id)
+            .order("question_index", { ascending: true })
+          evaluators.push({
+            name: a.evaluator_name || a.evaluator_email || "Evaluador",
+            status: a.status,
+            score: a.score,
+            responses: (responses || []).map((r) => ({
+              question: sampleQuestions[r.question_index]?.question ?? `Pregunta ${r.question_index + 1}`,
+              answer: answerToText(r.answer_text, r.answer_value),
+            })),
+          })
+        }
+
+        items.push({
+          id: ev.id,
+          title,
+          status: ev.status,
+          score: ev.score,
+          notes: ev.notes,
+          startedAt: ev.started_at,
+          completedAt: ev.completed_at,
+          responses: [],
+          evaluators,
+        })
+      }
+      setResultsItems(items)
+    } catch (err) {
+      console.error("Error cargando resultados del colaborador:", err)
+    } finally {
+      setResultsLoading(false)
+    }
+  }
+
+  // Reinicio directo de una evaluación de colaborador (Permanencia / Objetivos)
+  const handleRestartStaffEvaluationDirect = async (evId: string, label: string) => {
+    if (
+      !window.confirm(
+        `¿Reiniciar la evaluación "${label}"? Se borrará el avance registrado y volverá a estado pendiente.`,
+      )
+    )
+      return
+    try {
+      const supabase = createClient()
+      const { data: assignments } = await supabase
+        .from("staff_evaluation_assignments")
+        .select("id")
+        .eq("staff_evaluation_id", evId)
+      const assignmentIds = (assignments || []).map((a) => a.id)
+      if (assignmentIds.length > 0) {
+        await supabase.from("staff_evaluation_responses").delete().in("assignment_id", assignmentIds)
+        await supabase
+          .from("staff_evaluation_assignments")
+          .update({ status: "pending", score: null, started_at: null, completed_at: null })
+          .eq("staff_evaluation_id", evId)
+      }
+      const { error } = await supabase
+        .from("staff_evaluations")
+        .update({
+          status: "pending",
+          score: null,
+          started_at: null,
+          completed_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", evId)
+      if (error) throw error
+      setStaffEvaluations((prev) =>
+        prev.map((e) =>
+          e.id === evId
+            ? { ...e, status: "pending", score: null, started_at: null, completed_at: null }
+            : e,
+        ),
+      )
+    } catch (err) {
+      console.error("Error al reiniciar la evaluación:", err)
+      alert("Error al reiniciar la evaluación")
+    }
+  }
+
+  // ---- Eliminar evaluación ----
+  const handleConfirmDeleteEvaluation = async () => {
+    if (!deleteEvalData) return
+    setDeletingEval(true)
+    try {
+      const supabase = createClient()
+      if (deleteEvalData.type === "candidate") {
+        await supabase.from("evaluation_responses").delete().eq("candidate_evaluation_id", deleteEvalData.id)
+        const { error } = await supabase.from("candidate_evaluations").delete().eq("id", deleteEvalData.id)
+        if (error) throw error
+        setCandidateEvaluations((prev) => prev.filter((e) => e.id !== deleteEvalData.id))
+      } else {
+        const { data: assignments } = await supabase
+          .from("staff_evaluation_assignments")
+          .select("id")
+          .eq("staff_evaluation_id", deleteEvalData.id)
+        const assignmentIds = (assignments || []).map((a) => a.id)
+        if (assignmentIds.length > 0) {
+          await supabase.from("staff_evaluation_responses").delete().in("assignment_id", assignmentIds)
+        }
+        await supabase.from("staff_evaluation_assignments").delete().eq("staff_evaluation_id", deleteEvalData.id)
+        const { error } = await supabase.from("staff_evaluations").delete().eq("id", deleteEvalData.id)
+        if (error) throw error
+        setStaffEvaluations((prev) => prev.filter((e) => e.id !== deleteEvalData.id))
+      }
+      setShowDeleteEvalDialog(false)
+      setDeleteEvalData(null)
+    } catch (err) {
+      console.error("Error al eliminar la evaluación:", err)
+      alert("Error al eliminar la evaluación")
+    } finally {
+      setDeletingEval(false)
+    }
+  }
+
   // Start internal staff evaluation (apply presentially)
   const handleStartInternalStaffEval = async () => {
     if (!staffEvalMethodData || !staffEvalTemplate) {
@@ -2709,33 +2971,105 @@ const handleCreateTemplate = () => {
                           )
                         })}
                         <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreHorizontal className="h-4 w-4" />
+                          <div className="flex items-center justify-end gap-1">
+                            {scope !== "onboarding" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Ver resultados"
+                                onClick={() =>
+                                  openStaffResults(
+                                    staff.id,
+                                    `${staff.first_name} ${staff.last_name}`,
+                                    scope as "permanence" | "objectives",
+                                  )
+                                }
+                              >
+                                <Eye className="h-4 w-4" />
+                                <span className="sr-only">Ver resultados</span>
                               </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {scopeTemplates.map((template) => {
-                                const ev = findTemplateEval(staff.id, template)
-                                const disabled = !allowsMultiple && ev !== null
-                                return (
-                                  <DropdownMenuItem
-                                    key={template.id}
-                                    onClick={() =>
-                                      handleStartStaffEvaluation(staff.id, startTypeFor(template), template.id)
-                                    }
-                                    disabled={disabled}
-                                  >
-                                    <Play className="h-4 w-4 mr-2" />
-                                    {ev && !allowsMultiple
-                                      ? `${template.name} (${ev.status === "completed" ? "completada" : "en proceso"})`
-                                      : `Iniciar: ${template.name}`}
-                                  </DropdownMenuItem>
-                                )
-                              })}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                            )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {scopeTemplates.map((template) => {
+                                  const ev = findTemplateEval(staff.id, template)
+                                  const disabled = !allowsMultiple && ev !== null && ev.status !== "pending"
+                                  return (
+                                    <DropdownMenuItem
+                                      key={template.id}
+                                      onClick={() =>
+                                        handleStartStaffEvaluation(staff.id, startTypeFor(template), template.id)
+                                      }
+                                      disabled={disabled}
+                                    >
+                                      <Play className="h-4 w-4 mr-2" />
+                                      {ev && !allowsMultiple && ev.status !== "pending"
+                                        ? `${template.name} (${ev.status === "completed" ? "completada" : "en proceso"})`
+                                        : `Iniciar: ${template.name}`}
+                                    </DropdownMenuItem>
+                                  )
+                                })}
+                                {scope !== "onboarding" && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        openStaffResults(
+                                          staff.id,
+                                          `${staff.first_name} ${staff.last_name}`,
+                                          scope as "permanence" | "objectives",
+                                        )
+                                      }
+                                    >
+                                      <Eye className="h-4 w-4 mr-2" />
+                                      Ver resultados
+                                    </DropdownMenuItem>
+                                    {scopeTemplates.map((template) => {
+                                      const ev = findTemplateEval(staff.id, template)
+                                      if (!ev) return null
+                                      return (
+                                        <DropdownMenuItem
+                                          key={`restart-${template.id}`}
+                                          className="text-amber-600"
+                                          onClick={() => handleRestartStaffEvaluationDirect(ev.id, template.name)}
+                                        >
+                                          <RefreshCw className="h-4 w-4 mr-2" />
+                                          Reiniciar: {template.name}
+                                        </DropdownMenuItem>
+                                      )
+                                    })}
+                                    {scopeTemplates.map((template) => {
+                                      const ev = findTemplateEval(staff.id, template)
+                                      if (!ev) return null
+                                      return (
+                                        <DropdownMenuItem
+                                          key={`delete-${template.id}`}
+                                          className="text-destructive"
+                                          onClick={() => {
+                                            setDeleteEvalData({
+                                              id: ev.id,
+                                              type: "staff",
+                                              label: template.name,
+                                              personName: `${staff.first_name} ${staff.last_name}`,
+                                            })
+                                            setShowDeleteEvalDialog(true)
+                                          }}
+                                        >
+                                          <Trash2 className="h-4 w-4 mr-2" />
+                                          Eliminar: {template.name}
+                                        </DropdownMenuItem>
+                                      )
+                                    })}
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </TableCell>
                       </TableRow>
                     )
@@ -3241,8 +3575,8 @@ const handleCreateTemplate = () => {
                         const eval_ = candidateEvaluations.find(
                           e => e.candidate_id === candidate.id && e.evaluation_type === type
                         )
-                        if (!eval_) return { status: "pending", score: null }
-                        return { status: eval_.status, score: eval_.score }
+                        if (!eval_) return { status: "pending", score: null, id: null as string | null }
+                        return { status: eval_.status, score: eval_.score, id: eval_.id }
                       }
                       const psycho = getEvalStatus("psychometric")
                       const personality = getEvalStatus("personality")
@@ -3304,6 +3638,16 @@ const handleCreateTemplate = () => {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Ver resultados"
+                              onClick={() => openCandidateResults(candidate.id, `${candidate.first_name} ${candidate.last_name}`)}
+                            >
+                              <Eye className="h-4 w-4" />
+                              <span className="sr-only">Ver resultados</span>
+                            </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon">
@@ -3384,12 +3728,49 @@ const handleCreateTemplate = () => {
                                   </DropdownMenuItem>
                                 )}
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openCandidateResults(candidate.id, `${candidate.first_name} ${candidate.last_name}`)}>
                                   <Eye className="h-4 w-4 mr-2" />
                                   Ver Resultados
                                 </DropdownMenuItem>
+                                {psycho.id && (
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => {
+                                      setDeleteEvalData({ id: psycho.id as string, type: "candidate", label: "Psicométrico", personName: `${candidate.first_name} ${candidate.last_name}` })
+                                      setShowDeleteEvalDialog(true)
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Eliminar Psicométrico
+                                  </DropdownMenuItem>
+                                )}
+                                {personality.id && (
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => {
+                                      setDeleteEvalData({ id: personality.id as string, type: "candidate", label: "Personalidad", personName: `${candidate.first_name} ${candidate.last_name}` })
+                                      setShowDeleteEvalDialog(true)
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Eliminar Personalidad
+                                  </DropdownMenuItem>
+                                )}
+                                {technical.id && (
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => {
+                                      setDeleteEvalData({ id: technical.id as string, type: "candidate", label: "Técnico", personName: `${candidate.first_name} ${candidate.last_name}` })
+                                      setShowDeleteEvalDialog(true)
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Eliminar Técnico
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )
@@ -7228,6 +7609,193 @@ const handleCreateTemplate = () => {
                 <>
                   <RefreshCw className="h-4 w-4" />
                   Reiniciar Evaluación
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Ver Resultados */}
+      <Dialog open={showResultsDialog} onOpenChange={setShowResultsDialog}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-primary" />
+              Resultados de {resultsTitle}
+            </DialogTitle>
+            <DialogDescription>{resultsSubtitle}</DialogDescription>
+          </DialogHeader>
+
+          {resultsLoading ? (
+            <div className="py-12 text-center">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+              <p className="mt-2 text-sm text-muted-foreground">Cargando resultados...</p>
+            </div>
+          ) : resultsItems.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">
+              <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <p>No hay evaluaciones registradas para esta persona.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {resultsItems.map((item) => (
+                <div key={item.id} className="rounded-lg border p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {categoryConfig[item.title]?.icon}
+                      <h4 className="font-semibold">{item.title}</h4>
+                      <Badge
+                        variant="outline"
+                        className={
+                          item.status === "completed"
+                            ? "bg-green-50 text-green-700"
+                            : item.status === "in_progress"
+                              ? "bg-blue-50 text-blue-700"
+                              : "bg-gray-50 text-gray-700"
+                        }
+                      >
+                        {statusConfig[item.status]?.label ??
+                          (item.status === "in_progress"
+                            ? "En proceso"
+                            : item.status === "pending"
+                              ? "Pendiente"
+                              : item.status)}
+                      </Badge>
+                    </div>
+                    {item.score !== null && item.score !== undefined && (
+                      <Badge className="bg-primary/10 text-primary">Puntaje: {item.score}%</Badge>
+                    )}
+                  </div>
+
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {item.completedAt
+                      ? `Completada el ${new Date(item.completedAt).toLocaleString("es-MX")}`
+                      : item.startedAt
+                        ? `Iniciada el ${new Date(item.startedAt).toLocaleString("es-MX")}`
+                        : "Sin iniciar"}
+                  </div>
+
+                  {item.notes && (
+                    <p className="mt-2 rounded-md bg-muted p-2 text-sm">{item.notes}</p>
+                  )}
+
+                  {/* Respuestas directas (candidato) */}
+                  {item.responses.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {item.responses.map((r, idx) => (
+                        <div key={idx} className="text-sm">
+                          <p className="font-medium">{r.question}</p>
+                          <p className="text-muted-foreground">{r.answer}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Respuestas por evaluador (colaborador) */}
+                  {item.evaluators && item.evaluators.length > 0 && (
+                    <div className="mt-3 space-y-3">
+                      {item.evaluators.map((ev, i) => (
+                        <div key={i} className="rounded-md border bg-muted/40 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium">{ev.name}</span>
+                            <div className="flex items-center gap-2">
+                              {ev.score !== null && ev.score !== undefined && (
+                                <Badge variant="outline">{ev.score}%</Badge>
+                              )}
+                              <Badge
+                                variant="outline"
+                                className={
+                                  ev.status === "completed"
+                                    ? "bg-green-50 text-green-700"
+                                    : ev.status === "in_progress"
+                                      ? "bg-blue-50 text-blue-700"
+                                      : "bg-gray-50 text-gray-700"
+                                }
+                              >
+                                {ev.status === "completed"
+                                  ? "Completada"
+                                  : ev.status === "in_progress"
+                                    ? "En proceso"
+                                    : "Pendiente"}
+                              </Badge>
+                            </div>
+                          </div>
+                          {ev.responses.length > 0 && (
+                            <div className="mt-2 space-y-2">
+                              {ev.responses.map((r, idx) => (
+                                <div key={idx} className="text-sm">
+                                  <p className="font-medium">{r.question}</p>
+                                  <p className="text-muted-foreground">{r.answer}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {item.responses.length === 0 &&
+                    (!item.evaluators || item.evaluators.every((e) => e.responses.length === 0)) && (
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        Aún no hay respuestas registradas para esta evaluación.
+                      </p>
+                    )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResultsDialog(false)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Eliminar Evaluación */}
+      <Dialog open={showDeleteEvalDialog} onOpenChange={setShowDeleteEvalDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Eliminar evaluación
+            </DialogTitle>
+            <DialogDescription>
+              {deleteEvalData && (
+                <>
+                  Se eliminará la evaluación <strong>{deleteEvalData.label}</strong> de{" "}
+                  <strong>{deleteEvalData.personName}</strong>, junto con todas sus respuestas. Esta
+                  acción no se puede deshacer.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteEvalDialog(false)}
+              disabled={deletingEval}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDeleteEvaluation}
+              disabled={deletingEval}
+              className="gap-2"
+            >
+              {deletingEval ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Eliminando...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  Eliminar
                 </>
               )}
             </Button>
