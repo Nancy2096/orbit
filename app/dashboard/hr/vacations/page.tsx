@@ -755,12 +755,31 @@ export default function VacationsPage() {
     new Date(r.created_at).getMonth() === new Date().getMonth()
   )
 
-  // Equipo del usuario actual: sus reportes directos. Si no tiene reportes
-  // (o no está vinculado a un empleado), se muestra todo el personal de la agencia.
-  const myTeam =
-    currentStaff && staff.some((s) => s.reports_to_id === currentStaff.id)
-      ? staff.filter((s) => s.reports_to_id === currentStaff.id)
-      : staff
+  // Visibilidad del personal en "Mi Equipo" según el rol y la jerarquía:
+  // - Super Administrador, Dirección General y Recursos Humanos: todo el personal activo.
+  // - Gerencias / jefes (tienen personal a cargo): únicamente su equipo (reportes directos).
+  // - Resto del personal (sin nadie a cargo): las personas de su mismo departamento.
+  const canSeeAllStaff =
+    fullAccess ||
+    roleName === "superadmin" ||
+    roleName === "direccion_general" ||
+    roleName === "rrhh" ||
+    (currentStaff || null)?.department?.trim().toLowerCase() === "recursos humanos"
+
+  const hasSubordinates =
+    !!currentStaff && staff.some((s) => s.reports_to_id === currentStaff.id)
+
+  const myTeam = canSeeAllStaff
+    ? staff
+    : hasSubordinates
+      ? staff.filter((s) => s.reports_to_id === currentStaff!.id)
+      : currentStaff
+        ? staff.filter(
+            (s) =>
+              (s.department || "").trim().toLowerCase() ===
+              (currentStaff.department || "").trim().toLowerCase(),
+          )
+        : []
 
   // Saldos por empleado calculados con datos reales: los días otorgados provienen
   // de la configuración de permisos de la agencia (days_per_year) o de un balance
