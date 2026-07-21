@@ -29,6 +29,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X } from "lucide-react"
 import { DepartmentFilter } from "@/components/hr/department-filter"
 import { useAgency } from "@/contexts/agency-context"
+import { STAGE_LABELS, STAGE_BADGE_STYLES } from "@/lib/bonus-workflow"
 
 interface Bonus {
   id: string
@@ -38,6 +39,8 @@ interface Bonus {
   status: string
   effective_date: string | null
   created_at: string
+  course_name: string | null
+  workflow_stage: string | null
   staff: {
     id: string
     first_name: string
@@ -442,11 +445,10 @@ export default function BonusesPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Empleado</TableHead>
-                          <TableHead>Tipo</TableHead>
-                          <TableHead>Descripción</TableHead>
+                          <TableHead>Curso / Tipo</TableHead>
                           <TableHead>Fecha</TableHead>
                           <TableHead className="text-right">Monto</TableHead>
-                          <TableHead>Estado</TableHead>
+                          <TableHead>Etapa</TableHead>
                           <TableHead className="w-[100px]">Acciones</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -456,20 +458,34 @@ export default function BonusesPage() {
                             <TableCell className="font-medium">
                               {bonus.staff?.first_name} {bonus.staff?.last_name}
                             </TableCell>
-                            <TableCell>{typeLabels[bonus.bonus_type] || bonus.bonus_type}</TableCell>
-                            <TableCell className="max-w-[200px] truncate">
-                              {bonus.description || "-"}
+                            <TableCell className="max-w-[220px]">
+                              <div className="truncate font-medium">
+                                {bonus.course_name || typeLabels[bonus.bonus_type] || bonus.bonus_type}
+                              </div>
+                              {bonus.course_name && (
+                                <div className="truncate text-xs text-muted-foreground">
+                                  {typeLabels[bonus.bonus_type] || bonus.bonus_type}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>
-                              {bonus.effective_date ? formatDate(bonus.effective_date) : "-"}
+                              {bonus.effective_date
+                                ? formatDate(bonus.effective_date)
+                                : formatDate(bonus.created_at)}
                             </TableCell>
                             <TableCell className="text-right font-medium">
                               {formatCurrency(Number(bonus.amount || 0))}
                             </TableCell>
                             <TableCell>
-                              <Badge variant={statusColors[bonus.status]}>
-                                {statusLabels[bonus.status] || bonus.status}
-                              </Badge>
+                              {bonus.workflow_stage ? (
+                                <Badge className={STAGE_BADGE_STYLES[bonus.workflow_stage] || ""}>
+                                  {STAGE_LABELS[bonus.workflow_stage] || bonus.workflow_stage}
+                                </Badge>
+                              ) : (
+                                <Badge variant={statusColors[bonus.status]}>
+                                  {statusLabels[bonus.status] || bonus.status}
+                                </Badge>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Button variant="ghost" size="sm" asChild>
