@@ -14,7 +14,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ArrowLeft, Building2, User, CreditCard, Plus, Trash2, Instagram, Facebook, Linkedin, Globe, FileText, Download } from "lucide-react"
+import { ArrowLeft, Building2, User, CreditCard, Plus, Trash2, Instagram, Facebook, Linkedin, Globe, FileText, Download, Upload, Eye } from "lucide-react"
 import { getCountries, getStatesByCountry, getCitiesByState, getPostalCodesByCity, getCountryCodeByName } from "@/lib/locations-data"
 
 // Opciones de Régimen Fiscal México
@@ -134,6 +134,8 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
   })
   const [additionalContacts, setAdditionalContacts] = useState<Contact[]>([])
   const [quotations, setQuotations] = useState<{ id: string; file_name: string; file_url: string; version: number; notes: string | null; created_at: string }[]>([])
+  const [contract, setContract] = useState<{ url: string; filename: string; uploaded_at: string | null } | null>(null)
+  const [uploadingContract, setUploadingContract] = useState(false)
   const [contactDialogOpen, setContactDialogOpen] = useState(false)
   const [editingContactIndex, setEditingContactIndex] = useState<number | null>(null)
   const [contactForm, setContactForm] = useState<Contact>({
@@ -216,6 +218,17 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
     const { data: clientData } = await supabase.from("clients").select("*").eq("id", id).single()
 
     if (clientData) {
+      // Contrato firmado del cliente (si existe)
+      if (clientData.contract_url) {
+        setContract({
+          url: clientData.contract_url,
+          filename: clientData.contract_filename || "Contrato.pdf",
+          uploaded_at: clientData.contract_uploaded_at || null,
+        })
+      } else {
+        setContract(null)
+      }
+
       // Load catalogs for the agency first
       if (clientData.agency_id) {
         await fetchCatalogs(clientData.agency_id)
@@ -313,6 +326,59 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
     if (quotationsData) setQuotations(quotationsData)
 
     setFetching(false)
+  }
+
+  async function handleContractUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = "" // permite volver a seleccionar el mismo archivo
+    if (!file) return
+
+    if (file.type !== "application/pdf") {
+      setError("El contrato debe ser un archivo PDF.")
+      return
+    }
+
+    setError(null)
+    setUploadingContract(true)
+    try {
+      const body = new FormData()
+      body.append("file", file)
+      body.append("clientId", id)
+
+      const res = await fetch("/api/contracts/upload", { method: "POST", body })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "No se pudo subir el contrato")
+      }
+      const data = await res.json()
+      setContract({
+        url: data.contract_url,
+        filename: data.contract_filename,
+        uploaded_at: data.contract_uploaded_at,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo subir el contrato")
+    } finally {
+      setUploadingContract(false)
+    }
+  }
+
+  async function handleContractDelete() {
+    if (!confirm("¿Eliminar el contrato firmado? Esta acción no se puede deshacer.")) return
+    setUploadingContract(true)
+    try {
+      const res = await fetch("/api/contracts/upload", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: id }),
+      })
+      if (!res.ok) throw new Error("No se pudo eliminar el contrato")
+      setContract(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar el contrato")
+    } finally {
+      setUploadingContract(false)
+    }
   }
 
   function openAddContact() {
@@ -1114,6 +1180,87 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
               </CardContent>
             </Card>
           )}
+
+          {/* Contrato firmado (PDF) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Contrato
+              </CardTitle>
+              <CardDescription>Carga el contrato firmado en formato PDF. Puedes verlo, descargarlo o eliminarlo.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {contract ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{contract.filename}</p>
+                      {contract.uploaded_at && (
+                        <p className="text-xs text-muted-foreground">
+                          Cargado el {new Date(contract.uploaded_at).toLocaleDateString("es-MX")}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button variant="ghost" size="icon" asChild title="Ver">
+                      <a href={contract.url} target="_blank" rel="noopener noreferrer">
+                        <Eye className="h-4 w-4" />
+                        <span className="sr-only">Ver contrato</span>
+                      </a>
+                    </Button>
+                    <Button variant="ghost" size="icon" asChild title="Descargar">
+                      <a href={`${contract.url}&download=1&filename=${encodeURIComponent(contract.filename)}`} target="_blank" rel="noopener noreferrer">
+                        <Download className="h-4 w-4" />
+                        <span className="sr-only">Descargar contrato</span>
+                      </a>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      title="Eliminar"
+                      onClick={handleContractDelete}
+                      disabled={uploadingContract}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                      <span className="sr-only">Eliminar contrato</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed p-6">
+                  <p className="text-sm text-muted-foreground">Aún no se ha cargado ningún contrato.</p>
+                  <Button type="button" variant="outline" disabled={uploadingContract} asChild>
+                    <label className="cursor-pointer">
+                      {uploadingContract ? (
+                        <>
+                          <Spinner className="mr-2" />
+                          Subiendo...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="mr-2 h-4 w-4" />
+                          Cargar contrato (PDF)
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        className="sr-only"
+                        onChange={handleContractUpload}
+                        disabled={uploadingContract}
+                      />
+                    </label>
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {error && (
             <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-sm">
