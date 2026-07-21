@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ResizableTableHead, useColumnWidths } from "@/components/resizable-table-head"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -345,6 +346,7 @@ export default function AccountsPage() {
   )
 
   const visibleColumns = columns.filter(col => col.visible)
+  const { widths, setWidth, getColumnStyle } = useColumnWidths("accounts-column-widths")
 
   function renderAccountsTable(rows: Account[]) {
     const totals = computeTotals(rows)
@@ -355,7 +357,14 @@ export default function AccountsPage() {
             <TableRow>
               <TableHead className="w-12 text-right">#</TableHead>
                   {visibleColumns.map((column) => (
-                    <TableHead key={column.key}>{column.label}</TableHead>
+                    <ResizableTableHead
+                      key={column.key}
+                      columnKey={column.key}
+                      width={widths[column.key]}
+                      onResize={setWidth}
+                    >
+                      {column.label}
+                    </ResizableTableHead>
                   ))}
                   <TableHead className="w-24 text-right">Acciones</TableHead>
             </TableRow>
@@ -367,7 +376,11 @@ export default function AccountsPage() {
                   {index + 1}
                 </TableCell>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.key}>
+                  <TableCell
+                    key={column.key}
+                    style={getColumnStyle(column.key)}
+                    className={getColumnStyle(column.key) ? "overflow-hidden text-ellipsis" : undefined}
+                  >
                     {column.key === "account_name" && (
                       <Link
                         href={`/dashboard/accounts/${account.id}`}
@@ -461,7 +474,7 @@ export default function AccountsPage() {
               <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
                 <TableCell />
                 {visibleColumns.map((column, i) => (
-                  <TableCell key={column.key}>
+                  <TableCell key={column.key} style={getColumnStyle(column.key)}>
                     {i === 0 && `Total contratado (${t.code})`}
                     {column.key === "total_contracted" && (
                       <span className="tabular-nums">

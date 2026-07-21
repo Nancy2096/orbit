@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ResizableTableHead, useColumnWidths } from "@/components/resizable-table-head"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -236,6 +237,7 @@ export default function ClientsPage() {
   )
 
   const visibleColumns = columns.filter(col => col.visible)
+  const { widths, setWidth, getColumnStyle } = useColumnWidths("clients-column-widths")
 
   function renderClientsTable(rows: Client[]) {
     return (
@@ -245,7 +247,14 @@ export default function ClientsPage() {
             <TableRow>
               <TableHead className="w-12 text-right">#</TableHead>
               {visibleColumns.map((column) => (
-                <TableHead key={column.key}>{column.label}</TableHead>
+                <ResizableTableHead
+                  key={column.key}
+                  columnKey={column.key}
+                  width={widths[column.key]}
+                  onResize={setWidth}
+                >
+                  {column.label}
+                </ResizableTableHead>
               ))}
               <TableHead className="w-12"></TableHead>
             </TableRow>
@@ -257,7 +266,11 @@ export default function ClientsPage() {
                   {index + 1}
                 </TableCell>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.key}>
+                  <TableCell
+                    key={column.key}
+                    style={getColumnStyle(column.key)}
+                    className={getColumnStyle(column.key) ? "overflow-hidden text-ellipsis" : undefined}
+                  >
                     {column.key === "company_name" && (
                       <div>
                         <Link
