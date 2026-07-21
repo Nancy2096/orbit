@@ -767,9 +767,11 @@ state_province: prospectData.state_province || "",
         return
       }
 
-      // 1.5 Crear la cuenta y los proyectos a partir de los servicios del prospecto.
-      // projects.account_id es obligatorio, por lo que SIEMPRE creamos una cuenta
-      // para el cliente y de ella cuelgan tanto los servicios retainer como los proyectos.
+      // 1.5 Crear las cuentas a partir de los servicios del prospecto.
+      // En esta app un "Proyecto" es una cuenta con account_type = "project" y sus
+      // servicios viven en account_services (igual que una cuenta retainer). Por eso:
+      //  - Los servicios retainer -> UNA cuenta tipo "retainer".
+      //  - Cada servicio por proyecto -> UNA cuenta tipo "project" (aparece en Proyectos).
       if (prospectServices.length > 0) {
         const agencyForAccount = prospectAgencyId || selectedAgencyId
         const retainerServices = prospectServices.filter((s) => s.billing_type === "retainer")
@@ -792,36 +794,39 @@ state_province: prospectData.state_province || "",
           commercialManagerId = managerStaff?.id ?? null
         }
 
-        // Cotización más reciente del prospecto: se copia a la cuenta y a los proyectos.
+        // Cotización más reciente del prospecto: se copia a cada cuenta creada.
         const latestQuotation = quotations.length > 0 ? quotations[0] : null
+        const quotationFields = {
+          quotation_url: latestQuotation?.file_url || null,
+          quotation_filename: latestQuotation?.file_name || null,
+          quotation_uploaded_at: latestQuotation?.created_at || null,
+        }
 
-        const { data: account, error: accountError } = await supabase
-          .from("accounts")
-          .insert({
-            client_id: client.id,
-            agency_id: agencyForAccount,
-            account_name: formData.company_name || formData.contact_name,
-            account_type: retainerServices.length > 0 ? "retainer" : "project",
-            retainer_amount: retainerServices.length > 0 ? retainerTotal : null,
-            sales_advisor_id: salesAdvisorId,
-            account_manager_id: commercialManagerId,
-            quotation_url: latestQuotation?.file_url || null,
-            quotation_filename: latestQuotation?.file_name || null,
-            quotation_uploaded_at: latestQuotation?.created_at || null,
-            status: "active",
-            notes: "Creada automaticamente al convertir el prospecto",
-          })
-          .select("id")
-          .single()
+        // A) Cuenta de retainer (solo si hay servicios recurrentes)
+        if (retainerServices.length > 0) {
+          const { data: retainerAccount, error: retainerError } = await supabase
+            .from("accounts")
+            .insert({
+              client_id: client.id,
+              agency_id: agencyForAccount,
+              account_name: formData.company_name || formData.contact_name,
+              account_type: "retainer",
+              retainer_amount: retainerTotal,
+              sales_advisor_id: salesAdvisorId,
+              account_manager_id: commercialManagerId,
+              ...quotationFields,
+              status: "active",
+              notes: "Creada automaticamente al convertir el prospecto",
+            })
+            .select("id")
+            .single()
 
-        if (accountError || !account) {
-          console.error(accountError)
-          toast.error("Cliente creado, pero no se pudo crear la cuenta automaticamente")
-        } else {
-          // Servicios retainer -> account_services (recurrentes en la cuenta)
-          if (retainerServices.length > 0) {
+          if (retainerError || !retainerAccount) {
+            console.error("[v0] No se pudo crear la cuenta retainer:", retainerError?.message)
+            toast.error("Cliente creado, pero no se pudo crear la cuenta de retainer")
+          } else {
             const accountServicesToInsert = retainerServices.map((s) => ({
-              account_id: account.id,
+              account_id: retainerAccount.id,
               service_id: s.service.id,
               quantity: s.quantity,
               unit_price: s.unit_price || 0,
@@ -830,42 +835,43 @@ state_province: prospectData.state_province || "",
               is_active: true,
             }))
             const { error: accSvcError } = await supabase.from("account_services").insert(accountServicesToInsert)
-            if (accSvcError) console.error("No se pudieron crear los servicios de la cuenta:", accSvcError.message)
+            if (accSvcError) console.error("[v0] No se pudieron crear los servicios de la cuenta:", accSvcError.message)
           }
+        }
 
-          // Servicios por proyecto -> un proyecto por servicio + su project_service
-          for (const s of projectServices) {
-            const { data: project, error: projectError } = await supabase
-              .from("projects")
-              .insert({
-                account_id: account.id,
-                name: s.service?.name || "Proyecto",
-                project_type: "standard",
-                status: "draft",
-                budget_amount: s.total_price || null,
-                sales_advisor_id: salesAdvisorId,
-                commercial_manager_id: commercialManagerId,
-                quotation_url: latestQuotation?.file_url || null,
-                quotation_filename: latestQuotation?.file_name || null,
-                quotation_uploaded_at: latestQuotation?.created_at || null,
-              })
-              .select("id")
-              .single()
-
-            if (projectError || !project) {
-              console.error("No se pudo crear el proyecto:", projectError?.message)
-              continue
-            }
-
-            const { error: projSvcError } = await supabase.from("project_services").insert({
-              project_id: project.id,
-              service_id: s.service.id,
-              quantity: s.quantity,
-              unit_price: s.unit_price || 0,
-              total_price: s.total_price || 0,
+        // B) Una cuenta tipo "project" por cada servicio por proyecto
+        for (const s of projectServices) {
+          const { data: projectAccount, error: projectError } = await supabase
+            .from("accounts")
+            .insert({
+              client_id: client.id,
+              agency_id: agencyForAccount,
+              account_name: s.service?.name || "Proyecto",
+              account_type: "project",
+              sales_advisor_id: salesAdvisorId,
+              account_manager_id: commercialManagerId,
+              ...quotationFields,
+              status: "active",
+              notes: "Proyecto creado automaticamente al convertir el prospecto",
             })
-            if (projSvcError) console.error("No se pudo agregar el servicio al proyecto:", projSvcError.message)
+            .select("id")
+            .single()
+
+          if (projectError || !projectAccount) {
+            console.error("[v0] No se pudo crear la cuenta de proyecto:", projectError?.message)
+            continue
           }
+
+          const { error: projSvcError } = await supabase.from("account_services").insert({
+            account_id: projectAccount.id,
+            service_id: s.service.id,
+            quantity: s.quantity,
+            unit_price: s.unit_price || 0,
+            final_price: s.total_price || 0,
+            frequency: "one_time",
+            is_active: true,
+          })
+          if (projSvcError) console.error("[v0] No se pudo agregar el servicio al proyecto:", projSvcError.message)
         }
       }
 
