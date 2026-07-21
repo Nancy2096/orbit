@@ -722,6 +722,19 @@ state_province: prospectData.state_province || "",
 
     setConverting(true)
     try {
+      // El origen del prospecto (source_id) apunta a un catálogo distinto al que
+      // referencia clients.referral_source_id (referral_sources). Validamos que el id
+      // exista en referral_sources; de lo contrario lo omitimos para no violar la FK.
+      let referralSourceId: string | null = null
+      if (formData.source_id) {
+        const { data: refSource } = await supabase
+          .from("referral_sources")
+          .select("id")
+          .eq("id", formData.source_id)
+          .maybeSingle()
+        referralSourceId = refSource?.id ?? null
+      }
+
       // 1. Crear el cliente con la información del prospecto.
       // Si ya pagó el inicial => cliente "active"; si no => queda como "prospect".
       const { data: client, error: clientError } = await supabase
@@ -737,7 +750,7 @@ state_province: prospectData.state_province || "",
           primary_contact_phone: formData.contact_phone || null,
           primary_contact_position: formData.contact_position || null,
           industry_id: formData.industry_id || null,
-          referral_source_id: formData.source_id || null,
+          referral_source_id: referralSourceId,
           instagram: formData.social_instagram || null,
           facebook: formData.social_facebook || null,
           linkedin: formData.social_linkedin || null,
@@ -749,8 +762,8 @@ state_province: prospectData.state_province || "",
         .single()
 
       if (clientError || !client) {
-        console.error(clientError)
-        toast.error("Error al crear el cliente")
+        console.error("[v0] Error al crear el cliente:", clientError)
+        toast.error(`Error al crear el cliente${clientError?.message ? `: ${clientError.message}` : ""}`)
         return
       }
 
