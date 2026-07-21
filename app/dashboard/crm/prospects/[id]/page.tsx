@@ -217,6 +217,7 @@ export default function ProspectDetailPage() {
   
   // Seguimiento de la asignación del asesor comercial
   const [initialAssignedTo, setInitialAssignedTo] = useState<string | null>(null)
+  const [initialStageId, setInitialStageId] = useState<string | null>(null)
   const [assignedAt, setAssignedAt] = useState<string | null>(null)
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistoryEntry[]>([])
 
@@ -373,6 +374,8 @@ state_province: prospectData.state_province || "",
       notes: prospectData.notes || "",
     })
 
+    setInitialStageId(prospectData.stage_id || null)
+
     const agencyId = prospectData.agency_id || selectedAgencyId
     setProspectAgencyId(agencyId)
     setConvertedClientId(prospectData.converted_to_client_id || null)
@@ -467,6 +470,12 @@ state_province: prospectData.state_province || "",
     const assignmentTimestamp = new Date().toISOString()
 
     const stage = stages.find(s => s.id === formData.stage_id)
+    // Detectar la transición hacia una etapa "Ganado" para fijar automáticamente
+    // la fecha de cierre con el día en que se realiza el cambio.
+    const previousStageWon = stages.find(s => s.id === initialStageId)?.is_won ?? false
+    const enteringWon = !!stage?.is_won && !previousStageWon
+    const closeDateOnWin = enteringWon ? new Date().toISOString().split("T")[0] : null
+
     const updateData: Record<string, unknown> = {
       assigned_to: newAssignedTo,
       contact_name: formData.contact_name,
@@ -487,8 +496,8 @@ state_province: prospectData.state_province || "",
       source_id: formData.source_id || null,
       estimated_value: prospectServices.length > 0 ? getTotalServicesValue() : null,
       currency_id: formData.currency_id || null,
-      probability: formData.probability,
-      expected_close_date: formData.expected_close_date || null,
+      probability: enteringWon ? 95 : formData.probability,
+      expected_close_date: closeDateOnWin || formData.expected_close_date || null,
       description: formData.description || null,
       notes: formData.notes || null,
       updated_at: new Date().toISOString(),
@@ -574,6 +583,16 @@ state_province: prospectData.state_province || "",
           .eq("id", contact.id)
       }
     }
+
+    // Reflejar la nueva etapa, la fecha de cierre y la probabilidad fijadas automáticamente al ganar.
+    if (enteringWon) {
+      setFormData((prev) => ({
+        ...prev,
+        probability: 95,
+        ...(closeDateOnWin ? { expected_close_date: closeDateOnWin } : {}),
+      }))
+    }
+    setInitialStageId(formData.stage_id)
 
     setDeletedContactIds([])
     setSaving(false)
@@ -703,6 +722,19 @@ state_province: prospectData.state_province || "",
 
     setConverting(true)
     try {
+      // El origen del prospecto (source_id) apunta a un catálogo distinto al que
+      // referencia clients.referral_source_id (referral_sources). Validamos que el id
+      // exista en referral_sources; de lo contrario lo omitimos para no violar la FK.
+      let referralSourceId: string | null = null
+      if (formData.source_id) {
+        const { data: refSource } = await supabase
+          .from("referral_sources")
+          .select("id")
+          .eq("id", formData.source_id)
+          .maybeSingle()
+        referralSourceId = refSource?.id ?? null
+      }
+
       // 1. Crear el cliente con la información del prospecto.
       // Si ya pagó el inicial => cliente "active"; si no => queda como "prospect".
       const { data: client, error: clientError } = await supabase
@@ -718,7 +750,7 @@ state_province: prospectData.state_province || "",
           primary_contact_phone: formData.contact_phone || null,
           primary_contact_position: formData.contact_position || null,
           industry_id: formData.industry_id || null,
-          referral_source_id: formData.source_id || null,
+          referral_source_id: referralSourceId,
           instagram: formData.social_instagram || null,
           facebook: formData.social_facebook || null,
           linkedin: formData.social_linkedin || null,
@@ -730,8 +762,8 @@ state_province: prospectData.state_province || "",
         .single()
 
       if (clientError || !client) {
-        console.error(clientError)
-        toast.error("Error al crear el cliente")
+        console.error("[v0] Error al crear el cliente:", clientError)
+        toast.error(`Error al crear el cliente${clientError?.message ? `: ${clientError.message}` : ""}`)
         return
       }
 
@@ -1198,6 +1230,15 @@ state_province: prospectData.state_province || "",
   const getTotalServicesValue = () => {
     return prospectServices.reduce((sum, ps) => sum + (ps.total_price || 0), 0)
   }
+
+  const getServicesTotalByType = (type: "retainer" | "project") => {
+    return prospectServices
+      .filter((ps) => ps.billing_type === type)
+      .reduce((sum, ps) => sum + (ps.total_price || 0), 0)
+  }
+
+  const hasRetainerServices = prospectServices.some((ps) => ps.billing_type === "retainer")
+  const hasProjectServices = prospectServices.some((ps) => ps.billing_type === "project")
 
   const selectedCurrencyCode = currencies.find(c => c.id === formData.currency_id)?.code || "MXN"
 
@@ -1733,7 +1774,7 @@ state_province: prospectData.state_province || "",
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1"><Calendar className="h-4 w-4" /> Fecha Estimada de Cierre</Label>
+                      <Label className="flex items-center gap-1"><Calendar className="h-4 w-4" /> {isWonStage ? "Fecha de Cierre" : "Fecha Estimada de Cierre"}</Label>
                       <Input
                         type="date"
                         value={formData.expected_close_date}
@@ -2051,6 +2092,34 @@ state_province: prospectData.state_province || "",
                           </div>
                         </div>
                       ))}
+
+                      <div className="mt-4 rounded-lg border bg-muted/40 p-4 space-y-2">
+                        {hasRetainerServices && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Total Retainer</span>
+                            <span className="font-medium">
+                              {formatCurrency(getServicesTotalByType("retainer"))} {selectedCurrencyCode}
+                            </span>
+                          </div>
+                        )}
+                        {hasProjectServices && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Total Proyectos</span>
+                            <span className="font-medium">
+                              {formatCurrency(getServicesTotalByType("project"))} {selectedCurrencyCode}
+                            </span>
+                          </div>
+                        )}
+                        {hasRetainerServices && hasProjectServices && (
+                          <div className="border-t pt-2" />
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">Total de Servicios</span>
+                          <span className="text-lg font-bold text-primary">
+                            {formatCurrency(getTotalServicesValue())} {selectedCurrencyCode}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -2446,7 +2515,17 @@ state_province: prospectData.state_province || "",
                   return (
                     <button
                       key={stage.id}
-                      onClick={() => setFormData({ ...formData, stage_id: stage.id })}
+                      onClick={() =>
+                        setFormData((prev) => {
+                          const prevStageWon = stages.find((s) => s.id === prev.stage_id)?.is_won ?? false
+                          const next = { ...prev, stage_id: stage.id }
+                          // Al pasar a una etapa "Ganado", registrar la fecha de cierre del día del cambio.
+                          if (stage.is_won && !prevStageWon) {
+                            next.expected_close_date = new Date().toISOString().split("T")[0]
+                          }
+                          return next
+                        })
+                      }
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all text-sm font-medium w-full text-left ${
                         isActive
                           ? "text-white shadow-md"
@@ -2516,7 +2595,7 @@ state_province: prospectData.state_province || "",
               </div>
               <Separator />
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Cierre Estimado</span>
+                <span className="text-sm text-muted-foreground">{isWonStage ? "Fecha de Cierre" : "Cierre Estimado"}</span>
                 <span className="text-sm">
                   {formData.expected_close_date 
                     ? new Date(formData.expected_close_date).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })
@@ -2974,7 +3053,7 @@ state_province: prospectData.state_province || "",
 
             {prospectServices.length > 0 && (
               <div className="rounded-lg border p-4 space-y-2">
-                <p className="text-sm font-medium">Al convertir se crearán automáticamente:</p>
+                <p className="text-sm font-medium">Al convertir se crearán autom��ticamente:</p>
                 <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
                   {prospectServices.some((s) => s.billing_type === "retainer") && (
                     <li>
