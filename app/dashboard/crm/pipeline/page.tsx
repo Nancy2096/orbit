@@ -36,8 +36,12 @@ import {
   Mail,
   DollarSign,
   Calendar,
+  Clock,
+  User,
   GripVertical,
   RefreshCw,
+  Building2,
+  TrendingUp,
 } from "lucide-react"
 
 interface Stage {
@@ -68,6 +72,7 @@ interface Prospect {
   status: string
   created_at: string
   assigned_to: string | null
+  last_contact_at: string | null
 }
 
 export default function PipelinePage() {
@@ -126,9 +131,66 @@ export default function PipelinePage() {
       .order("created_at", { ascending: false })
 
     console.log("[v0] Pipeline - prospectsData:", prospectsData?.length, "Error:", prospectsError)
-    
+
     if (prospectsData) {
-      setProspects(prospectsData as Prospect[])
+      // Calcular la última fecha de interacción por prospecto combinando actividades,
+      // tareas y asignaciones con las fechas propias del prospecto (asignación, cita
+      // atendida, cambio a ganado/perdido y última actualización de etapa).
+      const prospectIds = prospectsData.map((p) => p.id)
+      const lastContactMap = new Map<string, number>()
+      const trackDate = (id: string | null, value: string | null) => {
+        if (!id || !value) return
+        const time = new Date(value).getTime()
+        // Ignorar fechas inválidas o futuras (citas/tareas programadas).
+        if (Number.isNaN(time) || time > Date.now()) return
+        const current = lastContactMap.get(id)
+        if (current === undefined || time > current) lastContactMap.set(id, time)
+      }
+
+      if (prospectIds.length > 0) {
+        const [activitiesRes, tasksRes, assignmentsRes] = await Promise.all([
+          supabase
+            .from("crm_activities")
+            .select("prospect_id, activity_date, completed_at, created_at")
+            .in("prospect_id", prospectIds),
+          supabase
+            .from("crm_tasks")
+            .select("prospect_id, completed_at, created_at")
+            .in("prospect_id", prospectIds),
+          supabase
+            .from("crm_prospect_assignments")
+            .select("prospect_id, created_at")
+            .in("prospect_id", prospectIds),
+        ])
+
+        activitiesRes.data?.forEach((a) => {
+          trackDate(a.prospect_id, a.activity_date)
+          trackDate(a.prospect_id, a.completed_at)
+          trackDate(a.prospect_id, a.created_at)
+        })
+        tasksRes.data?.forEach((t) => {
+          trackDate(t.prospect_id, t.completed_at)
+          trackDate(t.prospect_id, t.created_at)
+        })
+        assignmentsRes.data?.forEach((asg) => {
+          trackDate(asg.prospect_id, asg.created_at)
+        })
+      }
+
+      const enrichedProspects = prospectsData.map((p) => {
+        trackDate(p.id, p.assigned_at)
+        trackDate(p.id, p.attended_at)
+        trackDate(p.id, p.won_date)
+        trackDate(p.id, p.lost_date)
+        trackDate(p.id, p.updated_at)
+        const lastMs = lastContactMap.get(p.id)
+        return {
+          ...p,
+          last_contact_at: lastMs !== undefined ? new Date(lastMs).toISOString() : null,
+        }
+      })
+
+      setProspects(enrichedProspects as Prospect[])
     }
 
     setLoading(false)
@@ -172,12 +234,14 @@ export default function PipelinePage() {
       return
     }
 
-    // Update local state
+    // Update local state. Mover de etapa cuenta como interacción, por lo que se
+    // actualiza también la última fecha de contacto con el momento del cambio.
     setProspects(prev => prev.map(p =>
       p.id === prospectId
         ? {
             ...p,
             stage_id: newStageId,
+            last_contact_at: updateData.updated_at as string,
             ...(enteringWon
               ? { expected_close_date: updateData.expected_close_date as string, probability: 95 }
               : {}),
@@ -419,16 +483,24 @@ const getProspectsForStage = (stageId: string) => {
                       draggable
                       onDragStart={(e) => handleDragStart(e, prospect.id)}
                       onDragEnd={handleDragEnd}
-                      className={`cursor-grab active:cursor-grabbing transition-all hover:shadow-md ${
-                        draggingProspect === prospect.id ? "opacity-50 scale-95" : ""
+                      className={`group relative cursor-grab overflow-hidden rounded-xl border bg-card shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 active:cursor-grabbing ${
+                        draggingProspect === prospect.id ? "rotate-1 scale-95 opacity-60" : ""
                       }`}
                     >
-                      <CardContent className="p-3">
+                      {/* Barra de acento con el color de la etapa */}
+                      <div
+                        className="absolute inset-y-0 left-0 w-1.5"
+                        style={{ backgroundColor: stageColors.header }}
+                      />
+                      <CardContent className="p-3 pl-4">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <GripVertical className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <Avatar className="h-8 w-8 flex-shrink-0">
-                              <AvatarFallback className="text-xs">
+                            <GripVertical className="h-4 w-4 flex-shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+                            <Avatar className="h-9 w-9 flex-shrink-0 shadow-sm ring-2 ring-background">
+                              <AvatarFallback
+                                className="text-xs font-semibold text-white"
+                                style={{ backgroundColor: stageColors.header }}
+                              >
                                 {prospect.contact_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
@@ -437,13 +509,14 @@ const getProspectsForStage = (stageId: string) => {
                                 href={`/dashboard/crm/prospects/${prospect.id}`}
                                 draggable={false}
                                 onClick={(e) => e.stopPropagation()}
-                                className="font-medium text-sm truncate block hover:text-primary hover:underline"
+                                className="block truncate text-sm font-semibold leading-tight hover:text-primary hover:underline"
                               >
                                 {prospect.contact_name}
                               </Link>
                               {prospect.company_name && (
-                                <div className="text-xs text-muted-foreground truncate">
-                                  {prospect.company_name}
+                                <div className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                                  <Building2 className="h-3 w-3 flex-shrink-0" />
+                                  <span className="truncate">{prospect.company_name}</span>
                                 </div>
                               )}
                             </div>
@@ -479,33 +552,35 @@ const getProspectsForStage = (stageId: string) => {
                         </div>
 
                         {/* Contact Info */}
-                        <div className="mt-2 space-y-1">
-                          {prospect.contact_email && (
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Mail className="h-3 w-3" />
-                              <span className="truncate">{prospect.contact_email}</span>
-                            </div>
-                          )}
-                          {prospect.contact_phone && (
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Phone className="h-3 w-3" />
-                              <span>{prospect.contact_phone}</span>
-                            </div>
-                          )}
-                        </div>
+                        {(prospect.contact_email || prospect.contact_phone) && (
+                          <div className="mt-3 space-y-1">
+                            {prospect.contact_email && (
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Mail className="h-3 w-3 flex-shrink-0" />
+                                <span className="truncate">{prospect.contact_email}</span>
+                              </div>
+                            )}
+                            {prospect.contact_phone && (
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Phone className="h-3 w-3 flex-shrink-0" />
+                                <span>{prospect.contact_phone}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Value & Date */}
-                        <div className="mt-2 flex items-center justify-between text-xs">
+                        <div className="mt-3 flex items-center justify-between gap-2">
                           {prospect.estimated_value ? (
-                            <div className="flex items-center gap-1 font-medium text-green-600">
-                              <DollarSign className="h-3 w-3" />
+                            <div className="flex items-center gap-1 rounded-md bg-green-500/10 px-2 py-1 text-xs font-semibold text-green-600">
+                              <DollarSign className="h-3.5 w-3.5" />
                               {formatCurrency(prospect.estimated_value)}
                             </div>
                           ) : (
-                            <span className="text-muted-foreground">Sin valor</span>
+                            <span className="text-xs text-muted-foreground">Sin valor</span>
                           )}
                           {prospect.expected_close_date && (
-                            <div className="flex items-center gap-1 text-muted-foreground">
+                            <div className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
                               <Calendar className="h-3 w-3" />
                               {new Date(prospect.expected_close_date).toLocaleDateString("es-MX", {
                                 day: "numeric",
@@ -516,16 +591,61 @@ const getProspectsForStage = (stageId: string) => {
                         </div>
 
                         {/* Probability */}
-                        <div className="mt-2">
-                          <div className="flex items-center justify-between text-xs mb-1">
-                            <span className="text-muted-foreground">Probabilidad</span>
-                            <span className="font-medium">{prospect.probability}%</span>
+                        {(() => {
+                          const p = prospect.probability
+                          const barColor = p >= 70 ? "bg-green-500" : p >= 40 ? "bg-amber-500" : "bg-red-500"
+                          const textColor = p >= 70 ? "text-green-600" : p >= 40 ? "text-amber-600" : "text-red-600"
+                          return (
+                            <div className="mt-3">
+                              <div className="mb-1 flex items-center justify-between text-xs">
+                                <span className="flex items-center gap-1 text-muted-foreground">
+                                  <TrendingUp className="h-3 w-3" />
+                                  Probabilidad
+                                </span>
+                                <span className={`font-semibold ${textColor}`}>{p}%</span>
+                              </div>
+                              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className={`h-full rounded-full transition-all ${barColor}`}
+                                  style={{ width: `${p}%` }}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })()}
+
+                        {/* Asesor asignado y última fecha de contacto */}
+                        <div className="mt-3 space-y-2 rounded-lg bg-muted/50 p-2">
+                          <div className="flex items-center gap-2 text-xs">
+                            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
+                              <User className="h-3 w-3 text-primary" />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Asesor</span>
+                              <span className="block truncate font-medium text-foreground">
+                                {(() => {
+                                  const rep = salesReps.find((r) => r.id === prospect.assigned_to)
+                                  return rep ? `${rep.first_name} ${rep.last_name}` : "Sin asignar"
+                                })()}
+                              </span>
+                            </div>
                           </div>
-                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-primary transition-all"
-                              style={{ width: `${prospect.probability}%` }}
-                            />
+                          <div className="flex items-center gap-2 text-xs">
+                            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
+                              <Clock className="h-3 w-3 text-primary" />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Último contacto</span>
+                              <span className="block truncate font-medium text-foreground">
+                                {prospect.last_contact_at
+                                  ? new Date(prospect.last_contact_at).toLocaleDateString("es-MX", {
+                                      day: "numeric",
+                                      month: "short",
+                                      year: "numeric",
+                                    })
+                                  : "Sin registro"}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </CardContent>

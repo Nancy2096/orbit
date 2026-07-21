@@ -4,6 +4,8 @@ import { get } from '@vercel/blob'
 export async function GET(request: NextRequest) {
   try {
     const pathname = request.nextUrl.searchParams.get('pathname')
+    const forceDownload = request.nextUrl.searchParams.get('download') === '1'
+    const downloadName = request.nextUrl.searchParams.get('filename')
 
     if (!pathname) {
       return NextResponse.json({ error: 'Missing pathname' }, { status: 400 })
@@ -29,13 +31,17 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    return new NextResponse(result.stream, {
-      headers: {
-        'Content-Type': result.blob.contentType,
-        ETag: result.blob.etag,
-        'Cache-Control': 'private, no-cache',
-      },
-    })
+    const headers: Record<string, string> = {
+      'Content-Type': result.blob.contentType,
+      ETag: result.blob.etag,
+      'Cache-Control': 'private, no-cache',
+    }
+    if (forceDownload) {
+      const safeName = (downloadName || pathname.split('/').pop() || 'archivo').replace(/"/g, '')
+      headers['Content-Disposition'] = `attachment; filename="${safeName}"`
+    }
+
+    return new NextResponse(result.stream, { headers })
   } catch (error) {
     console.error('Error serving file:', error)
     return NextResponse.json({ error: 'Failed to serve file' }, { status: 500 })

@@ -61,6 +61,8 @@ import {
   ArrowUp,
   ArrowDown,
   Target,
+  Play,
+  Flag,
 } from "lucide-react"
 
 interface Department {
@@ -90,6 +92,8 @@ interface Process {
   name: string
   description: string | null
   objective: string | null
+  start_point: string | null
+  end_point: string | null
   status: string
   process_steps: ProcessStep[]
   process_departments: { department_id: string }[]
@@ -110,6 +114,24 @@ const STATUS_STYLES: Record<string, string> = {
 
 const NONE = "none"
 
+type DurationUnit = "horas" | "días"
+
+// La duración se guarda como texto (ej. "2 días"). Estos helpers separan y
+// recomponen la cantidad y la unidad para el editor sin cambiar el esquema.
+function parseDuration(value: string | null | undefined): { amount: string; unit: DurationUnit } {
+  if (!value) return { amount: "", unit: "días" }
+  const match = value.match(/(\d+(?:[.,]\d+)?)/)
+  const amount = match ? match[1].replace(",", ".") : ""
+  const unit: DurationUnit = /hora/i.test(value) ? "horas" : "días"
+  return { amount, unit }
+}
+
+function buildDuration(amount: string, unit: DurationUnit): string {
+  const trimmed = amount.trim()
+  if (!trimmed) return ""
+  return `${trimmed} ${unit}`
+}
+
 export function ProcessesModule({ agencyId }: { agencyId: string }) {
   const supabase = createClient()
 
@@ -128,6 +150,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [objective, setObjective] = useState("")
+  const [startPoint, setStartPoint] = useState("")
+  const [endPoint, setEndPoint] = useState("")
   const [status, setStatus] = useState("draft")
   const [ownerDepartmentId, setOwnerDepartmentId] = useState<string>(NONE)
   const [involvedDepartments, setInvolvedDepartments] = useState<string[]>([])
@@ -157,7 +181,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
       supabase
         .from("processes")
         .select(
-          "id, department_id, name, description, objective, status, process_steps(id, step_order, title, description, responsible_position_id, responsible_department_id, estimated_duration), process_departments(department_id), process_positions(position_id)",
+          "id, department_id, name, description, objective, start_point, end_point, status, process_steps(id, step_order, title, description, responsible_position_id, responsible_department_id, estimated_duration), process_departments(department_id), process_positions(position_id)",
         )
         .eq("agency_id", agencyId)
         .order("created_at", { ascending: false }),
@@ -182,6 +206,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
     setName("")
     setDescription("")
     setObjective("")
+    setStartPoint("")
+    setEndPoint("")
     setStatus("draft")
     setOwnerDepartmentId(NONE)
     setInvolvedDepartments([])
@@ -200,6 +226,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
     setName(p.name)
     setDescription(p.description || "")
     setObjective(p.objective || "")
+    setStartPoint(p.start_point || "")
+    setEndPoint(p.end_point || "")
     setStatus(p.status)
     setOwnerDepartmentId(p.department_id || NONE)
     setInvolvedDepartments(p.process_departments.map((d) => d.department_id))
@@ -262,6 +290,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
       name: name.trim(),
       description: description.trim() || null,
       objective: objective.trim() || null,
+      start_point: startPoint.trim() || null,
+      end_point: endPoint.trim() || null,
       status,
       updated_at: new Date().toISOString(),
     }
@@ -427,10 +457,20 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {list.map((p) => (
-                  <Card key={p.id} className="flex flex-col">
-                    <CardHeader className="pb-3">
+                  <Card
+                    key={p.id}
+                    className="group relative flex flex-col overflow-hidden rounded-xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  >
+                    {/* Barra de acento lateral */}
+                    <div className="absolute inset-y-0 left-0 w-1.5 bg-primary" />
+                    <CardHeader className="pb-3 pl-5">
                       <div className="flex items-start justify-between gap-2">
-                        <CardTitle className="text-base leading-tight">{p.name}</CardTitle>
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 shadow-sm">
+                            <Workflow className="h-5 w-5 text-primary" />
+                          </div>
+                          <CardTitle className="text-base leading-tight text-balance">{p.name}</CardTitle>
+                        </div>
                         <div className="flex items-center gap-1">
                           <Badge className={STATUS_STYLES[p.status] || ""}>
                             {STATUS_LABELS[p.status] || p.status}
@@ -458,29 +498,54 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                         </div>
                       </div>
                       {p.description && (
-                        <p className="text-sm text-muted-foreground line-clamp-2">{p.description}</p>
+                        <p className="pl-[52px] text-sm text-muted-foreground line-clamp-2">{p.description}</p>
                       )}
                     </CardHeader>
-                    <CardContent className="flex flex-1 flex-col gap-3 text-sm">
+                    <CardContent className="flex flex-1 flex-col gap-3 pl-5 text-sm">
                       {p.objective && (
                         <div className="flex items-start gap-2">
                           <Target className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                           <span className="text-muted-foreground">{p.objective}</span>
                         </div>
                       )}
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <ListChecks className="h-3.5 w-3.5" />
-                          {p.process_steps.length} pasos
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Building2 className="h-3.5 w-3.5" />
-                          {p.process_departments.length} áreas
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Users className="h-3.5 w-3.5" />
-                          {p.process_positions.length} puestos
-                        </span>
+                      {(p.start_point || p.end_point) && (
+                        <div className="space-y-2 rounded-md border bg-muted/30 p-2.5">
+                          {p.start_point && (
+                            <div className="flex items-start gap-2">
+                              <Play className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                              <div>
+                                <p className="text-xs font-medium text-foreground">Inicio del proceso</p>
+                                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{p.start_point}</p>
+                              </div>
+                            </div>
+                          )}
+                          {p.end_point && (
+                            <div className="flex items-start gap-2">
+                              <Flag className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                              <div>
+                                <p className="text-xs font-medium text-foreground">Fin del proceso</p>
+                                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{p.end_point}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                          <ListChecks className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold text-foreground">{p.process_steps.length}</span>
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">pasos</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                          <Building2 className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold text-foreground">{p.process_departments.length}</span>
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">áreas</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                          <Users className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold text-foreground">{p.process_positions.length}</span>
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">puestos</span>
+                        </div>
                       </div>
                       {p.process_steps.length > 0 && (
                         <Accordion type="single" collapsible className="mt-auto">
@@ -496,15 +561,24 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                       </span>
                                       <span className="font-medium">{s.title}</span>
                                     </div>
-                                    {(s.responsible_position_id || s.estimated_duration) && (
-                                      <div className="mt-1 pl-7 text-xs text-muted-foreground">
-                                        {s.responsible_position_id && (
-                                          <span>Responsable: {positionName(s.responsible_position_id)}</span>
-                                        )}
-                                        {s.responsible_position_id && s.estimated_duration && " · "}
-                                        {s.estimated_duration && <span>{s.estimated_duration}</span>}
-                                      </div>
+                                    {s.description && (
+                                      <p className="mt-1 whitespace-pre-wrap pl-7 text-sm text-foreground">
+                                        {s.description}
+                                      </p>
                                     )}
+                                    <div className="mt-1 flex flex-col gap-0.5 pl-7 text-xs text-muted-foreground">
+                                      {s.responsible_position_id && (
+                                        <span>Responsable: {positionName(s.responsible_position_id)}</span>
+                                      )}
+                                      {s.estimated_duration && (() => {
+                                        const { amount, unit } = parseDuration(s.estimated_duration)
+                                        return (
+                                          <span>
+                                            Duración estimada: {amount ? `${amount} ${unit}` : s.estimated_duration}
+                                          </span>
+                                        )
+                                      })()}
+                                    </div>
                                   </li>
                                 ))}
                               </ol>
@@ -589,6 +663,26 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                   value={objective}
                   onChange={(e) => setObjective(e.target.value)}
                   placeholder="¿Qué se busca lograr con este proceso?"
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="p-start">Inicio del proceso</Label>
+                <Textarea
+                  id="p-start"
+                  value={startPoint}
+                  onChange={(e) => setStartPoint(e.target.value)}
+                  placeholder="¿Con qué inicia el proceso? Ej: Recepción de solicitud del cliente"
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="p-end">Fin del proceso</Label>
+                <Textarea
+                  id="p-end"
+                  value={endPoint}
+                  onChange={(e) => setEndPoint(e.target.value)}
+                  placeholder="¿Con qué termina el proceso? Ej: Cliente dado de alta y notificado"
                   rows={2}
                 />
               </div>
@@ -723,12 +817,41 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs">Duración estimada</Label>
-                              <Input
-                                className="h-9"
-                                value={s.estimated_duration}
-                                onChange={(e) => updateStep(i, { estimated_duration: e.target.value })}
-                                placeholder="Ej: 2 días"
-                              />
+                              {(() => {
+                                const parsed = parseDuration(s.estimated_duration)
+                                return (
+                                  <div className="flex gap-2">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      className="h-9"
+                                      value={parsed.amount}
+                                      onChange={(e) =>
+                                        updateStep(i, {
+                                          estimated_duration: buildDuration(e.target.value, parsed.unit),
+                                        })
+                                      }
+                                      placeholder="Ej: 2"
+                                    />
+                                    <Select
+                                      value={parsed.unit}
+                                      onValueChange={(v) =>
+                                        updateStep(i, {
+                                          estimated_duration: buildDuration(parsed.amount, v as DurationUnit),
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger className="h-9 w-28">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="horas">Horas</SelectItem>
+                                        <SelectItem value="días">Días</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )
+                              })()}
                             </div>
                           </div>
                         </div>

@@ -36,7 +36,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, FolderKanban, Settings2, Filter, X } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
 
 // Los proyectos son cuentas con account_type = "project".
 interface ProjectAccount {
@@ -119,6 +119,7 @@ export default function ProjectsPage() {
     client_id: "all",
   })
   const [showFilters, setShowFilters] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -259,9 +260,9 @@ export default function ProjectsPage() {
     })
   }, [projects, searchTerm, filters])
 
-  const totalsByCurrency = useMemo(() => {
+  function computeTotals(rows: ProjectAccount[]) {
     const map = new Map<string, number>()
-    filteredProjects.forEach((p) => {
+    rows.forEach((p) => {
       const code = p.currency_code || "—"
       map.set(code, (map.get(code) || 0) + (p.total_contracted || 0))
     })
@@ -269,9 +270,139 @@ export default function ProjectsPage() {
       .filter(([code]) => code !== "—")
       .map(([code, total]) => ({ code, total }))
       .sort((a, b) => a.code.localeCompare(b.code))
-  }, [filteredProjects])
+  }
+
+  const activeProjects = useMemo(
+    () => filteredProjects.filter((p) => p.status === "active"),
+    [filteredProjects],
+  )
+  const inactiveProjects = useMemo(
+    () => filteredProjects.filter((p) => p.status !== "active"),
+    [filteredProjects],
+  )
 
   const visibleColumns = columns.filter((col) => col.visible)
+
+  function renderProjectsTable(rows: ProjectAccount[]) {
+    const totals = computeTotals(rows)
+    return (
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12 text-right">#</TableHead>
+              {visibleColumns.map((column) => (
+                <TableHead key={column.key}>{column.label}</TableHead>
+              ))}
+              <TableHead className="w-12"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((project, index) => (
+              <TableRow key={project.id}>
+                <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
+                  {index + 1}
+                </TableCell>
+                {visibleColumns.map((column) => (
+                  <TableCell key={column.key}>
+                    {column.key === "project" && (
+                      <div>
+                        <Link
+                          href={`/dashboard/accounts/${project.id}`}
+                          className="font-medium hover:underline"
+                        >
+                          {project.account_name}
+                        </Link>
+                        {project.account_code && (
+                          <div className="text-xs text-muted-foreground">
+                            {project.account_code}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {column.key === "client" && (
+                      <span className="text-sm">
+                        {project.client?.company_name || "-"}
+                      </span>
+                    )}
+                    {column.key === "country" && (
+                      <span className="text-sm">
+                        {formatCountry(project.client?.country)}
+                      </span>
+                    )}
+                    {column.key === "state" && (
+                      <span className="text-sm">
+                        {project.client?.state || "-"}
+                      </span>
+                    )}
+                    {column.key === "agency" && (
+                      <span className="text-sm">
+                        {project.agency?.name || "-"}
+                      </span>
+                    )}
+                    {column.key === "total_contracted" && (
+                      <span className="text-sm font-medium tabular-nums">
+                        ${project.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    )}
+                    {column.key === "currency_code" && (
+                      <span className="text-sm">{project.currency_code}</span>
+                    )}
+                    {column.key === "status" && (
+                      <Badge variant={statusLabels[project.status]?.variant || "outline"}>
+                        {statusLabels[project.status]?.label || project.status}
+                      </Badge>
+                    )}
+                  </TableCell>
+                ))}
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link href={`/dashboard/accounts/${project.id}`}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => handleDelete(project.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Eliminar
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+            {totals.map((t) => (
+              <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
+                <TableCell />
+                {visibleColumns.map((column, i) => (
+                  <TableCell key={column.key}>
+                    {i === 0 && `Total contratado (${t.code})`}
+                    {column.key === "total_contracted" && (
+                      <span className="tabular-nums">
+                        ${t.total.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    )}
+                    {column.key === "currency_code" && t.code}
+                  </TableCell>
+                ))}
+                <TableCell />
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    )
+  }
 
   if (!mounted) {
     return (
@@ -487,120 +618,39 @@ export default function ProjectsPage() {
               )}
             </Empty>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12 text-right">#</TableHead>
-                    {visibleColumns.map((column) => (
-                      <TableHead key={column.key}>{column.label}</TableHead>
-                    ))}
-                    <TableHead className="w-12"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProjects.map((project, index) => (
-                    <TableRow key={project.id}>
-                      <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
-                        {index + 1}
-                      </TableCell>
-                      {visibleColumns.map((column) => (
-                        <TableCell key={column.key}>
-                          {column.key === "project" && (
-                            <div>
-                              <Link
-                                href={`/dashboard/accounts/${project.id}`}
-                                className="font-medium hover:underline"
-                              >
-                                {project.account_name}
-                              </Link>
-                              {project.account_code && (
-                                <div className="text-xs text-muted-foreground">
-                                  {project.account_code}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {column.key === "client" && (
-                            <span className="text-sm">
-                              {project.client?.company_name || "-"}
-                            </span>
-                          )}
-                          {column.key === "country" && (
-                            <span className="text-sm">
-                              {formatCountry(project.client?.country)}
-                            </span>
-                          )}
-                          {column.key === "state" && (
-                            <span className="text-sm">
-                              {project.client?.state || "-"}
-                            </span>
-                          )}
-                          {column.key === "agency" && (
-                            <span className="text-sm">
-                              {project.agency?.name || "-"}
-                            </span>
-                          )}
-                          {column.key === "total_contracted" && (
-                            <span className="text-sm font-medium tabular-nums">
-                              ${project.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          )}
-                          {column.key === "currency_code" && (
-                            <span className="text-sm">{project.currency_code}</span>
-                          )}
-                          {column.key === "status" && (
-                            <Badge variant={statusLabels[project.status]?.variant || "outline"}>
-                              {statusLabels[project.status]?.label || project.status}
-                            </Badge>
-                          )}
-                        </TableCell>
-                      ))}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/accounts/${project.id}`}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Editar
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleDelete(project.id)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Eliminar
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
+            <div className="space-y-8">
+              {/* Proyectos activos */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">Proyectos activos</h3>
+                  <Badge variant="secondary" className="tabular-nums">{activeProjects.length}</Badge>
+                </div>
+                {activeProjects.length > 0 ? (
+                  renderProjectsTable(activeProjects)
+                ) : (
+                  <p className="py-4 text-sm text-muted-foreground">No hay proyectos activos.</p>
+                )}
+              </div>
+
+              {/* Proyectos inactivos */}
+              <div className="space-y-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-2 h-8 gap-2 px-2"
+                  onClick={() => setShowInactive((v) => !v)}
+                >
+                  {showInactive ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <span className="text-sm font-semibold">Proyectos inactivos</span>
+                  <Badge variant="secondary" className="tabular-nums">{inactiveProjects.length}</Badge>
+                </Button>
+                {showInactive &&
+                  (inactiveProjects.length > 0 ? (
+                    renderProjectsTable(inactiveProjects)
+                  ) : (
+                    <p className="py-4 text-sm text-muted-foreground">No hay proyectos inactivos.</p>
                   ))}
-                  {totalsByCurrency.map((t) => (
-                    <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
-                      <TableCell />
-                      {visibleColumns.map((column, i) => (
-                        <TableCell key={column.key}>
-                          {i === 0 && `Total contratado (${t.code})`}
-                          {column.key === "total_contracted" && (
-                            <span className="tabular-nums">
-                              ${t.total.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          )}
-                          {column.key === "currency_code" && t.code}
-                        </TableCell>
-                      ))}
-                      <TableCell />
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              </div>
             </div>
           )}
         </CardContent>

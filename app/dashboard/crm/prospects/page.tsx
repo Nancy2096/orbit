@@ -96,6 +96,7 @@ interface Prospect {
   assigned_to: string | null
   client_type: { id: string; name: string } | null
   industry: { id: string; name: string } | null
+  last_contact_at: string | null
 }
 
 export default function ProspectsPage() {
@@ -186,6 +187,7 @@ export default function ProspectsPage() {
           id, company_name, contact_name, contact_email, contact_phone, contact_position,
           estimated_value, expected_close_date, probability, status, created_at, assigned_to,
           client_type_id, industry_id,
+          updated_at, assigned_at, attended_at, won_date, lost_date,
           stage:crm_pipeline_stages(id, name, color),
           source:crm_lead_sources(id, name)
         `)
@@ -207,12 +209,66 @@ export default function ProspectsPage() {
       // Map client_type and industry data to prospects
       const clientTypesMap = new Map(clientTypesRes.data?.map(ct => [ct.id, ct]) || [])
       const industriesMap = new Map(industriesRes.data?.map(ind => [ind.id, ind]) || [])
-      
-      const enrichedProspects = prospectsRes.data.map(p => ({
-        ...p,
-        client_type: p.client_type_id ? clientTypesMap.get(p.client_type_id) || null : null,
-        industry: p.industry_id ? industriesMap.get(p.industry_id) || null : null,
-      }))
+
+      // Recolectar la última fecha de interacción por prospecto desde actividades,
+      // tareas y asignaciones. Se combina con las fechas propias del prospecto
+      // (asignación, cita atendida, cambio a ganado/perdido y última actualización).
+      const prospectIds = prospectsRes.data.map((p) => p.id)
+      const lastContactMap = new Map<string, number>()
+      const trackDate = (id: string | null, value: string | null) => {
+        if (!id || !value) return
+        const time = new Date(value).getTime()
+        // Ignorar fechas inválidas o futuras (p. ej. citas/tareas programadas).
+        if (Number.isNaN(time) || time > Date.now()) return
+        const current = lastContactMap.get(id)
+        if (current === undefined || time > current) lastContactMap.set(id, time)
+      }
+
+      if (prospectIds.length > 0) {
+        const [activitiesRes, tasksRes, assignmentsRes] = await Promise.all([
+          supabase
+            .from("crm_activities")
+            .select("prospect_id, activity_date, completed_at, created_at")
+            .in("prospect_id", prospectIds),
+          supabase
+            .from("crm_tasks")
+            .select("prospect_id, completed_at, created_at")
+            .in("prospect_id", prospectIds),
+          supabase
+            .from("crm_prospect_assignments")
+            .select("prospect_id, created_at")
+            .in("prospect_id", prospectIds),
+        ])
+
+        activitiesRes.data?.forEach((a) => {
+          trackDate(a.prospect_id, a.activity_date)
+          trackDate(a.prospect_id, a.completed_at)
+          trackDate(a.prospect_id, a.created_at)
+        })
+        tasksRes.data?.forEach((t) => {
+          trackDate(t.prospect_id, t.completed_at)
+          trackDate(t.prospect_id, t.created_at)
+        })
+        assignmentsRes.data?.forEach((asg) => {
+          trackDate(asg.prospect_id, asg.created_at)
+        })
+      }
+
+      const enrichedProspects = prospectsRes.data.map(p => {
+        // Fechas propias del prospecto que también cuentan como interacción.
+        trackDate(p.id, p.assigned_at)
+        trackDate(p.id, p.attended_at)
+        trackDate(p.id, p.won_date)
+        trackDate(p.id, p.lost_date)
+        trackDate(p.id, p.updated_at)
+        const lastMs = lastContactMap.get(p.id)
+        return {
+          ...p,
+          client_type: p.client_type_id ? clientTypesMap.get(p.client_type_id) || null : null,
+          industry: p.industry_id ? industriesMap.get(p.industry_id) || null : null,
+          last_contact_at: lastMs !== undefined ? new Date(lastMs).toISOString() : null,
+        }
+      })
       
       setProspects(enrichedProspects as Prospect[])
     }
@@ -410,15 +466,16 @@ export default function ProspectsPage() {
                 <TableHead>Etapa</TableHead>
                 <TableHead>Fuente</TableHead>
                 <TableHead className="text-right">Valor Est.</TableHead>
-                <TableHead>Fecha Cierre</TableHead>
-                <TableHead>Prob.</TableHead>
+                  <TableHead>Fecha Cierre</TableHead>
+                  <TableHead>Última Fecha de Contacto</TableHead>
+                  <TableHead>Prob.</TableHead>
                 <TableHead className="w-[80px]">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredProspects.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-32 text-center">
+                  <TableCell colSpan={11} className="h-32 text-center">
                     <div className="flex flex-col items-center justify-center text-muted-foreground">
                       <UserPlus className="h-8 w-8 mb-2 opacity-50" />
                       <p>No se encontraron prospectos</p>
@@ -610,6 +667,15 @@ export default function ProspectsPage() {
                     <TableCell>
                       {prospect.expected_close_date ? (
                         formatDate(prospect.expected_close_date)
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {prospect.last_contact_at ? (
+                        <span className="text-sm">
+                          {formatDate(prospect.last_contact_at)}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}

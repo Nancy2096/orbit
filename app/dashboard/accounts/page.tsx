@@ -36,7 +36,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Settings2, Filter, X } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
 
 interface Account {
   id: string
@@ -130,6 +130,7 @@ export default function AccountsPage() {
     client_id: "all",
   })
   const [showFilters, setShowFilters] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -284,9 +285,9 @@ export default function AccountsPage() {
     })
   }, [accounts, searchTerm, filters])
 
-  const totalsByCurrency = useMemo(() => {
+  function computeTotals(rows: Account[]) {
     const map = new Map<string, number>()
-    filteredAccounts.forEach(a => {
+    rows.forEach((a) => {
       const code = a.currency_code || "—"
       map.set(code, (map.get(code) || 0) + (a.total_contracted || 0))
     })
@@ -294,9 +295,148 @@ export default function AccountsPage() {
       .filter(([code]) => code !== "—")
       .map(([code, total]) => ({ code, total }))
       .sort((a, b) => a.code.localeCompare(b.code))
-  }, [filteredAccounts])
+  }
+
+  const activeAccounts = useMemo(
+    () => filteredAccounts.filter((a) => a.status === "active"),
+    [filteredAccounts],
+  )
+  const inactiveAccounts = useMemo(
+    () => filteredAccounts.filter((a) => a.status !== "active"),
+    [filteredAccounts],
+  )
 
   const visibleColumns = columns.filter(col => col.visible)
+
+  function renderAccountsTable(rows: Account[]) {
+    const totals = computeTotals(rows)
+    return (
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12 text-right">#</TableHead>
+              {visibleColumns.map((column) => (
+                <TableHead key={column.key}>{column.label}</TableHead>
+              ))}
+              <TableHead className="w-12"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((account, index) => (
+              <TableRow key={account.id}>
+                <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
+                  {index + 1}
+                </TableCell>
+                {visibleColumns.map((column) => (
+                  <TableCell key={column.key}>
+                    {column.key === "account_name" && (
+                      <Link
+                        href={`/dashboard/accounts/${account.id}`}
+                        className="font-medium hover:underline"
+                      >
+                        {account.account_name}
+                      </Link>
+                    )}
+                    {column.key === "client" && (
+                      <div className="font-medium">
+                        {account.client?.company_name || "-"}
+                      </div>
+                    )}
+                    {column.key === "country" && (
+                      <div className="text-sm">
+                        {formatCountry(account.client?.country)}
+                      </div>
+                    )}
+                    {column.key === "state" && (
+                      <div className="text-sm">
+                        {account.client?.state || "-"}
+                      </div>
+                    )}
+                    {column.key === "agency" && (
+                      <div className="text-sm">
+                        {account.agency?.name || "-"}
+                      </div>
+                    )}
+                    {column.key === "total_contracted" && (
+                      <div className="text-sm font-medium tabular-nums">
+                        ${account.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    )}
+                    {column.key === "currency_code" && (
+                      <div className="text-sm">
+                        {account.currency_code}
+                      </div>
+                    )}
+                    {column.key === "payment_terms" && (
+                      <div className="text-sm">{account.payment_terms} días</div>
+                    )}
+                    {column.key === "discount" && (
+                      <div className="text-sm">
+                        {account.discount_percentage > 0 ? `${account.discount_percentage}%` : "-"}
+                      </div>
+                    )}
+                    {column.key === "status" && (
+                      <Badge variant={statusLabels[account.status]?.variant || "outline"}>
+                        {statusLabels[account.status]?.label || account.status}
+                      </Badge>
+                    )}
+                  </TableCell>
+                ))}
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link href={`/dashboard/accounts/${account.id}`}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href={`/dashboard/projects?account=${account.id}`}>
+                          <FolderKanban className="mr-2 h-4 w-4" />
+                          Ver proyectos
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => handleDelete(account.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Eliminar
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+            {totals.map((t) => (
+              <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
+                <TableCell />
+                {visibleColumns.map((column, i) => (
+                  <TableCell key={column.key}>
+                    {i === 0 && `Total contratado (${t.code})`}
+                    {column.key === "total_contracted" && (
+                      <span className="tabular-nums">
+                        ${t.total.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    )}
+                    {column.key === "currency_code" && t.code}
+                  </TableCell>
+                ))}
+                <TableCell />
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    )
+  }
 
   if (!mounted) {
     return (
@@ -546,129 +686,39 @@ export default function AccountsPage() {
               )}
             </Empty>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12 text-right">#</TableHead>
-                    {visibleColumns.map((column) => (
-                      <TableHead key={column.key}>{column.label}</TableHead>
-                    ))}
-                    <TableHead className="w-12"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredAccounts.map((account, index) => (
-                    <TableRow key={account.id}>
-                      <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
-                        {index + 1}
-                      </TableCell>
-                      {visibleColumns.map((column) => (
-                        <TableCell key={column.key}>
-                          {column.key === "account_name" && (
-                            <Link
-                              href={`/dashboard/accounts/${account.id}`}
-                              className="font-medium hover:underline"
-                            >
-                              {account.account_name}
-                            </Link>
-                          )}
-                          {column.key === "client" && (
-                            <div className="font-medium">
-                              {account.client?.company_name || "-"}
-                            </div>
-                          )}
-                          {column.key === "country" && (
-                            <div className="text-sm">
-                              {formatCountry(account.client?.country)}
-                            </div>
-                          )}
-                          {column.key === "state" && (
-                            <div className="text-sm">
-                              {account.client?.state || "-"}
-                            </div>
-                          )}
-                          {column.key === "agency" && (
-                            <div className="text-sm">
-                              {account.agency?.name || "-"}
-                            </div>
-                          )}
-                          {column.key === "total_contracted" && (
-                            <div className="text-sm font-medium tabular-nums">
-                              ${account.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </div>
-                          )}
-                          {column.key === "currency_code" && (
-                            <div className="text-sm">
-                              {account.currency_code}
-                            </div>
-                          )}
-                          {column.key === "payment_terms" && (
-                            <div className="text-sm">{account.payment_terms} días</div>
-                          )}
-                          {column.key === "discount" && (
-                            <div className="text-sm">
-                              {account.discount_percentage > 0 ? `${account.discount_percentage}%` : "-"}
-                            </div>
-                          )}
-                          {column.key === "status" && (
-                            <Badge variant={statusLabels[account.status]?.variant || "outline"}>
-                              {statusLabels[account.status]?.label || account.status}
-                            </Badge>
-                          )}
-                        </TableCell>
-                      ))}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/accounts/${account.id}`}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Editar
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/projects?account=${account.id}`}>
-                                <FolderKanban className="mr-2 h-4 w-4" />
-                                Ver proyectos
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleDelete(account.id)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Eliminar
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
+            <div className="space-y-8">
+              {/* Cuentas activas */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">Cuentas activas</h3>
+                  <Badge variant="secondary" className="tabular-nums">{activeAccounts.length}</Badge>
+                </div>
+                {activeAccounts.length > 0 ? (
+                  renderAccountsTable(activeAccounts)
+                ) : (
+                  <p className="py-4 text-sm text-muted-foreground">No hay cuentas activas.</p>
+                )}
+              </div>
+
+              {/* Cuentas inactivas */}
+              <div className="space-y-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-2 h-8 gap-2 px-2"
+                  onClick={() => setShowInactive((v) => !v)}
+                >
+                  {showInactive ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <span className="text-sm font-semibold">Cuentas inactivas</span>
+                  <Badge variant="secondary" className="tabular-nums">{inactiveAccounts.length}</Badge>
+                </Button>
+                {showInactive &&
+                  (inactiveAccounts.length > 0 ? (
+                    renderAccountsTable(inactiveAccounts)
+                  ) : (
+                    <p className="py-4 text-sm text-muted-foreground">No hay cuentas inactivas.</p>
                   ))}
-                  {totalsByCurrency.map((t) => (
-                    <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
-                      <TableCell />
-                      {visibleColumns.map((column, i) => (
-                        <TableCell key={column.key}>
-                          {i === 0 && `Total contratado (${t.code})`}
-                          {column.key === "total_contracted" && (
-                            <span className="tabular-nums">
-                              ${t.total.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          )}
-                          {column.key === "currency_code" && t.code}
-                        </TableCell>
-                      ))}
-                      <TableCell />
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              </div>
             </div>
           )}
         </CardContent>
