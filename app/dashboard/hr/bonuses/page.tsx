@@ -401,8 +401,12 @@ export default function BonusesPage() {
               <Spinner className="h-8 w-8" />
             </div>
           ) : (
-            <Tabs defaultValue="bonuses">
+            <Tabs defaultValue="policy">
               <TabsList>
+                <TabsTrigger value="policy">
+                  <ScrollText className="mr-2 h-4 w-4" />
+                  Política de Bonos
+                </TabsTrigger>
                 <TabsTrigger value="bonuses">
                   <Gift className="mr-2 h-4 w-4" />
                   Bonos
@@ -410,10 +414,6 @@ export default function BonusesPage() {
                 <TabsTrigger value="staff">
                   <Users className="mr-2 h-4 w-4" />
                   Por Personal
-                </TabsTrigger>
-                <TabsTrigger value="policy">
-                  <ScrollText className="mr-2 h-4 w-4" />
-                  Política de Bonos
                 </TabsTrigger>
               </TabsList>
 
