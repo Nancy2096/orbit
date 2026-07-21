@@ -31,14 +31,6 @@ interface Staff {
   monthly_salary: number | null
 }
 
-interface BonusType {
-  id: string
-  name: string
-  description: string | null
-  benefit_type: string
-  benefit_value: number
-}
-
 export default function NewBonusPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -47,7 +39,6 @@ export default function NewBonusPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [staff, setStaff] = useState<Staff[]>([])
-  const [bonusTypes, setBonusTypes] = useState<BonusType[]>([])
   const [currentUser, setCurrentUser] = useState<CurrentUserInfo | null>(null)
 
   const [formData, setFormData] = useState({
@@ -55,21 +46,8 @@ export default function NewBonusPage() {
     course_name: "",
     course_hours: "",
     agency_impact: "",
-    bonus_type_id: "",
     description: "",
   })
-
-  const computeAmount = (bonusTypeId: string, staffId: string) => {
-    const type = bonusTypes.find((t) => t.id === bonusTypeId)
-    const member = staff.find((s) => s.id === staffId)
-    if (!type) return 0
-    if (type.benefit_type === "money") return Number(type.benefit_value) || 0
-    if (type.benefit_type === "salary_days") {
-      const dailySalary = (Number(member?.monthly_salary) || 0) / 30
-      return dailySalary * (Number(type.benefit_value) || 0)
-    }
-    return 0
-  }
 
   useEffect(() => {
     if (selectedAgencyId) {
@@ -83,25 +61,18 @@ export default function NewBonusPage() {
     if (!selectedAgencyId) return
     setLoading(true)
     try {
-      const [staffRes, bonusTypesRes, userInfo] = await Promise.all([
+      const [staffRes, userInfo] = await Promise.all([
         supabase
           .from("staff")
           .select("id, first_name, last_name, email, agency_id, monthly_salary, user_id")
           .eq("agency_id", selectedAgencyId)
           .eq("is_active", true)
           .order("first_name"),
-        supabase
-          .from("bonus_types")
-          .select("id, name, description, benefit_type, benefit_value")
-          .eq("agency_id", selectedAgencyId)
-          .eq("is_active", true)
-          .order("name"),
         getCurrentUserInfo(),
       ])
 
       const staffList = staffRes.data || []
       setStaff(staffList)
-      if (bonusTypesRes.data) setBonusTypes(bonusTypesRes.data)
       setCurrentUser(userInfo)
 
       // Por defecto, el solicitante es el usuario logueado (si tiene registro de
@@ -125,23 +96,16 @@ export default function NewBonusPage() {
     if (!selectedAgencyId) return toast.error("Selecciona una agencia")
     if (!formData.staff_id) return toast.error("Selecciona quién solicita el bono")
     if (!formData.course_name.trim()) return toast.error("Ingresa el nombre del curso")
-    if (!formData.bonus_type_id) return toast.error("Selecciona el tipo de bono")
 
     setSaving(true)
     try {
-      const selectedType = bonusTypes.find((t) => t.id === formData.bonus_type_id)
-      const amount = computeAmount(formData.bonus_type_id, formData.staff_id)
-
       const { data, error } = await supabase
         .from("bonuses")
         .insert({
           agency_id: selectedAgencyId,
           staff_id: formData.staff_id,
-          bonus_type_id: formData.bonus_type_id,
-          bonus_type: selectedType?.name || "Capacitación",
-          amount,
-          benefit_type: selectedType?.benefit_type || "money",
-          benefit_value: selectedType ? Number(selectedType.benefit_value) : null,
+          bonus_type: "Capacitación",
+          amount: 0,
           course_name: formData.course_name.trim(),
           course_hours: formData.course_hours ? Number(formData.course_hours) : null,
           agency_impact: formData.agency_impact.trim() || null,
@@ -187,12 +151,6 @@ export default function NewBonusPage() {
     )
   }
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount)
-
-  const selectedType = bonusTypes.find((t) => t.id === formData.bonus_type_id)
-  const previewAmount = computeAmount(formData.bonus_type_id, formData.staff_id)
-
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -229,7 +187,7 @@ export default function NewBonusPage() {
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="mx-auto max-w-2xl">
           {/* Datos del curso */}
           <Card>
             <CardHeader>
@@ -303,75 +261,13 @@ export default function NewBonusPage() {
                   Explica el valor que aportará esta capacitación.
                 </FieldDescription>
               </Field>
-            </CardContent>
-          </Card>
-
-          {/* Bono y autorización */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Bono a obtener</CardTitle>
-              <CardDescription>
-                El monto se define según el tipo de bono configurado en la agencia
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Field>
-                <FieldLabel>Tipo de bono *</FieldLabel>
-                {bonusTypes.length === 0 ? (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
-                    No hay tipos de bono configurados. Configúralos en Agencias {">"} Catálogos {">"} Bonos.
-                  </div>
-                ) : (
-                  <Select
-                    value={formData.bonus_type_id}
-                    onValueChange={(v) => setFormData((prev) => ({ ...prev, bonus_type_id: v }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecciona el tipo de bono" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {bonusTypes.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                {selectedType && (
-                  <FieldDescription>
-                    {selectedType.benefit_type === "money"
-                      ? `${formatCurrency(Number(selectedType.benefit_value))} (monto fijo)`
-                      : selectedType.benefit_type === "salary_days"
-                        ? `${selectedType.benefit_value} día(s) de sueldo`
-                        : `${selectedType.benefit_value} día(s) libre(s)`}
-                    {selectedType.description ? ` — ${selectedType.description}` : ""}
-                  </FieldDescription>
-                )}
-              </Field>
-
-              {selectedType && selectedType.benefit_type !== "free_days" && previewAmount > 0 && (
-                <div className="rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/20">
-                  <p className="mb-1 text-sm text-muted-foreground">Monto estimado del bono:</p>
-                  <p className="text-2xl font-semibold text-green-600">{formatCurrency(previewAmount)}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{selectedType.name}</p>
-                </div>
-              )}
-              {selectedType?.benefit_type === "free_days" && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
-                  <p className="mb-1 text-sm text-muted-foreground">Días libres:</p>
-                  <p className="text-2xl font-semibold text-blue-600">
-                    {selectedType.benefit_value} día(s)
-                  </p>
-                </div>
-              )}
 
               <Field>
                 <FieldLabel>Notas (opcional)</FieldLabel>
                 <Textarea
                   value={formData.description}
                   onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                  placeholder="Detalle adicional del bono..."
+                  placeholder="Detalle adicional del curso..."
                   rows={3}
                 />
               </Field>
