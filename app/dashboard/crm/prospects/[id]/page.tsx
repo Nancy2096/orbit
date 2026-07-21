@@ -1742,7 +1742,7 @@ state_province: prospectData.state_province || "",
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1"><Calendar className="h-4 w-4" /> Fecha Estimada de Cierre</Label>
+                      <Label className="flex items-center gap-1"><Calendar className="h-4 w-4" /> {isWonStage ? "Fecha de Cierre" : "Fecha Estimada de Cierre"}</Label>
                       <Input
                         type="date"
                         value={formData.expected_close_date}
@@ -2483,7 +2483,17 @@ state_province: prospectData.state_province || "",
                   return (
                     <button
                       key={stage.id}
-                      onClick={() => setFormData({ ...formData, stage_id: stage.id })}
+                      onClick={() =>
+                        setFormData((prev) => {
+                          const prevStageWon = stages.find((s) => s.id === prev.stage_id)?.is_won ?? false
+                          const next = { ...prev, stage_id: stage.id }
+                          // Al pasar a una etapa "Ganado", registrar la fecha de cierre del día del cambio.
+                          if (stage.is_won && !prevStageWon) {
+                            next.expected_close_date = new Date().toISOString().split("T")[0]
+                          }
+                          return next
+                        })
+                      }
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all text-sm font-medium w-full text-left ${
                         isActive
                           ? "text-white shadow-md"
@@ -2553,7 +2563,7 @@ state_province: prospectData.state_province || "",
               </div>
               <Separator />
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Cierre Estimado</span>
+                <span className="text-sm text-muted-foreground">{isWonStage ? "Fecha de Cierre" : "Cierre Estimado"}</span>
                 <span className="text-sm">
                   {formData.expected_close_date 
                     ? new Date(formData.expected_close_date).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })
