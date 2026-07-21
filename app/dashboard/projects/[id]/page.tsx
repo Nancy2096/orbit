@@ -14,7 +14,8 @@ import { FieldGroup, Field, FieldLabel } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowLeft, FolderKanban, DollarSign, Calendar, Users, Briefcase, Package, Plus, Trash2, FileText, Upload, Download, X } from "lucide-react"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { ArrowLeft, FolderKanban, DollarSign, Calendar, Users, Briefcase, Package, Plus, Trash2, FileText, Upload, Download, Eye } from "lucide-react"
 
 interface Agency {
   id: string
@@ -1533,25 +1534,58 @@ async function fetchAgencyServices(agencyId: string) {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <Button type="button" variant="outline" size="sm" asChild>
-                          <a href={q.url} target="_blank" rel="noopener noreferrer">
-                            <Download className="h-4 w-4 mr-2" />
-                            Ver / Descargar
+                          <a
+                            href={`/api/file?pathname=${encodeURIComponent(new URL(q.url).pathname.replace(/^\//, ""))}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            Ver
                           </a>
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleQuotationDelete(q.id, q.url)}
-                          disabled={deletingQuotationId === q.id}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          {deletingQuotationId === q.id ? (
-                            <Spinner className="h-4 w-4" />
-                          ) : (
-                            <X className="h-4 w-4" />
-                          )}
+                        <Button type="button" variant="outline" size="sm" asChild>
+                          <a
+                            href={`/api/file?pathname=${encodeURIComponent(new URL(q.url).pathname.replace(/^\//, ""))}&download=1&filename=${encodeURIComponent(q.filename || "cotizacion")}`}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Descargar
+                          </a>
                         </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={deletingQuotationId === q.id}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              {deletingQuotationId === q.id ? (
+                                <Spinner className="h-4 w-4" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>¿Eliminar esta cotización?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta acción no se puede deshacer. Se eliminará permanentemente
+                                {" "}&quot;{q.filename || "Cotización"}&quot; del sistema.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleQuotationDelete(q.id, q.url)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Eliminar
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
                   ))}
