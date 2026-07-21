@@ -217,6 +217,7 @@ export default function ProspectDetailPage() {
   
   // Seguimiento de la asignación del asesor comercial
   const [initialAssignedTo, setInitialAssignedTo] = useState<string | null>(null)
+  const [initialStageId, setInitialStageId] = useState<string | null>(null)
   const [assignedAt, setAssignedAt] = useState<string | null>(null)
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistoryEntry[]>([])
 
@@ -373,6 +374,8 @@ state_province: prospectData.state_province || "",
       notes: prospectData.notes || "",
     })
 
+    setInitialStageId(prospectData.stage_id || null)
+
     const agencyId = prospectData.agency_id || selectedAgencyId
     setProspectAgencyId(agencyId)
     setConvertedClientId(prospectData.converted_to_client_id || null)
@@ -467,6 +470,12 @@ state_province: prospectData.state_province || "",
     const assignmentTimestamp = new Date().toISOString()
 
     const stage = stages.find(s => s.id === formData.stage_id)
+    // Detectar la transición hacia una etapa "Ganado" para fijar automáticamente
+    // la fecha de cierre con el día en que se realiza el cambio.
+    const previousStageWon = stages.find(s => s.id === initialStageId)?.is_won ?? false
+    const enteringWon = !!stage?.is_won && !previousStageWon
+    const closeDateOnWin = enteringWon ? new Date().toISOString().split("T")[0] : null
+
     const updateData: Record<string, unknown> = {
       assigned_to: newAssignedTo,
       contact_name: formData.contact_name,
@@ -488,7 +497,7 @@ state_province: prospectData.state_province || "",
       estimated_value: prospectServices.length > 0 ? getTotalServicesValue() : null,
       currency_id: formData.currency_id || null,
       probability: formData.probability,
-      expected_close_date: formData.expected_close_date || null,
+      expected_close_date: closeDateOnWin || formData.expected_close_date || null,
       description: formData.description || null,
       notes: formData.notes || null,
       updated_at: new Date().toISOString(),
@@ -574,6 +583,12 @@ state_province: prospectData.state_province || "",
           .eq("id", contact.id)
       }
     }
+
+    // Reflejar la nueva etapa y la fecha de cierre fijada automáticamente al ganar.
+    if (closeDateOnWin) {
+      setFormData((prev) => ({ ...prev, expected_close_date: closeDateOnWin }))
+    }
+    setInitialStageId(formData.stage_id)
 
     setDeletedContactIds([])
     setSaving(false)
