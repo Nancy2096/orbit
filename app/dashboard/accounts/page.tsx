@@ -36,7 +36,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight, Copy } from "lucide-react"
 
 interface Account {
   id: string
@@ -229,6 +229,44 @@ export default function AccountsPage() {
     }
   }
 
+  async function handleDuplicate(id: string) {
+    if (!confirm("¿Duplicar esta cuenta? Se creará una copia con los mismos datos.")) return
+
+    // Traer la fila completa de la cuenta
+    const { data: original, error: fetchError } = await supabase
+      .from("accounts")
+      .select("*")
+      .eq("id", id)
+      .single()
+
+    if (fetchError || !original) {
+      alert("No se pudo duplicar la cuenta.")
+      return
+    }
+
+    // Quitar campos que no deben copiarse y ajustar el nombre
+    const {
+      id: _omitId,
+      created_at: _omitCreated,
+      updated_at: _omitUpdated,
+      account_code: _omitCode,
+      ...rest
+    } = original as Record<string, unknown>
+    const insertPayload = {
+      ...rest,
+      account_code: null,
+      account_name: `${original.account_name} (copia)`,
+    }
+
+    const { error: insertError } = await supabase.from("accounts").insert(insertPayload)
+    if (insertError) {
+      alert("No se pudo duplicar la cuenta.")
+      return
+    }
+
+    await fetchAccounts()
+  }
+
   function toggleColumn(key: string) {
     setColumns(columns.map(col =>
       col.key === key ? { ...col, visible: !col.visible } : col
@@ -316,10 +354,10 @@ export default function AccountsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-12 text-right">#</TableHead>
-              {visibleColumns.map((column) => (
-                <TableHead key={column.key}>{column.label}</TableHead>
-              ))}
-              <TableHead className="w-12"></TableHead>
+                  {visibleColumns.map((column) => (
+                    <TableHead key={column.key}>{column.label}</TableHead>
+                  ))}
+                  <TableHead className="w-24 text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -397,16 +435,20 @@ export default function AccountsPage() {
                           Editar
                         </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/projects?account=${account.id}`}>
-                          <FolderKanban className="mr-2 h-4 w-4" />
-                          Ver proyectos
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => handleDelete(account.id)}
-                      >
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/projects?account=${account.id}`}>
+                                <FolderKanban className="mr-2 h-4 w-4" />
+                                Ver proyectos
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDuplicate(account.id)}>
+                              <Copy className="mr-2 h-4 w-4" />
+                              Duplicar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDelete(account.id)}
+                            >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Eliminar
                       </DropdownMenuItem>
