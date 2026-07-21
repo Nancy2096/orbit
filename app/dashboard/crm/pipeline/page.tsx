@@ -415,9 +415,14 @@ const getProspectsForStage = (stageId: string) => {
                               </AvatarFallback>
                             </Avatar>
                             <div className="min-w-0">
-                              <div className="font-medium text-sm truncate">
+                              <Link
+                                href={`/dashboard/crm/prospects/${prospect.id}`}
+                                draggable={false}
+                                onClick={(e) => e.stopPropagation()}
+                                className="font-medium text-sm truncate block hover:text-primary hover:underline"
+                              >
                                 {prospect.contact_name}
-                              </div>
+                              </Link>
                               {prospect.company_name && (
                                 <div className="text-xs text-muted-foreground truncate">
                                   {prospect.company_name}
