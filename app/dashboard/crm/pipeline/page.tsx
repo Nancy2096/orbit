@@ -37,6 +37,7 @@ import {
   DollarSign,
   Calendar,
   Clock,
+  User,
   GripVertical,
   RefreshCw,
 } from "lucide-react"
@@ -590,19 +591,31 @@ const getProspectsForStage = (stageId: string) => {
                           </div>
                         </div>
 
-                        {/* Última fecha de contacto */}
-                        <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground border-t pt-2">
-                          <Clock className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate">
-                            Último contacto:{" "}
-                            {prospect.last_contact_at
-                              ? new Date(prospect.last_contact_at).toLocaleDateString("es-MX", {
-                                  day: "numeric",
-                                  month: "short",
-                                  year: "numeric",
-                                })
-                              : "Sin registro"}
-                          </span>
+                        {/* Asesor asignado y última fecha de contacto */}
+                        <div className="mt-2 space-y-1 border-t pt-2">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <User className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">
+                              Asesor:{" "}
+                              {(() => {
+                                const rep = salesReps.find((r) => r.id === prospect.assigned_to)
+                                return rep ? `${rep.first_name} ${rep.last_name}` : "Sin asignar"
+                              })()}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">
+                              Último contacto:{" "}
+                              {prospect.last_contact_at
+                                ? new Date(prospect.last_contact_at).toLocaleDateString("es-MX", {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  })
+                                : "Sin registro"}
+                            </span>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
