@@ -1199,6 +1199,15 @@ state_province: prospectData.state_province || "",
     return prospectServices.reduce((sum, ps) => sum + (ps.total_price || 0), 0)
   }
 
+  const getServicesTotalByType = (type: "retainer" | "project") => {
+    return prospectServices
+      .filter((ps) => ps.billing_type === type)
+      .reduce((sum, ps) => sum + (ps.total_price || 0), 0)
+  }
+
+  const hasRetainerServices = prospectServices.some((ps) => ps.billing_type === "retainer")
+  const hasProjectServices = prospectServices.some((ps) => ps.billing_type === "project")
+
   const selectedCurrencyCode = currencies.find(c => c.id === formData.currency_id)?.code || "MXN"
 
   const formatCurrency = (amount: number) => {
@@ -2051,6 +2060,34 @@ state_province: prospectData.state_province || "",
                           </div>
                         </div>
                       ))}
+
+                      <div className="mt-4 rounded-lg border bg-muted/40 p-4 space-y-2">
+                        {hasRetainerServices && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Total Retainer</span>
+                            <span className="font-medium">
+                              {formatCurrency(getServicesTotalByType("retainer"))} {selectedCurrencyCode}
+                            </span>
+                          </div>
+                        )}
+                        {hasProjectServices && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Total Proyectos</span>
+                            <span className="font-medium">
+                              {formatCurrency(getServicesTotalByType("project"))} {selectedCurrencyCode}
+                            </span>
+                          </div>
+                        )}
+                        {hasRetainerServices && hasProjectServices && (
+                          <div className="border-t pt-2" />
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">Total de Servicios</span>
+                          <span className="text-lg font-bold text-primary">
+                            {formatCurrency(getTotalServicesValue())} {selectedCurrencyCode}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -2974,7 +3011,7 @@ state_province: prospectData.state_province || "",
 
             {prospectServices.length > 0 && (
               <div className="rounded-lg border p-4 space-y-2">
-                <p className="text-sm font-medium">Al convertir se crearán automáticamente:</p>
+                <p className="text-sm font-medium">Al convertir se crearán autom��ticamente:</p>
                 <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
                   {prospectServices.some((s) => s.billing_type === "retainer") && (
                     <li>
