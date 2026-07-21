@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { ArrowLeft, Briefcase, DollarSign, Plus, Trash2, Package, Users, Pencil, FileText, Upload, Download, Eye } from "lucide-react"
+import { getFileViewUrl, getFileDownloadUrl } from "@/lib/file-url"
 
 interface Client {
   id: string
@@ -1407,19 +1408,13 @@ setClients([])
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <Button type="button" variant="outline" size="sm" asChild>
-                          <a
-                            href={`/api/file?pathname=${encodeURIComponent(new URL(q.url).pathname.replace(/^\//, ""))}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
+                          <a href={getFileViewUrl(q.url)} target="_blank" rel="noopener noreferrer">
                             <Eye className="h-4 w-4 mr-2" />
                             Ver
                           </a>
                         </Button>
                         <Button type="button" variant="outline" size="sm" asChild>
-                          <a
-                            href={`/api/file?pathname=${encodeURIComponent(new URL(q.url).pathname.replace(/^\//, ""))}&download=1&filename=${encodeURIComponent(q.filename || "cotizacion")}`}
-                          >
+                          <a href={getFileDownloadUrl(q.url, q.filename)}>
                             <Download className="h-4 w-4 mr-2" />
                             Descargar
                           </a>
