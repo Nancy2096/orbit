@@ -42,6 +42,8 @@ import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Plus, Search, MoreHorizontal, Pencil, Trash2, Building2, Mail, Globe, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
+import { ClientCompletionChart } from "@/components/client-completion-chart"
+import { getAggregateCompletionByCategory } from "@/lib/client-completion"
 
 interface Client {
   id: string
@@ -232,6 +234,11 @@ export default function ClientsPage() {
     [filteredClients],
   )
 
+  const completionData = useMemo(
+    () => getAggregateCompletionByCategory(filteredClients),
+    [filteredClients],
+  )
+
   const visibleColumns = columns.filter(col => col.visible)
 
   function renderClientsTable(rows: Client[]) {
@@ -381,6 +388,12 @@ export default function ClientsPage() {
           </Link>
         </Button>
       </div>
+
+      <ClientCompletionChart
+        data={completionData}
+        title="Información completada por categoría"
+        description={`Promedio de ${filteredClients.length} cliente${filteredClients.length !== 1 ? "s" : ""} filtrado${filteredClients.length !== 1 ? "s" : ""}`}
+      />
 
       <Card>
         <CardHeader className="pb-4">
