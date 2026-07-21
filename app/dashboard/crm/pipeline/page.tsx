@@ -136,7 +136,10 @@ export default function PipelinePage() {
 
   const moveProspect = async (prospectId: string, newStageId: string) => {
     const stage = stages.find(s => s.id === newStageId)
-    
+    const prospect = prospects.find(p => p.id === prospectId)
+    const previousStageWon = stages.find(s => s.id === prospect?.stage_id)?.is_won ?? false
+    const enteringWon = !!stage?.is_won && !previousStageWon
+
     const updateData: Record<string, unknown> = {
       stage_id: newStageId,
       updated_at: new Date().toISOString(),
@@ -145,6 +148,13 @@ export default function PipelinePage() {
     // If moved to won stage
     if (stage?.is_won) {
       updateData.won_date = new Date().toISOString()
+    }
+
+    // Al entrar a la etapa "Ganado": fijar la fecha de cierre del día del cambio
+    // y establecer la probabilidad de cierre al 95%.
+    if (enteringWon) {
+      updateData.expected_close_date = new Date().toISOString().split("T")[0]
+      updateData.probability = 95
     }
 
     // If moved to lost stage
@@ -163,8 +173,16 @@ export default function PipelinePage() {
     }
 
     // Update local state
-    setProspects(prev => prev.map(p => 
-      p.id === prospectId ? { ...p, stage_id: newStageId } : p
+    setProspects(prev => prev.map(p =>
+      p.id === prospectId
+        ? {
+            ...p,
+            stage_id: newStageId,
+            ...(enteringWon
+              ? { expected_close_date: updateData.expected_close_date as string, probability: 95 }
+              : {}),
+          }
+        : p
     ))
 
     toast.success(`Prospecto movido a ${stage?.name}`)
