@@ -135,7 +135,6 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
     notes: "",
   })
   const [additionalContacts, setAdditionalContacts] = useState<Contact[]>([])
-  const [quotations, setQuotations] = useState<{ id: string; file_name: string; file_url: string; version: number; notes: string | null; created_at: string }[]>([])
   const [contract, setContract] = useState<{ url: string; filename: string; uploaded_at: string | null } | null>(null)
   const [uploadingContract, setUploadingContract] = useState(false)
   const [contactDialogOpen, setContactDialogOpen] = useState(false)
@@ -317,15 +316,6 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
         notes: c.notes || "",
       })))
     }
-
-    // Fetch cotizaciones vinculadas al cliente (provenientes del prospecto convertido)
-    const { data: quotationsData } = await supabase
-      .from("crm_prospect_quotations")
-      .select("id, file_name, file_url, version, notes, created_at")
-      .eq("client_id", id)
-      .order("created_at", { ascending: false })
-
-    if (quotationsData) setQuotations(quotationsData)
 
     setFetching(false)
   }
@@ -1145,49 +1135,6 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
               </Field>
             </CardContent>
           </Card>
-
-          {/* Cotizaciones (heredadas del prospecto convertido) */}
-          {quotations.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  Cotizaciones
-                </CardTitle>
-                <CardDescription>Documentos provenientes del prospecto convertido</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {quotations.map((q) => (
-                    <div key={q.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{q.file_name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Versión {q.version} · {new Date(q.created_at).toLocaleDateString("es-MX")}
-                            {q.notes ? ` · ${q.notes}` : ""}
-                          </p>
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="icon" asChild title="Ver / descargar">
-                        <a
-                          href={`/api/file?pathname=${encodeURIComponent(new URL(q.file_url).pathname.replace(/^\//, ""))}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <Download className="h-4 w-4" />
-                          <span className="sr-only">Descargar {q.file_name}</span>
-                        </a>
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Contrato firmado (PDF) */}
           <Card>
