@@ -104,7 +104,7 @@ export default function NewBonusPage() {
         .insert({
           agency_id: selectedAgencyId,
           staff_id: formData.staff_id,
-          bonus_type: "Capacitación",
+          bonus_type: "other",
           amount: 0,
           course_name: formData.course_name.trim(),
           course_hours: formData.course_hours ? Number(formData.course_hours) : null,
