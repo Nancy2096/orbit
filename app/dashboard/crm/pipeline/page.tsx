@@ -36,6 +36,7 @@ import {
   Mail,
   DollarSign,
   Calendar,
+  Clock,
   GripVertical,
   RefreshCw,
 } from "lucide-react"
@@ -68,6 +69,7 @@ interface Prospect {
   status: string
   created_at: string
   assigned_to: string | null
+  last_contact_at: string | null
 }
 
 export default function PipelinePage() {
@@ -126,9 +128,66 @@ export default function PipelinePage() {
       .order("created_at", { ascending: false })
 
     console.log("[v0] Pipeline - prospectsData:", prospectsData?.length, "Error:", prospectsError)
-    
+
     if (prospectsData) {
-      setProspects(prospectsData as Prospect[])
+      // Calcular la última fecha de interacción por prospecto combinando actividades,
+      // tareas y asignaciones con las fechas propias del prospecto (asignación, cita
+      // atendida, cambio a ganado/perdido y última actualización de etapa).
+      const prospectIds = prospectsData.map((p) => p.id)
+      const lastContactMap = new Map<string, number>()
+      const trackDate = (id: string | null, value: string | null) => {
+        if (!id || !value) return
+        const time = new Date(value).getTime()
+        // Ignorar fechas inválidas o futuras (citas/tareas programadas).
+        if (Number.isNaN(time) || time > Date.now()) return
+        const current = lastContactMap.get(id)
+        if (current === undefined || time > current) lastContactMap.set(id, time)
+      }
+
+      if (prospectIds.length > 0) {
+        const [activitiesRes, tasksRes, assignmentsRes] = await Promise.all([
+          supabase
+            .from("crm_activities")
+            .select("prospect_id, activity_date, completed_at, created_at")
+            .in("prospect_id", prospectIds),
+          supabase
+            .from("crm_tasks")
+            .select("prospect_id, completed_at, created_at")
+            .in("prospect_id", prospectIds),
+          supabase
+            .from("crm_prospect_assignments")
+            .select("prospect_id, created_at")
+            .in("prospect_id", prospectIds),
+        ])
+
+        activitiesRes.data?.forEach((a) => {
+          trackDate(a.prospect_id, a.activity_date)
+          trackDate(a.prospect_id, a.completed_at)
+          trackDate(a.prospect_id, a.created_at)
+        })
+        tasksRes.data?.forEach((t) => {
+          trackDate(t.prospect_id, t.completed_at)
+          trackDate(t.prospect_id, t.created_at)
+        })
+        assignmentsRes.data?.forEach((asg) => {
+          trackDate(asg.prospect_id, asg.created_at)
+        })
+      }
+
+      const enrichedProspects = prospectsData.map((p) => {
+        trackDate(p.id, p.assigned_at)
+        trackDate(p.id, p.attended_at)
+        trackDate(p.id, p.won_date)
+        trackDate(p.id, p.lost_date)
+        trackDate(p.id, p.updated_at)
+        const lastMs = lastContactMap.get(p.id)
+        return {
+          ...p,
+          last_contact_at: lastMs !== undefined ? new Date(lastMs).toISOString() : null,
+        }
+      })
+
+      setProspects(enrichedProspects as Prospect[])
     }
 
     setLoading(false)
@@ -172,12 +231,14 @@ export default function PipelinePage() {
       return
     }
 
-    // Update local state
+    // Update local state. Mover de etapa cuenta como interacción, por lo que se
+    // actualiza también la última fecha de contacto con el momento del cambio.
     setProspects(prev => prev.map(p =>
       p.id === prospectId
         ? {
             ...p,
             stage_id: newStageId,
+            last_contact_at: updateData.updated_at as string,
             ...(enteringWon
               ? { expected_close_date: updateData.expected_close_date as string, probability: 95 }
               : {}),
@@ -527,6 +588,21 @@ const getProspectsForStage = (stageId: string) => {
                               style={{ width: `${prospect.probability}%` }}
                             />
                           </div>
+                        </div>
+
+                        {/* Última fecha de contacto */}
+                        <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground border-t pt-2">
+                          <Clock className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">
+                            Último contacto:{" "}
+                            {prospect.last_contact_at
+                              ? new Date(prospect.last_contact_at).toLocaleDateString("es-MX", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                })
+                              : "Sin registro"}
+                          </span>
                         </div>
                       </CardContent>
                     </Card>
