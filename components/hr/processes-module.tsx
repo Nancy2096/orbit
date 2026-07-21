@@ -557,9 +557,14 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                       {s.responsible_position_id && (
                                         <span>Responsable: {positionName(s.responsible_position_id)}</span>
                                       )}
-                                      {s.estimated_duration && (
-                                        <span>Duración estimada: {s.estimated_duration}</span>
-                                      )}
+                                      {s.estimated_duration && (() => {
+                                        const { amount, unit } = parseDuration(s.estimated_duration)
+                                        return (
+                                          <span>
+                                            Duración estimada: {amount ? `${amount} ${unit}` : s.estimated_duration}
+                                          </span>
+                                        )
+                                      })()}
                                     </div>
                                   </li>
                                 ))}
