@@ -41,7 +41,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Building2, Mail, Globe, Settings2, Filter, X } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Building2, Mail, Globe, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
 
 interface Client {
   id: string
@@ -116,6 +116,7 @@ export default function ClientsPage() {
     city: "all",
   })
   const [showFilters, setShowFilters] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
   
   // Catalogs for filters
   const [agencies, setAgencies] = useState<{ id: string; name: string }[]>([])
@@ -222,7 +223,139 @@ export default function ClientsPage() {
     })
   }, [clients, searchTerm, filters])
 
+  const activeClients = useMemo(
+    () => filteredClients.filter((c) => c.status === "active"),
+    [filteredClients],
+  )
+  const inactiveClients = useMemo(
+    () => filteredClients.filter((c) => c.status !== "active"),
+    [filteredClients],
+  )
+
   const visibleColumns = columns.filter(col => col.visible)
+
+  function renderClientsTable(rows: Client[]) {
+    return (
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12 text-right">#</TableHead>
+              {visibleColumns.map((column) => (
+                <TableHead key={column.key}>{column.label}</TableHead>
+              ))}
+              <TableHead className="w-12"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((client, index) => (
+              <TableRow key={client.id}>
+                <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
+                  {index + 1}
+                </TableCell>
+                {visibleColumns.map((column) => (
+                  <TableCell key={column.key}>
+                    {column.key === "company_name" && (
+                      <div>
+                        <Link
+                          href={`/dashboard/clients/${client.id}`}
+                          className="font-medium hover:underline"
+                        >
+                          {client.company_name}
+                        </Link>
+                      </div>
+                    )}
+                    {column.key === "legal_name" && (
+                      <div className="text-sm">{client.legal_name || "-"}</div>
+                    )}
+                    {column.key === "tax_id" && (
+                      <div className="text-sm font-mono">{client.tax_id || "-"}</div>
+                    )}
+                    {column.key === "agency" && (
+                      <div className="text-sm">{client.agency?.name || "-"}</div>
+                    )}
+                    {column.key === "contact" && (
+                      <div className="space-y-1">
+                        {client.primary_contact_name && (
+                          <div className="text-sm font-medium">{client.primary_contact_name}</div>
+                        )}
+                        {client.primary_contact_email && (
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Mail className="h-3 w-3" />
+                            {client.primary_contact_email}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {column.key === "phone" && (
+                      <div className="text-sm">{client.primary_contact_phone || "-"}</div>
+                    )}
+                    {column.key === "industry" && (
+                      <>
+                        {client.industry?.name ? (
+                          <Badge variant="outline">{client.industry.name}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </>
+                    )}
+                    {column.key === "referral_source" && (
+                      <div className="text-sm">{client.referral_source?.name || "-"}</div>
+                    )}
+                    {column.key === "location" && (
+                      <div className="text-sm">
+                        {[client.city, client.state, client.country].filter(Boolean).join(", ") || "-"}
+                      </div>
+                    )}
+                    {column.key === "payment_terms" && (
+                      <div className="text-sm">{client.payment_terms} días</div>
+                    )}
+                    {column.key === "status" && (
+                      <Badge variant={statusLabels[client.status]?.variant || "outline"}>
+                        {statusLabels[client.status]?.label || client.status}
+                      </Badge>
+                    )}
+                  </TableCell>
+                ))}
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link href={`/dashboard/clients/${client.id}`}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar
+                        </Link>
+                      </DropdownMenuItem>
+                      {client.website && (
+                        <DropdownMenuItem asChild>
+                          <a href={client.website} target="_blank" rel="noopener noreferrer">
+                            <Globe className="mr-2 h-4 w-4" />
+                            Sitio web
+                          </a>
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => handleDelete(client.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Eliminar
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    )
+  }
 
   if (!mounted) {
     return (
@@ -501,123 +634,39 @@ export default function ClientsPage() {
               )}
             </Empty>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12 text-right">#</TableHead>
-                    {visibleColumns.map((column) => (
-                      <TableHead key={column.key}>{column.label}</TableHead>
-                    ))}
-                    <TableHead className="w-12"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredClients.map((client, index) => (
-                    <TableRow key={client.id}>
-                      <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
-                        {index + 1}
-                      </TableCell>
-                      {visibleColumns.map((column) => (
-                        <TableCell key={column.key}>
-                          {column.key === "company_name" && (
-                            <div>
-                              <Link 
-                                href={`/dashboard/clients/${client.id}`}
-                                className="font-medium hover:underline"
-                              >
-                                {client.company_name}
-                              </Link>
-                            </div>
-                          )}
-                          {column.key === "legal_name" && (
-                            <div className="text-sm">{client.legal_name || "-"}</div>
-                          )}
-                          {column.key === "tax_id" && (
-                            <div className="text-sm font-mono">{client.tax_id || "-"}</div>
-                          )}
-                          {column.key === "agency" && (
-                            <div className="text-sm">{client.agency?.name || "-"}</div>
-                          )}
-                          {column.key === "contact" && (
-                            <div className="space-y-1">
-                              {client.primary_contact_name && (
-                                <div className="text-sm font-medium">{client.primary_contact_name}</div>
-                              )}
-                              {client.primary_contact_email && (
-                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                                  <Mail className="h-3 w-3" />
-                                  {client.primary_contact_email}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {column.key === "phone" && (
-                            <div className="text-sm">{client.primary_contact_phone || "-"}</div>
-                          )}
-                          {column.key === "industry" && (
-                            <>
-                              {client.industry?.name ? (
-                                <Badge variant="outline">{client.industry.name}</Badge>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </>
-                          )}
-                          {column.key === "referral_source" && (
-                            <div className="text-sm">{client.referral_source?.name || "-"}</div>
-                          )}
-                          {column.key === "location" && (
-                            <div className="text-sm">
-                              {[client.city, client.state, client.country].filter(Boolean).join(", ") || "-"}
-                            </div>
-                          )}
-                          {column.key === "payment_terms" && (
-                            <div className="text-sm">{client.payment_terms} días</div>
-                          )}
-                          {column.key === "status" && (
-                            <Badge variant={statusLabels[client.status]?.variant || "outline"}>
-                              {statusLabels[client.status]?.label || client.status}
-                            </Badge>
-                          )}
-                        </TableCell>
-                      ))}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/clients/${client.id}`}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Editar
-                              </Link>
-                            </DropdownMenuItem>
-                            {client.website && (
-                              <DropdownMenuItem asChild>
-                                <a href={client.website} target="_blank" rel="noopener noreferrer">
-                                  <Globe className="mr-2 h-4 w-4" />
-                                  Sitio web
-                                </a>
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleDelete(client.id)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Eliminar
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
+            <div className="space-y-8">
+              {/* Clientes activos */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">Clientes activos</h3>
+                  <Badge variant="secondary" className="tabular-nums">{activeClients.length}</Badge>
+                </div>
+                {activeClients.length > 0 ? (
+                  renderClientsTable(activeClients)
+                ) : (
+                  <p className="py-4 text-sm text-muted-foreground">No hay clientes activos.</p>
+                )}
+              </div>
+
+              {/* Clientes inactivos */}
+              <div className="space-y-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-2 h-8 gap-2 px-2"
+                  onClick={() => setShowInactive((v) => !v)}
+                >
+                  {showInactive ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <span className="text-sm font-semibold">Clientes inactivos</span>
+                  <Badge variant="secondary" className="tabular-nums">{inactiveClients.length}</Badge>
+                </Button>
+                {showInactive &&
+                  (inactiveClients.length > 0 ? (
+                    renderClientsTable(inactiveClients)
+                  ) : (
+                    <p className="py-4 text-sm text-muted-foreground">No hay clientes inactivos.</p>
                   ))}
-                </TableBody>
-              </Table>
+              </div>
             </div>
           )}
         </CardContent>
