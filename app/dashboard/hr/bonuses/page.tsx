@@ -23,9 +23,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users } from "lucide-react"
+import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X } from "lucide-react"
 import { DepartmentFilter } from "@/components/hr/department-filter"
 import { useAgency } from "@/contexts/agency-context"
 
@@ -102,6 +103,12 @@ export default function BonusesPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [departmentFilter, setDepartmentFilter] = useState<string>("all")
+  // Política de bonos
+  const [policyContent, setPolicyContent] = useState("")
+  const [policyDraft, setPolicyDraft] = useState("")
+  const [policyUpdatedAt, setPolicyUpdatedAt] = useState<string | null>(null)
+  const [editingPolicy, setEditingPolicy] = useState(false)
+  const [savingPolicy, setSavingPolicy] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -117,7 +124,7 @@ export default function BonusesPage() {
     if (!selectedAgencyId) return
     setLoading(true)
     try {
-      const [bonusesRes, departmentsRes] = await Promise.all([
+      const [bonusesRes, departmentsRes, policyRes] = await Promise.all([
         supabase
           .from("bonuses")
           .select(`
@@ -131,14 +138,53 @@ export default function BonusesPage() {
           .from("departments")
           .select("id, name, agency_id")
           .order("name"),
+        supabase
+          .from("bonus_policies")
+          .select("content, updated_at")
+          .eq("agency_id", selectedAgencyId)
+          .maybeSingle(),
       ])
 
       if (bonusesRes.data) setBonuses(bonusesRes.data)
       if (departmentsRes.data) setDepartments(departmentsRes.data)
+      const policy = policyRes.data
+      setPolicyContent(policy?.content || "")
+      setPolicyDraft(policy?.content || "")
+      setPolicyUpdatedAt(policy?.updated_at || null)
+      setEditingPolicy(false)
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const savePolicy = async () => {
+    if (!selectedAgencyId) return
+    setSavingPolicy(true)
+    try {
+      const { data, error } = await supabase
+        .from("bonus_policies")
+        .upsert(
+          {
+            agency_id: selectedAgencyId,
+            content: policyDraft.trim() || null,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "agency_id" }
+        )
+        .select("content, updated_at")
+        .single()
+
+      if (error) throw error
+      setPolicyContent(data?.content || "")
+      setPolicyDraft(data?.content || "")
+      setPolicyUpdatedAt(data?.updated_at || null)
+      setEditingPolicy(false)
+    } catch (error) {
+      console.error("Error saving policy:", error)
+    } finally {
+      setSavingPolicy(false)
     }
   }
 
@@ -362,6 +408,10 @@ export default function BonusesPage() {
                   <Users className="mr-2 h-4 w-4" />
                   Por Personal
                 </TabsTrigger>
+                <TabsTrigger value="policy">
+                  <ScrollText className="mr-2 h-4 w-4" />
+                  Política de Bonos
+                </TabsTrigger>
               </TabsList>
 
               {/* Tab: lista de bonos */}
@@ -499,6 +549,95 @@ export default function BonusesPage() {
                     </Table>
                   </div>
                 )}
+              </TabsContent>
+
+              {/* Tab: política de bonos */}
+              <TabsContent value="policy" className="mt-6">
+                <div className="rounded-lg border bg-card">
+                  <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                        <ScrollText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold leading-tight">Política de Bonos</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Define cómo funcionan los bonos y los pasos a seguir.
+                        </p>
+                        {policyUpdatedAt && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Última actualización: {formatDate(policyUpdatedAt)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {!editingPolicy ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPolicyDraft(policyContent)
+                          setEditingPolicy(true)
+                        }}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        {policyContent ? "Editar" : "Escribir política"}
+                      </Button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setPolicyDraft(policyContent)
+                            setEditingPolicy(false)
+                          }}
+                          disabled={savingPolicy}
+                        >
+                          <X className="mr-2 h-4 w-4" />
+                          Cancelar
+                        </Button>
+                        <Button size="sm" onClick={savePolicy} disabled={savingPolicy}>
+                          {savingPolicy ? (
+                            <Spinner className="mr-2 h-4 w-4" />
+                          ) : (
+                            <Save className="mr-2 h-4 w-4" />
+                          )}
+                          Guardar
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-4">
+                    {editingPolicy ? (
+                      <Textarea
+                        value={policyDraft}
+                        onChange={(e) => setPolicyDraft(e.target.value)}
+                        placeholder={
+                          "Describe la política de bonos: en qué consiste, quién es elegible, cómo se calcula, y los pasos a realizar para otorgarlos.\n\nEjemplo:\n1. El bono de desempeño se evalúa trimestralmente.\n2. El líder de área propone el monto según los resultados.\n3. Recursos Humanos valida y aprueba.\n4. El bono se paga en la siguiente nómina."
+                        }
+                        rows={16}
+                        className="resize-y leading-relaxed"
+                      />
+                    ) : policyContent ? (
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                        {policyContent}
+                      </div>
+                    ) : (
+                      <Empty>
+                        <EmptyMedia variant="icon">
+                          <ScrollText className="h-6 w-6" />
+                        </EmptyMedia>
+                        <EmptyTitle>Sin política definida</EmptyTitle>
+                        <EmptyDescription>
+                          Aún no has escrito la política de bonos para esta agencia. Haz clic en
+                          &quot;Escribir política&quot; para comenzar.
+                        </EmptyDescription>
+                      </Empty>
+                    )}
+                  </div>
+                </div>
               </TabsContent>
             </Tabs>
           )}
