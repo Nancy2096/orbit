@@ -776,6 +776,25 @@ state_province: prospectData.state_province || "",
         const projectServices = prospectServices.filter((s) => s.billing_type === "project")
         const retainerTotal = retainerServices.reduce((sum, s) => sum + (s.total_price || 0), 0)
 
+        // Equipo comercial: el Asesor Comercial del prospecto y el Gerente Comercial
+        // de la agencia (staff cuyo puesto es "Gerente Comercial"). Pueden coincidir.
+        const salesAdvisorId = formData.assigned_to || null
+        let commercialManagerId: string | null = null
+        {
+          const { data: managerStaff } = await supabase
+            .from("staff")
+            .select("id")
+            .eq("agency_id", agencyForAccount)
+            .eq("is_active", true)
+            .eq("position", "Gerente Comercial")
+            .limit(1)
+            .maybeSingle()
+          commercialManagerId = managerStaff?.id ?? null
+        }
+
+        // Cotización más reciente del prospecto: se copia a la cuenta y a los proyectos.
+        const latestQuotation = quotations.length > 0 ? quotations[0] : null
+
         const { data: account, error: accountError } = await supabase
           .from("accounts")
           .insert({
@@ -784,6 +803,11 @@ state_province: prospectData.state_province || "",
             account_name: formData.company_name || formData.contact_name,
             account_type: retainerServices.length > 0 ? "retainer" : "project",
             retainer_amount: retainerServices.length > 0 ? retainerTotal : null,
+            sales_advisor_id: salesAdvisorId,
+            account_manager_id: commercialManagerId,
+            quotation_url: latestQuotation?.file_url || null,
+            quotation_filename: latestQuotation?.file_name || null,
+            quotation_uploaded_at: latestQuotation?.created_at || null,
             status: "active",
             notes: "Creada automaticamente al convertir el prospecto",
           })
@@ -819,6 +843,11 @@ state_province: prospectData.state_province || "",
                 project_type: "standard",
                 status: "draft",
                 budget_amount: s.total_price || null,
+                sales_advisor_id: salesAdvisorId,
+                commercial_manager_id: commercialManagerId,
+                quotation_url: latestQuotation?.file_url || null,
+                quotation_filename: latestQuotation?.file_name || null,
+                quotation_uploaded_at: latestQuotation?.created_at || null,
               })
               .select("id")
               .single()
@@ -840,14 +869,8 @@ state_province: prospectData.state_province || "",
         }
       }
 
-      // 2. Vincular las cotizaciones del prospecto al nuevo cliente (se conservan en el prospecto).
-      if (quotations.length > 0) {
-        const { error: quotationError } = await supabase
-          .from("crm_prospect_quotations")
-          .update({ client_id: client.id })
-          .eq("prospect_id", prospectId)
-        if (quotationError) console.error("No se pudieron vincular las cotizaciones:", quotationError.message)
-      }
+      // Nota: las cotizaciones del prospecto NO se vinculan al cliente. Se copian a la
+      // cuenta y a los proyectos (arriba) y se conservan también en el prospecto.
 
       // 3. Marcar el prospecto como convertido (sin borrarlo).
       const { error: prospectError } = await supabase
