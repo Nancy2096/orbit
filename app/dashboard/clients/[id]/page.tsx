@@ -16,8 +16,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowLeft, Building2, User, CreditCard, Plus, Trash2, Instagram, Facebook, Linkedin, Globe, FileText, Download, Upload, Eye } from "lucide-react"
 import { getCountries, getStatesByCountry, getCitiesByState, getPostalCodesByCity, getCountryCodeByName } from "@/lib/locations-data"
-import { ClientCompletionChart } from "@/components/client-completion-chart"
-import { getClientCompletionByCategory, getClientOverallCompletion } from "@/lib/client-completion"
+import { ClientCompletionDetail } from "@/components/client-completion-chart"
+import { getClientCompletionByCategory } from "@/lib/client-completion"
 
 // Opciones de Régimen Fiscal México
 const TAX_REGIMES = [
@@ -538,7 +538,6 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
   // Combina los datos del formulario con el contrato para calcular la completitud.
   const completionSource = { ...formData, contract_url: contract?.url || null }
   const completionData = getClientCompletionByCategory(completionSource)
-  const overallCompletion = getClientOverallCompletion(completionSource)
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -554,11 +553,7 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
-      <ClientCompletionChart
-        data={completionData}
-        title="Información completada"
-        description={`${overallCompletion}% del perfil completado`}
-      />
+      <ClientCompletionDetail data={completionData} />
 
       <form onSubmit={handleSubmit}>
         <div className="grid gap-6">

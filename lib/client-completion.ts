@@ -83,6 +83,32 @@ export function getClientOverallCompletion(client: ClientLike): number {
   return Math.round((filled / allFields.length) * 100)
 }
 
+// Lógica de semáforo: rojo (bajo), ámbar (medio), verde (alto).
+export type CompletionLevel = "low" | "medium" | "high"
+
+export function getCompletionLevel(percentage: number): CompletionLevel {
+  if (percentage >= 80) return "high"
+  if (percentage >= 50) return "medium"
+  return "low"
+}
+
+export function getCompletionColors(percentage: number): {
+  level: CompletionLevel
+  bar: string
+  text: string
+  label: string
+} {
+  const level = getCompletionLevel(percentage)
+  switch (level) {
+    case "high":
+      return { level, bar: "bg-green-500", text: "text-green-600", label: "Completo" }
+    case "medium":
+      return { level, bar: "bg-amber-500", text: "text-amber-600", label: "Parcial" }
+    default:
+      return { level, bar: "bg-red-500", text: "text-red-600", label: "Incompleto" }
+  }
+}
+
 /** Promedia la completitud por categoría a lo largo de varios clientes. */
 export function getAggregateCompletionByCategory(clients: ClientLike[]): CategoryCompletion[] {
   if (clients.length === 0) {
