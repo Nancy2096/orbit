@@ -61,6 +61,8 @@ import {
   ArrowUp,
   ArrowDown,
   Target,
+  Play,
+  Flag,
 } from "lucide-react"
 
 interface Department {
@@ -90,6 +92,8 @@ interface Process {
   name: string
   description: string | null
   objective: string | null
+  start_point: string | null
+  end_point: string | null
   status: string
   process_steps: ProcessStep[]
   process_departments: { department_id: string }[]
@@ -128,6 +132,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [objective, setObjective] = useState("")
+  const [startPoint, setStartPoint] = useState("")
+  const [endPoint, setEndPoint] = useState("")
   const [status, setStatus] = useState("draft")
   const [ownerDepartmentId, setOwnerDepartmentId] = useState<string>(NONE)
   const [involvedDepartments, setInvolvedDepartments] = useState<string[]>([])
@@ -157,7 +163,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
       supabase
         .from("processes")
         .select(
-          "id, department_id, name, description, objective, status, process_steps(id, step_order, title, description, responsible_position_id, responsible_department_id, estimated_duration), process_departments(department_id), process_positions(position_id)",
+          "id, department_id, name, description, objective, start_point, end_point, status, process_steps(id, step_order, title, description, responsible_position_id, responsible_department_id, estimated_duration), process_departments(department_id), process_positions(position_id)",
         )
         .eq("agency_id", agencyId)
         .order("created_at", { ascending: false }),
@@ -182,6 +188,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
     setName("")
     setDescription("")
     setObjective("")
+    setStartPoint("")
+    setEndPoint("")
     setStatus("draft")
     setOwnerDepartmentId(NONE)
     setInvolvedDepartments([])
@@ -200,6 +208,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
     setName(p.name)
     setDescription(p.description || "")
     setObjective(p.objective || "")
+    setStartPoint(p.start_point || "")
+    setEndPoint(p.end_point || "")
     setStatus(p.status)
     setOwnerDepartmentId(p.department_id || NONE)
     setInvolvedDepartments(p.process_departments.map((d) => d.department_id))
@@ -262,6 +272,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
       name: name.trim(),
       description: description.trim() || null,
       objective: objective.trim() || null,
+      start_point: startPoint.trim() || null,
+      end_point: endPoint.trim() || null,
       status,
       updated_at: new Date().toISOString(),
     }
@@ -468,6 +480,28 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                           <span className="text-muted-foreground">{p.objective}</span>
                         </div>
                       )}
+                      {(p.start_point || p.end_point) && (
+                        <div className="space-y-2 rounded-md border bg-muted/30 p-2.5">
+                          {p.start_point && (
+                            <div className="flex items-start gap-2">
+                              <Play className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                              <div>
+                                <p className="text-xs font-medium text-foreground">Inicio del proceso</p>
+                                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{p.start_point}</p>
+                              </div>
+                            </div>
+                          )}
+                          {p.end_point && (
+                            <div className="flex items-start gap-2">
+                              <Flag className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                              <div>
+                                <p className="text-xs font-medium text-foreground">Fin del proceso</p>
+                                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{p.end_point}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <ListChecks className="h-3.5 w-3.5" />
@@ -496,15 +530,19 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                       </span>
                                       <span className="font-medium">{s.title}</span>
                                     </div>
-                                    {(s.responsible_position_id || s.estimated_duration) && (
-                                      <div className="mt-1 pl-7 text-xs text-muted-foreground">
-                                        {s.responsible_position_id && (
-                                          <span>Responsable: {positionName(s.responsible_position_id)}</span>
-                                        )}
-                                        {s.responsible_position_id && s.estimated_duration && " · "}
-                                        {s.estimated_duration && <span>{s.estimated_duration}</span>}
-                                      </div>
+                                    {s.description && (
+                                      <p className="mt-1 whitespace-pre-wrap pl-7 text-sm text-foreground">
+                                        {s.description}
+                                      </p>
                                     )}
+                                    <div className="mt-1 flex flex-col gap-0.5 pl-7 text-xs text-muted-foreground">
+                                      {s.responsible_position_id && (
+                                        <span>Responsable: {positionName(s.responsible_position_id)}</span>
+                                      )}
+                                      {s.estimated_duration && (
+                                        <span>Duración estimada: {s.estimated_duration}</span>
+                                      )}
+                                    </div>
                                   </li>
                                 ))}
                               </ol>
@@ -589,6 +627,26 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                   value={objective}
                   onChange={(e) => setObjective(e.target.value)}
                   placeholder="¿Qué se busca lograr con este proceso?"
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="p-start">Inicio del proceso</Label>
+                <Textarea
+                  id="p-start"
+                  value={startPoint}
+                  onChange={(e) => setStartPoint(e.target.value)}
+                  placeholder="¿Con qué inicia el proceso? Ej: Recepción de solicitud del cliente"
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="p-end">Fin del proceso</Label>
+                <Textarea
+                  id="p-end"
+                  value={endPoint}
+                  onChange={(e) => setEndPoint(e.target.value)}
+                  placeholder="¿Con qué termina el proceso? Ej: Cliente dado de alta y notificado"
                   rows={2}
                 />
               </div>
