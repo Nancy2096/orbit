@@ -496,7 +496,7 @@ state_province: prospectData.state_province || "",
       source_id: formData.source_id || null,
       estimated_value: prospectServices.length > 0 ? getTotalServicesValue() : null,
       currency_id: formData.currency_id || null,
-      probability: formData.probability,
+      probability: enteringWon ? 95 : formData.probability,
       expected_close_date: closeDateOnWin || formData.expected_close_date || null,
       description: formData.description || null,
       notes: formData.notes || null,
@@ -584,9 +584,13 @@ state_province: prospectData.state_province || "",
       }
     }
 
-    // Reflejar la nueva etapa y la fecha de cierre fijada automáticamente al ganar.
-    if (closeDateOnWin) {
-      setFormData((prev) => ({ ...prev, expected_close_date: closeDateOnWin }))
+    // Reflejar la nueva etapa, la fecha de cierre y la probabilidad fijadas automáticamente al ganar.
+    if (enteringWon) {
+      setFormData((prev) => ({
+        ...prev,
+        probability: 95,
+        ...(closeDateOnWin ? { expected_close_date: closeDateOnWin } : {}),
+      }))
     }
     setInitialStageId(formData.stage_id)
 
