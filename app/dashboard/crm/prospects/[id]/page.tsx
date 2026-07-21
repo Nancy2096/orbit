@@ -794,12 +794,41 @@ state_province: prospectData.state_province || "",
           commercialManagerId = managerStaff?.id ?? null
         }
 
-        // Cotización más reciente del prospecto: se copia a cada cuenta creada.
+        // Cotización más reciente del prospecto: se copia a los campos rápidos de la cuenta.
         const latestQuotation = quotations.length > 0 ? quotations[0] : null
         const quotationFields = {
           quotation_url: latestQuotation?.file_url || null,
           quotation_filename: latestQuotation?.file_name || null,
           quotation_uploaded_at: latestQuotation?.created_at || null,
+        }
+
+        // Normaliza una URL de blob al formato autenticado /api/file usado por
+        // el historial de cotizaciones (entity_quotations).
+        const toFileApiUrl = (rawUrl: string): string => {
+          try {
+            if (rawUrl.includes("/api/file?")) return rawUrl
+            const pathname = new URL(rawUrl).pathname.replace(/^\//, "")
+            return `/api/file?pathname=${encodeURIComponent(pathname)}`
+          } catch {
+            return rawUrl
+          }
+        }
+
+        // Copia TODAS las cotizaciones del prospecto al historial (entity_quotations)
+        // de la cuenta/proyecto recién creado. Si hay un servicio retainer y otro por
+        // proyecto, esta función se llama para cada uno, repitiendo las cotizaciones.
+        const copyQuotationsToAccount = async (accountId: string) => {
+          if (quotations.length === 0) return
+          const rows = quotations.map((q) => ({
+            owner_type: "account",
+            owner_id: accountId,
+            url: toFileApiUrl(q.file_url),
+            filename: q.file_name,
+            label: q.notes || (q.version ? `Versión ${q.version}` : null),
+            uploaded_at: q.created_at,
+          }))
+          const { error: quotesError } = await supabase.from("entity_quotations").insert(rows)
+          if (quotesError) console.error("[v0] No se pudieron copiar las cotizaciones:", quotesError.message)
         }
 
         // A) Cuenta de retainer (solo si hay servicios recurrentes)
@@ -836,6 +865,7 @@ state_province: prospectData.state_province || "",
             }))
             const { error: accSvcError } = await supabase.from("account_services").insert(accountServicesToInsert)
             if (accSvcError) console.error("[v0] No se pudieron crear los servicios de la cuenta:", accSvcError.message)
+            await copyQuotationsToAccount(retainerAccount.id)
           }
         }
 
@@ -872,11 +902,13 @@ state_province: prospectData.state_province || "",
             is_active: true,
           })
           if (projSvcError) console.error("[v0] No se pudo agregar el servicio al proyecto:", projSvcError.message)
+          await copyQuotationsToAccount(projectAccount.id)
         }
       }
 
-      // Nota: las cotizaciones del prospecto NO se vinculan al cliente. Se copian a la
-      // cuenta y a los proyectos (arriba) y se conservan también en el prospecto.
+      // Nota: las cotizaciones del prospecto NO se vinculan al cliente. Se copian al
+      // historial (entity_quotations) de la cuenta y de cada proyecto (arriba),
+      // repitiéndose en ambos, y se conservan también en el prospecto.
 
       // 3. Marcar el prospecto como convertido (sin borrarlo).
       const { error: prospectError } = await supabase
