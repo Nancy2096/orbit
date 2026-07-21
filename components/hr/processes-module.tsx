@@ -457,10 +457,20 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {list.map((p) => (
-                  <Card key={p.id} className="flex flex-col">
-                    <CardHeader className="pb-3">
+                  <Card
+                    key={p.id}
+                    className="group relative flex flex-col overflow-hidden rounded-xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                  >
+                    {/* Barra de acento lateral */}
+                    <div className="absolute inset-y-0 left-0 w-1.5 bg-primary" />
+                    <CardHeader className="pb-3 pl-5">
                       <div className="flex items-start justify-between gap-2">
-                        <CardTitle className="text-base leading-tight">{p.name}</CardTitle>
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 shadow-sm">
+                            <Workflow className="h-5 w-5 text-primary" />
+                          </div>
+                          <CardTitle className="text-base leading-tight text-balance">{p.name}</CardTitle>
+                        </div>
                         <div className="flex items-center gap-1">
                           <Badge className={STATUS_STYLES[p.status] || ""}>
                             {STATUS_LABELS[p.status] || p.status}
@@ -488,10 +498,10 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                         </div>
                       </div>
                       {p.description && (
-                        <p className="text-sm text-muted-foreground line-clamp-2">{p.description}</p>
+                        <p className="pl-[52px] text-sm text-muted-foreground line-clamp-2">{p.description}</p>
                       )}
                     </CardHeader>
-                    <CardContent className="flex flex-1 flex-col gap-3 text-sm">
+                    <CardContent className="flex flex-1 flex-col gap-3 pl-5 text-sm">
                       {p.objective && (
                         <div className="flex items-start gap-2">
                           <Target className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -520,19 +530,22 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                           )}
                         </div>
                       )}
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <ListChecks className="h-3.5 w-3.5" />
-                          {p.process_steps.length} pasos
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Building2 className="h-3.5 w-3.5" />
-                          {p.process_departments.length} áreas
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Users className="h-3.5 w-3.5" />
-                          {p.process_positions.length} puestos
-                        </span>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                          <ListChecks className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold text-foreground">{p.process_steps.length}</span>
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">pasos</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                          <Building2 className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold text-foreground">{p.process_departments.length}</span>
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">áreas</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                          <Users className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold text-foreground">{p.process_positions.length}</span>
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">puestos</span>
+                        </div>
                       </div>
                       {p.process_steps.length > 0 && (
                         <Accordion type="single" collapsible className="mt-auto">

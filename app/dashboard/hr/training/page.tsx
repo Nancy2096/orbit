@@ -746,19 +746,41 @@ export default function TrainingPage() {
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filteredCourses.map((course) => (
-              <Card key={course.id} className="overflow-hidden">
+              <Card
+                key={course.id}
+                className="group relative flex flex-col overflow-hidden rounded-xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+              >
+                {/* Franja superior de acento con el color de la categoría */}
+                <div
+                  className="h-1.5 w-full"
+                  style={{ backgroundColor: course.category?.color || "var(--color-primary)" }}
+                />
                 <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <CardTitle className="text-lg">{course.title}</CardTitle>
-                      {course.category && (
-                        <Badge style={{ backgroundColor: course.category.color + "20", color: course.category.color }}>
-                          {course.category.name}
-                        </Badge>
-                      )}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg shadow-sm"
+                        style={{ backgroundColor: (course.category?.color || "#6366f1") + "1a" }}
+                      >
+                        <GraduationCap
+                          className="h-6 w-6"
+                          style={{ color: course.category?.color || "#6366f1" }}
+                        />
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <CardTitle className="text-lg leading-tight text-balance">{course.title}</CardTitle>
+                        {course.category && (
+                          <Badge
+                            className="border-0"
+                            style={{ backgroundColor: course.category.color + "20", color: course.category.color }}
+                          >
+                            {course.category.name}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => {
+                    <div className="flex gap-1 opacity-60 transition-opacity group-hover:opacity-100">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
                         setEditingCourse(course)
                         setNewCourse({
                           category_id: course.category_id || "",
@@ -773,29 +795,33 @@ export default function TrainingPage() {
                       }}>
                         <Edit2 className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDeleteCourse(course.id)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteCourse(course.id)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-3">
+                <CardContent className="flex flex-1 flex-col space-y-3">
                   <p className="text-sm text-muted-foreground line-clamp-2">{course.description || "Sin descripción"}</p>
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-4 w-4" />
-                      {course.duration_minutes} min
+                  {/* Estadísticas en chips */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold">{course.duration_minutes}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">min</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <FileText className="h-4 w-4" />
-                      {course.content_count} contenidos
+                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                      <FileText className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold">{course.content_count}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">contenidos</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Users className="h-4 w-4" />
-                      {course.enrollment_count} inscritos
+                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                      <Users className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold">{course.enrollment_count}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">inscritos</span>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between pt-2 border-t">
+                  <div className="mt-auto flex items-center justify-between border-t pt-3">
                     <div className="flex items-center gap-2">
                       {course.is_mandatory && <Badge variant="destructive">Obligatorio</Badge>}
                       {course.is_active ? (
