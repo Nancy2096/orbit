@@ -114,6 +114,24 @@ const STATUS_STYLES: Record<string, string> = {
 
 const NONE = "none"
 
+type DurationUnit = "horas" | "días"
+
+// La duración se guarda como texto (ej. "2 días"). Estos helpers separan y
+// recomponen la cantidad y la unidad para el editor sin cambiar el esquema.
+function parseDuration(value: string | null | undefined): { amount: string; unit: DurationUnit } {
+  if (!value) return { amount: "", unit: "días" }
+  const match = value.match(/(\d+(?:[.,]\d+)?)/)
+  const amount = match ? match[1].replace(",", ".") : ""
+  const unit: DurationUnit = /hora/i.test(value) ? "horas" : "días"
+  return { amount, unit }
+}
+
+function buildDuration(amount: string, unit: DurationUnit): string {
+  const trimmed = amount.trim()
+  if (!trimmed) return ""
+  return `${trimmed} ${unit}`
+}
+
 export function ProcessesModule({ agencyId }: { agencyId: string }) {
   const supabase = createClient()
 
@@ -781,12 +799,41 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs">Duración estimada</Label>
-                              <Input
-                                className="h-9"
-                                value={s.estimated_duration}
-                                onChange={(e) => updateStep(i, { estimated_duration: e.target.value })}
-                                placeholder="Ej: 2 días"
-                              />
+                              {(() => {
+                                const parsed = parseDuration(s.estimated_duration)
+                                return (
+                                  <div className="flex gap-2">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      className="h-9"
+                                      value={parsed.amount}
+                                      onChange={(e) =>
+                                        updateStep(i, {
+                                          estimated_duration: buildDuration(e.target.value, parsed.unit),
+                                        })
+                                      }
+                                      placeholder="Ej: 2"
+                                    />
+                                    <Select
+                                      value={parsed.unit}
+                                      onValueChange={(v) =>
+                                        updateStep(i, {
+                                          estimated_duration: buildDuration(parsed.amount, v as DurationUnit),
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger className="h-9 w-28">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="horas">Horas</SelectItem>
+                                        <SelectItem value="días">Días</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )
+                              })()}
                             </div>
                           </div>
                         </div>
