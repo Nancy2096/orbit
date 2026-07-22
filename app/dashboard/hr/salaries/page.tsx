@@ -70,7 +70,17 @@ import { getEmploymentStatus } from "@/app/dashboard/hr/staff/page"
 interface Agency {
   id: string
   name: string
-  settings: { working_hours_per_month?: number } | null
+  settings: {
+    working_hours_per_month?: number
+    // Objetivo financiero "Personal y nómina" (% de la nómina sobre ingresos).
+    objectives?: { fin_payroll_pct?: number | string | null } | null
+  } | null
+}
+
+interface AgencyCurrencyRate {
+  agency_id: string
+  currency_id: string
+  exchange_rate: number | null
 }
 
 const DEFAULT_WORKING_HOURS = 160
@@ -191,6 +201,12 @@ export default function SalariesPage() {
   const [staff, setStaff] = useState<StaffSalary[]>([])
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
+  // Ingreso mensual global tomado del Dashboard de Operaciones (suma del total
+  // contratado de cuentas y proyectos activos), separado por moneda.
+  const [incomeMXN, setIncomeMXN] = useState(0)
+  const [incomeUSD, setIncomeUSD] = useState(0)
+  // Tipos de cambio manuales por agencia (definidos en Monedas y Bancos).
+  const [agencyCurrencyRates, setAgencyCurrencyRates] = useState<AgencyCurrencyRate[]>([])
 
   const [search, setSearch] = useState("")
   const [filterAgency, setFilterAgency] = useState("all")
@@ -233,7 +249,7 @@ export default function SalariesPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [staffRes, agenciesRes, currenciesRes, logsRes] = await Promise.all([
+    const [staffRes, agenciesRes, currenciesRes, logsRes, accountsRes, agencyCurrenciesRes] = await Promise.all([
       supabase
         .from("staff")
         .select(
@@ -251,12 +267,91 @@ export default function SalariesPage() {
           "id, staff_id, field, old_value, new_value, currency_code, changed_by_name, changed_at, staff(first_name, last_name)",
         )
         .order("changed_at", { ascending: true }),
+      supabase.from("accounts").select("id, account_type, status, retainer_currency_id"),
+      supabase.from("agency_currencies").select("agency_id, currency_id, exchange_rate"),
     ])
 
     if (staffRes.data) setStaff(staffRes.data as StaffSalary[])
     if (agenciesRes.data) setAgencies(agenciesRes.data as Agency[])
     if (currenciesRes.data) setCurrencies(currenciesRes.data as Currency[])
     if (logsRes.data) setHistoryLogs(logsRes.data as unknown as ChangeLog[])
+    if (agencyCurrenciesRes.data) setAgencyCurrencyRates(agencyCurrenciesRes.data as AgencyCurrencyRate[])
+
+    // Ingreso mensual de Operaciones: replica la lógica del Dashboard de Operaciones,
+    // sumando el total contratado (account_services.final_price) de cuentas retainer
+    // y proyectos activos, e infiriendo la moneda de los proyectos por sus servicios.
+    const accounts = (accountsRes.data || []) as {
+      id: string
+      account_type: string | null
+      status: string | null
+      retainer_currency_id: string | null
+    }[]
+    const currencyMap = new Map((currenciesRes.data || []).map((c) => [c.id, c.code]))
+    const isActive = (s: string | null) => (s || "").toLowerCase() === "active"
+    const activeAccounts = accounts.filter(
+      (a) => (a.account_type === "retainer" || a.account_type === "project") && isActive(a.status),
+    )
+    const accountIds = activeAccounts.map((a) => a.id)
+
+    const servicesRes =
+      accountIds.length > 0
+        ? await supabase
+            .from("account_services")
+            .select("account_id, service_id, final_price, unit_price")
+            .eq("is_active", true)
+            .in("account_id", accountIds)
+        : { data: [] }
+    const serviceRows = (servicesRes.data || []) as {
+      account_id: string
+      service_id: string | null
+      final_price: number | null
+      unit_price: number | null
+    }[]
+    const serviceIds = [...new Set(serviceRows.map((s) => s.service_id).filter(Boolean))] as string[]
+    const basePricesRes =
+      serviceIds.length > 0
+        ? await supabase.from("services").select("id, base_price, base_price_usd").in("id", serviceIds)
+        : { data: [] }
+    const basePricesMap = new Map(
+      (basePricesRes.data || []).map((s: { id: string; base_price: number | null; base_price_usd: number | null }) => [
+        s.id,
+        s,
+      ]),
+    )
+
+    const totalsMap = new Map<string, number>()
+    const currencyVotes = new Map<string, { MXN: number; USD: number }>()
+    serviceRows.forEach((s) => {
+      totalsMap.set(s.account_id, (totalsMap.get(s.account_id) || 0) + (Number(s.final_price) || 0))
+      const base = s.service_id ? basePricesMap.get(s.service_id) : null
+      const votes = currencyVotes.get(s.account_id) || { MXN: 0, USD: 0 }
+      const unit = Number(s.unit_price) || 0
+      const usd = Number(base?.base_price_usd) || 0
+      const mxn = Number(base?.base_price) || 0
+      if (usd > 0 && usd !== mxn && Math.abs(unit - usd) < Math.abs(unit - mxn)) {
+        votes.USD += 1
+      } else {
+        votes.MXN += 1
+      }
+      currencyVotes.set(s.account_id, votes)
+    })
+    const inferCurrency = (accountId: string) => {
+      const votes = currencyVotes.get(accountId)
+      if (!votes || votes.MXN + votes.USD === 0) return null
+      return votes.USD > votes.MXN ? "USD" : "MXN"
+    }
+
+    let mxn = 0
+    let usd = 0
+    activeAccounts.forEach((a) => {
+      const total = totalsMap.get(a.id) || 0
+      const code = a.retainer_currency_id ? currencyMap.get(a.retainer_currency_id) || "—" : inferCurrency(a.id) || "—"
+      if (code === "USD") usd += total
+      else if (code === "MXN") mxn += total
+    })
+    setIncomeMXN(mxn)
+    setIncomeUSD(usd)
+
     setLoading(false)
   }, [supabase])
 
@@ -505,6 +600,69 @@ export default function SalariesPage() {
     })
     return Array.from(map.entries()).filter(([, v]) => v > 0)
   }, [activeRows, currencyCode, effective])
+
+  // Tipo de cambio USD -> MXN definido manualmente en Monedas y Bancos.
+  // Si hay una agencia filtrada, usa su tipo de cambio; si no, el primero disponible.
+  const usdToMxnRate = useMemo(() => {
+    const usdCurrency = currencies.find((c) => c.code === "USD")
+    if (!usdCurrency) return null
+    const rows = agencyCurrencyRates.filter(
+      (r) => r.currency_id === usdCurrency.id && r.exchange_rate != null && Number(r.exchange_rate) > 0,
+    )
+    if (filterAgency !== "all" && filterAgency !== "global") {
+      const forAgency = rows.find((r) => r.agency_id === filterAgency)
+      if (forAgency) return Number(forAgency.exchange_rate)
+    }
+    return rows.length > 0 ? Number(rows[0].exchange_rate) : null
+  }, [agencyCurrencyRates, currencies, filterAgency])
+
+  // Objetivo "Personal y nómina" (% de nómina sobre ingresos). Usa el de la
+  // agencia filtrada si existe; si no, el primero definido entre las agencias.
+  const payrollObjectivePct = useMemo(() => {
+    const readPct = (a: Agency | undefined) => {
+      const v = a?.settings?.objectives?.fin_payroll_pct
+      return v != null && v !== "" ? Number(v) : null
+    }
+    if (filterAgency !== "all" && filterAgency !== "global") {
+      const v = readPct(agencies.find((a) => a.id === filterAgency))
+      if (v != null) return v
+    }
+    for (const a of agencies) {
+      const v = readPct(a)
+      if (v != null) return v
+    }
+    return null
+  }, [agencies, filterAgency])
+
+  // Indicador: % que representa la nómina base mensual respecto al ingreso mensual
+  // total (MXN + USD convertido a MXN) del Dashboard de Operaciones. El color depende
+  // de qué tan lejos está del objetivo: verde (<= objetivo), naranja (hasta 10% arriba),
+  // rojo (más de 10% arriba).
+  const payrollRatio = useMemo(() => {
+    const rate = usdToMxnRate ?? 0
+    // Nómina base convertida a MXN.
+    const payrollMXN = totalsByCurrency.reduce(
+      (sum, [code, total]) => sum + (code === "USD" ? total * rate : code === "MXN" ? total : 0),
+      0,
+    )
+    // Ingreso total del Dashboard de Operaciones en MXN.
+    const incomeTotalMXN = incomeMXN + incomeUSD * rate
+    const hasUsd = incomeUSD > 0 || totalsByCurrency.some(([code]) => code === "USD")
+    const needsRate = hasUsd && (usdToMxnRate == null || usdToMxnRate <= 0)
+
+    if (incomeTotalMXN <= 0 || needsRate) {
+      return { pct: null as number | null, needsRate, color: "muted" as const }
+    }
+    const pct = (payrollMXN / incomeTotalMXN) * 100
+
+    let color: "green" | "orange" | "red" | "muted" = "muted"
+    if (payrollObjectivePct != null) {
+      if (pct <= payrollObjectivePct) color = "green"
+      else if (pct <= payrollObjectivePct * 1.1) color = "orange"
+      else color = "red"
+    }
+    return { pct, needsRate: false, color }
+  }, [totalsByCurrency, incomeMXN, incomeUSD, usdToMxnRate, payrollObjectivePct])
 
   // Frecuencia de pago efectiva (usa el valor editado si existe).
   const effectiveFrequency = useCallback(
@@ -874,7 +1032,7 @@ export default function SalariesPage() {
 
         <TabsContent value="current" className="space-y-6">
       {/* Tarjetas resumen */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Nómina mensual base</CardTitle>
@@ -893,6 +1051,46 @@ export default function SalariesPage() {
               </div>
             )}
             <p className="mt-1 text-xs text-muted-foreground">Suma de salarios mensuales</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Nómina / Ingresos</CardTitle>
+            <BadgePercent className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {payrollRatio.pct == null ? (
+              <>
+                <div className="text-2xl font-bold text-muted-foreground">—</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {payrollRatio.needsRate
+                    ? "Define el tipo de cambio USD en Monedas y Bancos"
+                    : "Sin ingresos registrados en Operaciones"}
+                </p>
+              </>
+            ) : (
+              <>
+                <div
+                  className={
+                    payrollRatio.color === "green"
+                      ? "text-2xl font-bold text-emerald-600"
+                      : payrollRatio.color === "orange"
+                        ? "text-2xl font-bold text-amber-600"
+                        : payrollRatio.color === "red"
+                          ? "text-2xl font-bold text-red-600"
+                          : "text-2xl font-bold"
+                  }
+                >
+                  {payrollRatio.pct.toFixed(1)}%
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {payrollObjectivePct != null
+                    ? `Nómina vs ingresos · objetivo ${payrollObjectivePct}%`
+                    : "Nómina vs ingresos · sin objetivo definido"}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
