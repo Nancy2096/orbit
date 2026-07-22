@@ -47,18 +47,80 @@ async function getOperationsData(agencyId: string | null) {
 
   const isActive = (s: string | null) => (s || "").toLowerCase() === "active"
   const codeOf = (id: string | null) => (id ? currencyMap.get(id) || "—" : "—")
-  const amt = (a: AccountRow) => Number(a.retainer_amount) || 0
 
   const retainers = accounts.filter((a) => a.account_type === "retainer")
   const projects = accounts.filter((a) => a.account_type === "project")
   const activeRetainers = retainers.filter((a) => isActive(a.status))
   const activeProjects = projects.filter((a) => isActive(a.status))
 
-  // Ingreso mensual por moneda: monto contratado de cuentas retainer activas
-  // MÁS monto contratado de proyectos activos. Sirve de base para la proyección anual.
+  // El total mostrado en las secciones Cuentas y Proyectos es la suma del monto
+  // contratado (account_services.final_price), no el retainer_amount. Para que el
+  // Dashboard coincida, replicamos esa misma lógica aquí.
+  const accountIds = accounts.map((a) => a.id)
+  const servicesRes =
+    accountIds.length > 0
+      ? await supabase
+          .from("account_services")
+          .select("account_id, service_id, final_price, unit_price")
+          .eq("is_active", true)
+          .in("account_id", accountIds)
+      : { data: [] }
+  const serviceRows = (servicesRes.data || []) as {
+    account_id: string
+    service_id: string | null
+    final_price: number | null
+    unit_price: number | null
+  }[]
+
+  // Precios base de los servicios para inferir la moneda de los proyectos
+  // (que no guardan retainer_currency_id), igual que en la sección Proyectos.
+  const serviceIds = [...new Set(serviceRows.map((s) => s.service_id).filter(Boolean))] as string[]
+  const basePricesRes =
+    serviceIds.length > 0
+      ? await supabase.from("services").select("id, base_price, base_price_usd").in("id", serviceIds)
+      : { data: [] }
+  const basePricesMap = new Map(
+    (basePricesRes.data || []).map((s: { id: string; base_price: number | null; base_price_usd: number | null }) => [
+      s.id,
+      s,
+    ]),
+  )
+
+  // Total contratado y votos de moneda por cuenta
+  const totalsMap = new Map<string, number>()
+  const currencyVotes = new Map<string, { MXN: number; USD: number }>()
+  serviceRows.forEach((s) => {
+    totalsMap.set(s.account_id, (totalsMap.get(s.account_id) || 0) + (Number(s.final_price) || 0))
+    const base = s.service_id ? basePricesMap.get(s.service_id) : null
+    const votes = currencyVotes.get(s.account_id) || { MXN: 0, USD: 0 }
+    const unit = Number(s.unit_price) || 0
+    const usd = Number(base?.base_price_usd) || 0
+    const mxn = Number(base?.base_price) || 0
+    if (usd > 0 && usd !== mxn && Math.abs(unit - usd) < Math.abs(unit - mxn)) {
+      votes.USD += 1
+    } else {
+      votes.MXN += 1
+    }
+    currencyVotes.set(s.account_id, votes)
+  })
+
+  const inferCurrency = (accountId: string) => {
+    const votes = currencyVotes.get(accountId)
+    if (!votes || votes.MXN + votes.USD === 0) return null
+    return votes.USD > votes.MXN ? "USD" : "MXN"
+  }
+
+  // Monto contratado por cuenta (igual que el "Total contratado" de las tablas)
+  const amt = (a: AccountRow) => totalsMap.get(a.id) || 0
+  // Moneda: las retainer usan su retainer_currency_id; los proyectos la infieren.
+  const currencyOf = (a: AccountRow) =>
+    a.retainer_currency_id ? codeOf(a.retainer_currency_id) : inferCurrency(a.id) || "—"
+
+  // Ingreso mensual por moneda: suma del total contratado de cuentas retainer
+  // activas MÁS proyectos activos, igual que los totales de esas secciones.
   const mrrByCurrency: Record<string, number> = {}
   for (const a of [...activeRetainers, ...activeProjects]) {
-    const code = codeOf(a.retainer_currency_id)
+    const code = currencyOf(a)
     mrrByCurrency[code] = (mrrByCurrency[code] || 0) + amt(a)
   }
   const mrrMXN = mrrByCurrency["MXN"] || 0
@@ -67,7 +129,7 @@ async function getOperationsData(agencyId: string | null) {
   // MRR por agencia (MXN)
   const agencyAgg = new Map<string, { mrr: number; count: number }>()
   for (const a of activeRetainers) {
-    if (codeOf(a.retainer_currency_id) !== "MXN") continue
+    if (currencyOf(a) !== "MXN") continue
     const name = a.agency_id ? agencyMap.get(a.agency_id) || "Sin agencia" : "Sin agencia"
     const cur = agencyAgg.get(name) || { mrr: 0, count: 0 }
     cur.mrr += amt(a)
@@ -89,7 +151,7 @@ async function getOperationsData(agencyId: string | null) {
   // Top cuentas por monto mensual
   const topAccounts = (code: string) =>
     activeRetainers
-      .filter((a) => codeOf(a.retainer_currency_id) === code)
+      .filter((a) => currencyOf(a) === code)
       .map((a) => ({ name: a.account_name || "Sin nombre", amount: amt(a) }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 8)
