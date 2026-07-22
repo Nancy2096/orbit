@@ -61,7 +61,7 @@ async function getOperationsData(agencyId: string | null) {
     accountIds.length > 0
       ? await supabase
           .from("account_services")
-          .select("account_id, service_id, final_price, unit_price")
+          .select("account_id, service_id, final_price, unit_price, currency_code")
           .eq("is_active", true)
           .in("account_id", accountIds)
       : { data: [] }
@@ -70,6 +70,7 @@ async function getOperationsData(agencyId: string | null) {
     service_id: string | null
     final_price: number | null
     unit_price: number | null
+    currency_code: string | null
   }[]
 
   // Precios base de los servicios para inferir la moneda de los proyectos
@@ -91,15 +92,20 @@ async function getOperationsData(agencyId: string | null) {
   const currencyVotes = new Map<string, { MXN: number; USD: number }>()
   serviceRows.forEach((s) => {
     totalsMap.set(s.account_id, (totalsMap.get(s.account_id) || 0) + (Number(s.final_price) || 0))
-    const base = s.service_id ? basePricesMap.get(s.service_id) : null
     const votes = currencyVotes.get(s.account_id) || { MXN: 0, USD: 0 }
-    const unit = Number(s.unit_price) || 0
-    const usd = Number(base?.base_price_usd) || 0
-    const mxn = Number(base?.base_price) || 0
-    if (usd > 0 && usd !== mxn && Math.abs(unit - usd) < Math.abs(unit - mxn)) {
-      votes.USD += 1
+    if (s.currency_code === "USD" || s.currency_code === "MXN") {
+      // Moneda persistida: es autoritativa.
+      votes[s.currency_code] += 1
     } else {
-      votes.MXN += 1
+      const base = s.service_id ? basePricesMap.get(s.service_id) : null
+      const unit = Number(s.unit_price) || 0
+      const usd = Number(base?.base_price_usd) || 0
+      const mxn = Number(base?.base_price) || 0
+      if (usd > 0 && usd !== mxn && Math.abs(unit - usd) < Math.abs(unit - mxn)) {
+        votes.USD += 1
+      } else {
+        votes.MXN += 1
+      }
     }
     currencyVotes.set(s.account_id, votes)
   })

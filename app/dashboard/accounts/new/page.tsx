@@ -504,6 +504,7 @@ function handleServiceSelect(serviceId: string) {
         final_price: s.final_price,
         frequency: s.frequency,
         notes: s.notes || null,
+        currency_code: s.currency_code === "USD" ? "USD" : "MXN",
         is_active: true,
       }))
 

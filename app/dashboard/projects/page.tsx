@@ -180,7 +180,7 @@ export default function ProjectsPage() {
       accountIds.length > 0
         ? supabase
             .from("account_services")
-            .select("account_id, service_id, final_price, unit_price")
+            .select("account_id, service_id, final_price, unit_price, currency_code")
             .eq("is_active", true)
             .in("account_id", accountIds)
         : { data: [] },
@@ -191,14 +191,15 @@ export default function ProjectsPage() {
     const agenciesMap = new Map((agenciesRes.data || []).map((a) => [a.id, a]))
     const currenciesMap = new Map((currenciesRes.data || []).map((c: { id: string; code: string }) => [c.id, c.code]))
 
-    // Precios base de los servicios contratados para inferir la moneda real
-    // "desde adentro del proyecto": si el precio contratado coincide con el
-    // precio base en USD (y no con el de MXN), el servicio se contrató en USD.
+    // La moneda del servicio se toma de la columna persistida currency_code.
+    // Para filas antiguas sin ese dato, se infiere comparando el precio unitario
+    // contra los precios base en MXN y USD del servicio.
     const serviceRows = (servicesRes.data || []) as {
       account_id: string
       service_id: string | null
       final_price: number | null
       unit_price: number | null
+      currency_code: string | null
     }[]
     const serviceIds = [...new Set(serviceRows.map((s) => s.service_id).filter(Boolean))] as string[]
     const basePricesRes =
@@ -218,15 +219,20 @@ export default function ProjectsPage() {
     serviceRows.forEach((s) => {
       totalsMap.set(s.account_id, (totalsMap.get(s.account_id) || 0) + (Number(s.final_price) || 0))
 
-      const base = s.service_id ? basePricesMap.get(s.service_id) : null
       const votes = currencyVotes.get(s.account_id) || { MXN: 0, USD: 0 }
-      const unit = Number(s.unit_price) || 0
-      const usd = Number(base?.base_price_usd) || 0
-      const mxn = Number(base?.base_price) || 0
-      if (usd > 0 && usd !== mxn && Math.abs(unit - usd) < Math.abs(unit - mxn)) {
-        votes.USD += 1
+      if (s.currency_code === "USD" || s.currency_code === "MXN") {
+        // Moneda persistida: es autoritativa.
+        votes[s.currency_code] += 1
       } else {
-        votes.MXN += 1
+        const base = s.service_id ? basePricesMap.get(s.service_id) : null
+        const unit = Number(s.unit_price) || 0
+        const usd = Number(base?.base_price_usd) || 0
+        const mxn = Number(base?.base_price) || 0
+        if (usd > 0 && usd !== mxn && Math.abs(unit - usd) < Math.abs(unit - mxn)) {
+          votes.USD += 1
+        } else {
+          votes.MXN += 1
+        }
       }
       currencyVotes.set(s.account_id, votes)
     })
