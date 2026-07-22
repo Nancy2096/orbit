@@ -348,8 +348,9 @@ export default function AccountsPage() {
   const visibleColumns = columns.filter(col => col.visible)
   const { widths, setWidth, getColumnStyle } = useColumnWidths("accounts-column-widths")
 
-  function renderAccountsTable(rows: Account[]) {
-    const totals = computeTotals(rows)
+  function renderAccountsTable(rows: Account[], showTotals = true) {
+    // Los totales por moneda (MXN/USD) solo se muestran para las cuentas activas.
+    const totals = showTotals ? computeTotals(rows) : []
     return (
       <div className="overflow-x-auto">
         <Table>
@@ -767,9 +768,9 @@ export default function AccountsPage() {
                   <span className="text-sm font-semibold">Cuentas inactivas</span>
                   <Badge variant="secondary" className="tabular-nums">{inactiveAccounts.length}</Badge>
                 </Button>
-                {showInactive &&
-                  (inactiveAccounts.length > 0 ? (
-                    renderAccountsTable(inactiveAccounts)
+            {showInactive &&
+              (inactiveAccounts.length > 0 ? (
+                renderAccountsTable(inactiveAccounts, false)
                   ) : (
                     <p className="py-4 text-sm text-muted-foreground">No hay cuentas inactivas.</p>
                   ))}

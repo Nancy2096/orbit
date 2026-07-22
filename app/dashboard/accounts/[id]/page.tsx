@@ -448,6 +448,7 @@ async function fetchAgencyDepartments(agencyId: string) {
         final_price,
         frequency,
         notes,
+        currency_code,
         services (
           name,
           category
@@ -469,10 +470,18 @@ async function fetchAgencyDepartments(agencyId: string) {
         final_price: parseFloat(item.final_price) || 0,
         frequency: item.frequency || "one_time",
         notes: item.notes || "",
+        // Moneda persistida del servicio (MXN por defecto para datos antiguos).
+        currency_code: item.currency_code === "USD" ? "USD" : "MXN",
         is_new: false,
         is_deleted: false,
       }))
       setContractedServices(mapped)
+      // Sincroniza el selector de moneda de la cuenta con la moneda guardada.
+      if (mapped.some((m) => m.currency_code === "USD") && mapped.every((m) => m.currency_code === "USD")) {
+        setSelectedServiceCurrency("USD")
+      } else if (mapped.length > 0 && mapped.every((m) => m.currency_code === "MXN")) {
+        setSelectedServiceCurrency("MXN")
+      }
     }
   }
 
@@ -691,6 +700,7 @@ async function fetchAgencyDepartments(agencyId: string) {
         final_price: s.final_price,
         frequency: s.frequency,
         notes: s.notes || null,
+        currency_code: s.currency_code === "USD" ? "USD" : "MXN",
         is_active: true,
       }))
 
@@ -725,6 +735,7 @@ async function fetchAgencyDepartments(agencyId: string) {
           final_price: service.final_price,
           frequency: service.frequency,
           notes: service.notes || null,
+          currency_code: service.currency_code === "USD" ? "USD" : "MXN",
           updated_at: new Date().toISOString(),
         })
         .eq("id", service.id)

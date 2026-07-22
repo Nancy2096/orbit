@@ -136,38 +136,26 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
     {
       title: "Ingreso mensual (MXN)",
       value: formatMoney(kpis.mrrMXN, "MXN"),
-      sub: "Recurrente de cuentas activas",
+      sub: "Cuentas + proyectos activos",
       icon: DollarSign,
     },
     {
       title: "Ingreso mensual (USD)",
       value: formatMoney(kpis.mrrUSD, "USD"),
-      sub: "Recurrente de cuentas activas",
+      sub: "Cuentas + proyectos activos",
       icon: DollarSign,
     },
     {
       title: "Proyección anual (MXN)",
       value: formatMoney(kpis.annualMXN, "MXN"),
-      sub: "MRR x 12 meses",
+      sub: "Ingreso mensual x 12 meses",
       icon: TrendingUp,
     },
     {
       title: "Proyección anual (USD)",
       value: formatMoney(kpis.annualUSD, "USD"),
-      sub: "MRR x 12 meses",
+      sub: "Ingreso mensual x 12 meses",
       icon: TrendingUp,
-    },
-    {
-      title: "Cuentas activas",
-      value: kpis.activeRetainers.toLocaleString("es-MX"),
-      sub: `${kpis.totalAccounts} cuentas en total`,
-      icon: Layers,
-    },
-    {
-      title: "Proyectos activos",
-      value: kpis.activeProjects.toLocaleString("es-MX"),
-      sub: "Cuentas tipo proyecto",
-      icon: FolderKanban,
     },
     {
       title: "Clientes activos",
@@ -301,10 +289,10 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <TrendingUp className="size-4 text-muted-foreground" aria-hidden="true" />
-            Proyección de ingresos recurrentes acumulados (12 meses)
+            Proyección de ingresos acumulados (12 meses)
           </CardTitle>
           <CardDescription>
-            Ingreso mensual recurrente acumulado mes a mes, separado por moneda.
+            Ingreso mensual (cuentas + proyectos activos) acumulado mes a mes, separado por moneda.
           </CardDescription>
         </CardHeader>
         <CardContent>

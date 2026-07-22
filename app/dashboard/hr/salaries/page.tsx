@@ -51,6 +51,8 @@ import {
   LineChartIcon,
   CalendarDays,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react"
 import {
   ResponsiveContainer,
@@ -63,11 +65,22 @@ import {
   Tooltip,
 } from "recharts"
 import { toast } from "sonner"
+import { getEmploymentStatus } from "@/app/dashboard/hr/staff/page"
 
 interface Agency {
   id: string
   name: string
-  settings: { working_hours_per_month?: number } | null
+  settings: {
+    working_hours_per_month?: number
+    // Objetivo financiero "Personal y nómina" (% de la nómina sobre ingresos).
+    objectives?: { fin_payroll_pct?: number | string | null } | null
+  } | null
+}
+
+interface AgencyCurrencyRate {
+  agency_id: string
+  currency_id: string
+  exchange_rate: number | null
 }
 
 const DEFAULT_WORKING_HOURS = 160
@@ -188,11 +201,19 @@ export default function SalariesPage() {
   const [staff, setStaff] = useState<StaffSalary[]>([])
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
+  // Ingreso mensual global tomado del Dashboard de Operaciones (suma del total
+  // contratado de cuentas y proyectos activos), separado por moneda.
+  const [incomeMXN, setIncomeMXN] = useState(0)
+  const [incomeUSD, setIncomeUSD] = useState(0)
+  // Tipos de cambio manuales por agencia (definidos en Monedas y Bancos).
+  const [agencyCurrencyRates, setAgencyCurrencyRates] = useState<AgencyCurrencyRate[]>([])
 
   const [search, setSearch] = useState("")
   const [filterAgency, setFilterAgency] = useState("all")
   const [filterContract, setFilterContract] = useState("all")
   const [filterFrequency, setFilterFrequency] = useState("all")
+  // Controla si se despliega el grupo de colaboradores no activos (bajas, inactivos, etc.)
+  const [showOthers, setShowOthers] = useState(false)
 
   // Cambios pendientes por id de empleado
   const [edits, setEdits] = useState<Record<string, EditableRow>>({})
@@ -228,7 +249,7 @@ export default function SalariesPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [staffRes, agenciesRes, currenciesRes, logsRes] = await Promise.all([
+    const [staffRes, agenciesRes, currenciesRes, logsRes, accountsRes, agencyCurrenciesRes] = await Promise.all([
       supabase
         .from("staff")
         .select(
@@ -246,12 +267,97 @@ export default function SalariesPage() {
           "id, staff_id, field, old_value, new_value, currency_code, changed_by_name, changed_at, staff(first_name, last_name)",
         )
         .order("changed_at", { ascending: true }),
+      supabase.from("accounts").select("id, account_type, status, retainer_currency_id"),
+      supabase.from("agency_currencies").select("agency_id, currency_id, exchange_rate"),
     ])
 
     if (staffRes.data) setStaff(staffRes.data as StaffSalary[])
     if (agenciesRes.data) setAgencies(agenciesRes.data as Agency[])
     if (currenciesRes.data) setCurrencies(currenciesRes.data as Currency[])
     if (logsRes.data) setHistoryLogs(logsRes.data as unknown as ChangeLog[])
+    if (agencyCurrenciesRes.data) setAgencyCurrencyRates(agencyCurrenciesRes.data as AgencyCurrencyRate[])
+
+    // Ingreso mensual de Operaciones: replica la lógica del Dashboard de Operaciones,
+    // sumando el total contratado (account_services.final_price) de cuentas retainer
+    // y proyectos activos, e infiriendo la moneda de los proyectos por sus servicios.
+    const accounts = (accountsRes.data || []) as {
+      id: string
+      account_type: string | null
+      status: string | null
+      retainer_currency_id: string | null
+    }[]
+    const currencyMap = new Map((currenciesRes.data || []).map((c) => [c.id, c.code]))
+    const isActive = (s: string | null) => (s || "").toLowerCase() === "active"
+    const activeAccounts = accounts.filter(
+      (a) => (a.account_type === "retainer" || a.account_type === "project") && isActive(a.status),
+    )
+    const accountIds = activeAccounts.map((a) => a.id)
+
+    const servicesRes =
+      accountIds.length > 0
+        ? await supabase
+            .from("account_services")
+            .select("account_id, service_id, final_price, unit_price, currency_code")
+            .eq("is_active", true)
+            .in("account_id", accountIds)
+        : { data: [] }
+    const serviceRows = (servicesRes.data || []) as {
+      account_id: string
+      service_id: string | null
+      final_price: number | null
+      unit_price: number | null
+      currency_code: string | null
+    }[]
+    const serviceIds = [...new Set(serviceRows.map((s) => s.service_id).filter(Boolean))] as string[]
+    const basePricesRes =
+      serviceIds.length > 0
+        ? await supabase.from("services").select("id, base_price, base_price_usd").in("id", serviceIds)
+        : { data: [] }
+    const basePricesMap = new Map(
+      (basePricesRes.data || []).map((s: { id: string; base_price: number | null; base_price_usd: number | null }) => [
+        s.id,
+        s,
+      ]),
+    )
+
+    const totalsMap = new Map<string, number>()
+    const currencyVotes = new Map<string, { MXN: number; USD: number }>()
+    serviceRows.forEach((s) => {
+      totalsMap.set(s.account_id, (totalsMap.get(s.account_id) || 0) + (Number(s.final_price) || 0))
+      const votes = currencyVotes.get(s.account_id) || { MXN: 0, USD: 0 }
+      if (s.currency_code === "USD" || s.currency_code === "MXN") {
+        // Moneda persistida: es autoritativa.
+        votes[s.currency_code] += 1
+      } else {
+        const base = s.service_id ? basePricesMap.get(s.service_id) : null
+        const unit = Number(s.unit_price) || 0
+        const usd = Number(base?.base_price_usd) || 0
+        const mxn = Number(base?.base_price) || 0
+        if (usd > 0 && usd !== mxn && Math.abs(unit - usd) < Math.abs(unit - mxn)) {
+          votes.USD += 1
+        } else {
+          votes.MXN += 1
+        }
+      }
+      currencyVotes.set(s.account_id, votes)
+    })
+    const inferCurrency = (accountId: string) => {
+      const votes = currencyVotes.get(accountId)
+      if (!votes || votes.MXN + votes.USD === 0) return null
+      return votes.USD > votes.MXN ? "USD" : "MXN"
+    }
+
+    let mxn = 0
+    let usd = 0
+    activeAccounts.forEach((a) => {
+      const total = totalsMap.get(a.id) || 0
+      const code = a.retainer_currency_id ? currencyMap.get(a.retainer_currency_id) || "—" : inferCurrency(a.id) || "—"
+      if (code === "USD") usd += total
+      else if (code === "MXN") mxn += total
+    })
+    setIncomeMXN(mxn)
+    setIncomeUSD(usd)
+
     setLoading(false)
   }, [supabase])
 
@@ -342,24 +448,227 @@ export default function SalariesPage() {
     })
   }, [staff, filterAgency, filterContract, filterFrequency, search])
 
-  // Colaboradores activos (excluye bajas), usados para los totales de nómina
-  // base mensual, ya que las bajas no perciben salario recurrente.
-  const activeFiltered = useMemo(
-    () => filtered.filter((s) => s.employment_status !== "terminated"),
+  // Dos listas: colaboradores activos (siempre visibles) y el resto (bajas,
+  // inactivos, suspendidos) agrupados aparte para desplegarlos bajo demanda.
+  // Los totales de nómina (base, 1ª quincena y fin de mes) solo consideran a
+  // los activos, ya que bajas/inactivos/suspendidos no perciben salario recurrente.
+  const activeRows = useMemo(
+    () => filtered.filter((s) => (s.employment_status || "active") === "active"),
     [filtered],
   )
+  const otherRows = useMemo(
+    () => filtered.filter((s) => (s.employment_status || "active") !== "active"),
+    [filtered],
+  )
+
+  const renderSalaryRow = (s: StaffSalary, rowNumber: number) => {
+    const eff = effective(s)
+    const isDirty = !!edits[s.id]
+    return (
+      <TableRow key={s.id} className={isDirty ? "bg-primary/5" : undefined}>
+        <TableCell className="text-right text-sm tabular-nums text-muted-foreground">{rowNumber}</TableCell>
+        <TableCell>
+          <Link href={`/dashboard/hr/staff/${s.id}`} className="font-medium hover:underline">
+            {s.first_name} {s.last_name}
+          </Link>
+          <div className="text-xs text-muted-foreground">
+            {s.position || "Sin puesto"}
+            {s.employee_code ? ` · ${s.employee_code}` : ""}
+          </div>
+        </TableCell>
+        <TableCell>
+          {s.agency_id ? (
+            <span className="text-sm">{agencyName(s)}</span>
+          ) : (
+            <Badge variant="secondary">Global</Badge>
+          )}
+        </TableCell>
+        <TableCell>
+          {(() => {
+            const st = getEmploymentStatus(s.employment_status)
+            return <Badge variant={st.badgeVariant}>{st.label}</Badge>
+          })()}
+        </TableCell>
+        <TableCell>
+          <Select
+            value={eff.payment_frequency}
+            onValueChange={(v) => updateField(s, "payment_frequency", v)}
+            disabled={!canEdit}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="biweekly">Quincenal</SelectItem>
+              <SelectItem value="monthly">Mensual</SelectItem>
+            </SelectContent>
+          </Select>
+        </TableCell>
+        <TableCell>
+          <Select
+            value={eff.currency_id}
+            onValueChange={(v) => updateField(s, "currency_id", v)}
+            disabled={!canEdit}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder="—" />
+            </SelectTrigger>
+            <SelectContent>
+              {currencies.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </TableCell>
+        <TableCell className="text-right">
+          <Input
+            type="text"
+            inputMode="decimal"
+            value={eff.monthly_salary}
+            onChange={(e) => updateField(s, "monthly_salary", sanitizeDecimal(e.target.value))}
+            disabled={!canEdit}
+            className="h-8 text-right"
+            placeholder="0.00"
+          />
+        </TableCell>
+        <TableCell className="text-right">
+          {(() => {
+            const salary = Number.parseFloat(eff.monthly_salary) || 0
+            const code = currencyCode(eff.currency_id || s.currency_id)
+            const isBiweekly = eff.payment_frequency !== "monthly"
+            return isBiweekly && salary > 0 ? (
+              <span className="text-sm tabular-nums">{formatMoney(salary / 2, code)}</span>
+            ) : (
+              <span className="text-sm text-muted-foreground">—</span>
+            )
+          })()}
+        </TableCell>
+        <TableCell className="text-right">
+          {(() => {
+            const salary = Number.parseFloat(eff.monthly_salary) || 0
+            const code = currencyCode(eff.currency_id || s.currency_id)
+            const isBiweekly = eff.payment_frequency !== "monthly"
+            const amount = salary > 0 ? (isBiweekly ? salary / 2 : salary) : 0
+            return salary > 0 ? (
+              <span className="text-sm font-medium tabular-nums">{formatMoney(amount, code)}</span>
+            ) : (
+              <span className="text-sm text-muted-foreground">—</span>
+            )
+          })()}
+        </TableCell>
+        <TableCell className="text-right">
+          <Input
+            type="text"
+            inputMode="decimal"
+            value={eff.commission_percentage}
+            onChange={(e) => updateField(s, "commission_percentage", sanitizeDecimal(e.target.value))}
+            disabled={!canEdit}
+            className="h-8 text-right"
+            placeholder="0"
+          />
+        </TableCell>
+        <TableCell className="text-right">
+          {s.employment_status === "terminated" ? (
+            <div className="space-y-1">
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={eff.finiquito}
+                onChange={(e) => updateField(s, "finiquito", sanitizeDecimal(e.target.value))}
+                disabled={!canEdit || !!s.finiquito_paid_at}
+                className="h-8 text-right"
+                placeholder="0.00"
+              />
+              {s.finiquito_paid_at && (
+                <p className="text-[10px] text-muted-foreground">
+                  Pagado {new Date(s.finiquito_paid_at).toLocaleDateString("es-MX")}
+                </p>
+              )}
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">N/A</span>
+          )}
+        </TableCell>
+      </TableRow>
+    )
+  }
 
   // Totales de nómina base mensual agrupados por moneda.
   const totalsByCurrency = useMemo(() => {
     const map = new Map<string, number>()
-    activeFiltered.forEach((s) => {
+    activeRows.forEach((s) => {
       const code = currencyCode(s.currency_id)
       const eff = effective(s)
       const salary = Number.parseFloat(eff.monthly_salary) || 0
       map.set(code, (map.get(code) || 0) + salary)
     })
     return Array.from(map.entries()).filter(([, v]) => v > 0)
-  }, [activeFiltered, currencyCode, effective])
+  }, [activeRows, currencyCode, effective])
+
+  // Tipo de cambio USD -> MXN definido manualmente en Monedas y Bancos.
+  // Si hay una agencia filtrada, usa su tipo de cambio; si no, el primero disponible.
+  const usdToMxnRate = useMemo(() => {
+    const usdCurrency = currencies.find((c) => c.code === "USD")
+    if (!usdCurrency) return null
+    const rows = agencyCurrencyRates.filter(
+      (r) => r.currency_id === usdCurrency.id && r.exchange_rate != null && Number(r.exchange_rate) > 0,
+    )
+    if (filterAgency !== "all" && filterAgency !== "global") {
+      const forAgency = rows.find((r) => r.agency_id === filterAgency)
+      if (forAgency) return Number(forAgency.exchange_rate)
+    }
+    return rows.length > 0 ? Number(rows[0].exchange_rate) : null
+  }, [agencyCurrencyRates, currencies, filterAgency])
+
+  // Objetivo "Personal y nómina" (% de nómina sobre ingresos). Usa el de la
+  // agencia filtrada si existe; si no, el primero definido entre las agencias.
+  const payrollObjectivePct = useMemo(() => {
+    const readPct = (a: Agency | undefined) => {
+      const v = a?.settings?.objectives?.fin_payroll_pct
+      return v != null && v !== "" ? Number(v) : null
+    }
+    if (filterAgency !== "all" && filterAgency !== "global") {
+      const v = readPct(agencies.find((a) => a.id === filterAgency))
+      if (v != null) return v
+    }
+    for (const a of agencies) {
+      const v = readPct(a)
+      if (v != null) return v
+    }
+    return null
+  }, [agencies, filterAgency])
+
+  // Indicador: % que representa la nómina base mensual respecto al ingreso mensual
+  // total (MXN + USD convertido a MXN) del Dashboard de Operaciones. El color depende
+  // de qué tan lejos está del objetivo: verde (<= objetivo), naranja (hasta 10% arriba),
+  // rojo (más de 10% arriba).
+  const payrollRatio = useMemo(() => {
+    const rate = usdToMxnRate ?? 0
+    // Nómina base convertida a MXN.
+    const payrollMXN = totalsByCurrency.reduce(
+      (sum, [code, total]) => sum + (code === "USD" ? total * rate : code === "MXN" ? total : 0),
+      0,
+    )
+    // Ingreso total del Dashboard de Operaciones en MXN.
+    const incomeTotalMXN = incomeMXN + incomeUSD * rate
+    const hasUsd = incomeUSD > 0 || totalsByCurrency.some(([code]) => code === "USD")
+    const needsRate = hasUsd && (usdToMxnRate == null || usdToMxnRate <= 0)
+
+    if (incomeTotalMXN <= 0 || needsRate) {
+      return { pct: null as number | null, needsRate, color: "muted" as const }
+    }
+    const pct = (payrollMXN / incomeTotalMXN) * 100
+
+    let color: "green" | "orange" | "red" | "muted" = "muted"
+    if (payrollObjectivePct != null) {
+      if (pct <= payrollObjectivePct) color = "green"
+      else if (pct <= payrollObjectivePct * 1.1) color = "orange"
+      else color = "red"
+    }
+    return { pct, needsRate: false, color }
+  }, [totalsByCurrency, incomeMXN, incomeUSD, usdToMxnRate, payrollObjectivePct])
 
   // Frecuencia de pago efectiva (usa el valor editado si existe).
   const effectiveFrequency = useCallback(
@@ -384,7 +693,7 @@ export default function SalariesPage() {
     const end = new Map<string, number>()
     let biweeklyCount = 0
     let monthlyCount = 0
-    activeFiltered.forEach((s) => {
+    activeRows.forEach((s) => {
       const code = currencyCode(s.currency_id)
       const salary = Number.parseFloat(effective(s).monthly_salary) || 0
       if (salary <= 0) return
@@ -404,7 +713,7 @@ export default function SalariesPage() {
       biweeklyCount,
       monthlyCount,
     }
-  }, [activeFiltered, currencyCode, effective, effectiveFrequency])
+  }, [activeRows, currencyCode, effective, effectiveFrequency])
 
   const contractTypesPresent = useMemo(() => {
     const set = new Set<string>()
@@ -729,7 +1038,7 @@ export default function SalariesPage() {
 
         <TabsContent value="current" className="space-y-6">
       {/* Tarjetas resumen */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Nómina mensual base</CardTitle>
@@ -753,11 +1062,51 @@ export default function SalariesPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Nómina / Ingresos</CardTitle>
+            <BadgePercent className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {payrollRatio.pct == null ? (
+              <>
+                <div className="text-2xl font-bold text-muted-foreground">—</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {payrollRatio.needsRate
+                    ? "Define el tipo de cambio USD en Monedas y Bancos"
+                    : "Sin ingresos registrados en Operaciones"}
+                </p>
+              </>
+            ) : (
+              <>
+                <div
+                  className={
+                    payrollRatio.color === "green"
+                      ? "text-2xl font-bold text-emerald-600"
+                      : payrollRatio.color === "orange"
+                        ? "text-2xl font-bold text-amber-600"
+                        : payrollRatio.color === "red"
+                          ? "text-2xl font-bold text-red-600"
+                          : "text-2xl font-bold"
+                  }
+                >
+                  {payrollRatio.pct.toFixed(1)}%
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {payrollObjectivePct != null
+                    ? `Nómina vs ingresos · objetivo ${payrollObjectivePct}%`
+                    : "Nómina vs ingresos · sin objetivo definido"}
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Colaboradores</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{filtered.length}</div>
+            <div className="text-2xl font-bold">{activeRows.length}</div>
             <p className="mt-1 text-xs text-muted-foreground">Activos en la vista actual</p>
           </CardContent>
         </Card>
@@ -874,8 +1223,10 @@ export default function SalariesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12 text-right">#</TableHead>
                   <TableHead>Colaborador</TableHead>
                   <TableHead>Agencia</TableHead>
+                  <TableHead>Estado</TableHead>
                   <TableHead className="w-36">Frecuencia</TableHead>
                   <TableHead className="w-28">Moneda</TableHead>
                   <TableHead className="text-right">Salario mensual</TableHead>
@@ -888,143 +1239,48 @@ export default function SalariesPage() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
                       No hay colaboradores que coincidan con los filtros
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((s) => {
-                    const eff = effective(s)
-                    const isDirty = !!edits[s.id]
-                    return (
-                      <TableRow key={s.id} className={isDirty ? "bg-primary/5" : undefined}>
-                        <TableCell>
-                          <Link
-                            href={`/dashboard/hr/staff/${s.id}`}
-                            className="font-medium hover:underline"
-                          >
-                            {s.first_name} {s.last_name}
-                          </Link>
-                          {s.employment_status === "terminated" && (
-                            <Badge variant="destructive" className="ml-2 text-xs">Baja</Badge>
-                          )}
-                          <div className="text-xs text-muted-foreground">
-                            {s.position || "Sin puesto"}
-                            {s.employee_code ? ` · ${s.employee_code}` : ""}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {s.agency_id ? (
-                            <span className="text-sm">{agencyName(s)}</span>
-                          ) : (
-                            <Badge variant="secondary">Global</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Select
-                            value={eff.payment_frequency}
-                            onValueChange={(v) => updateField(s, "payment_frequency", v)}
-                            disabled={!canEdit}
-                          >
-                            <SelectTrigger className="h-8">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="biweekly">Quincenal</SelectItem>
-                              <SelectItem value="monthly">Mensual</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Select
-                            value={eff.currency_id}
-                            onValueChange={(v) => updateField(s, "currency_id", v)}
-                            disabled={!canEdit}
-                          >
-                            <SelectTrigger className="h-8">
-                              <SelectValue placeholder="—" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {currencies.map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  {c.code}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Input
-                            type="text"
-                            inputMode="decimal"
-                            value={eff.monthly_salary}
-                            onChange={(e) => updateField(s, "monthly_salary", sanitizeDecimal(e.target.value))}
-                            disabled={!canEdit}
-                            className="h-8 text-right"
-                            placeholder="0.00"
-                          />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {(() => {
-                            const salary = Number.parseFloat(eff.monthly_salary) || 0
-                            const code = currencyCode(eff.currency_id || s.currency_id)
-                            const isBiweekly = eff.payment_frequency !== "monthly"
-                            return isBiweekly && salary > 0 ? (
-                              <span className="text-sm tabular-nums">{formatMoney(salary / 2, code)}</span>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {(() => {
-                            const salary = Number.parseFloat(eff.monthly_salary) || 0
-                            const code = currencyCode(eff.currency_id || s.currency_id)
-                            const isBiweekly = eff.payment_frequency !== "monthly"
-                            const amount = salary > 0 ? (isBiweekly ? salary / 2 : salary) : 0
-                            return salary > 0 ? (
-                              <span className="text-sm font-medium tabular-nums">{formatMoney(amount, code)}</span>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Input
-                            type="text"
-                            inputMode="decimal"
-                            value={eff.commission_percentage}
-                            onChange={(e) => updateField(s, "commission_percentage", sanitizeDecimal(e.target.value))}
-                            disabled={!canEdit}
-                            className="h-8 text-right"
-                            placeholder="0"
-                          />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {s.employment_status === "terminated" ? (
-                            <div className="space-y-1">
-                              <Input
-                                type="text"
-                                inputMode="decimal"
-                                value={eff.finiquito}
-                                onChange={(e) => updateField(s, "finiquito", sanitizeDecimal(e.target.value))}
-                                disabled={!canEdit || !!s.finiquito_paid_at}
-                                className="h-8 text-right"
-                                placeholder="0.00"
-                              />
-                              {s.finiquito_paid_at && (
-                                <p className="text-[10px] text-muted-foreground">
-                                  Pagado {new Date(s.finiquito_paid_at).toLocaleDateString("es-MX")}
-                                </p>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">N/A</span>
-                          )}
+                  <>
+                    {activeRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={11} className="py-6 text-center text-sm text-muted-foreground">
+                          No hay colaboradores activos con estos filtros
                         </TableCell>
                       </TableRow>
-                    )
-                  })
+                    ) : (
+                      activeRows.map((s, i) => renderSalaryRow(s, i + 1))
+                    )}
+
+                    {otherRows.length > 0 && (
+                      <>
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell colSpan={11} className="p-0">
+                            <button
+                              type="button"
+                              onClick={() => setShowOthers((v) => !v)}
+                              className="flex w-full items-center gap-2 bg-muted/50 px-4 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+                            >
+                              {showOthers ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                              Otros colaboradores (bajas, inactivos, suspendidos)
+                              <Badge variant="secondary" className="ml-1">
+                                {otherRows.length}
+                              </Badge>
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                        {showOthers &&
+                          otherRows.map((s, i) => renderSalaryRow(s, activeRows.length + i + 1))}
+                      </>
+                    )}
+                  </>
                 )}
               </TableBody>
             </Table>

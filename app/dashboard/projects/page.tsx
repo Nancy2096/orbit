@@ -178,7 +178,11 @@ export default function ProjectsPage() {
         ? supabase.from("agencies").select("id, name").in("id", agencyIds)
         : { data: [] },
       accountIds.length > 0
-        ? supabase.from("account_services").select("account_id, final_price").eq("is_active", true).in("account_id", accountIds)
+        ? supabase
+            .from("account_services")
+            .select("account_id, service_id, final_price, unit_price, currency_code")
+            .eq("is_active", true)
+            .in("account_id", accountIds)
         : { data: [] },
       supabase.from("currencies").select("id, code"),
     ])
@@ -187,16 +191,64 @@ export default function ProjectsPage() {
     const agenciesMap = new Map((agenciesRes.data || []).map((a) => [a.id, a]))
     const currenciesMap = new Map((currenciesRes.data || []).map((c: { id: string; code: string }) => [c.id, c.code]))
 
-    // Sum contracted services (total contratado) per project
+    // La moneda del servicio se toma de la columna persistida currency_code.
+    // Para filas antiguas sin ese dato, se infiere comparando el precio unitario
+    // contra los precios base en MXN y USD del servicio.
+    const serviceRows = (servicesRes.data || []) as {
+      account_id: string
+      service_id: string | null
+      final_price: number | null
+      unit_price: number | null
+      currency_code: string | null
+    }[]
+    const serviceIds = [...new Set(serviceRows.map((s) => s.service_id).filter(Boolean))] as string[]
+    const basePricesRes =
+      serviceIds.length > 0
+        ? await supabase.from("services").select("id, base_price, base_price_usd").in("id", serviceIds)
+        : { data: [] }
+    const basePricesMap = new Map(
+      (basePricesRes.data || []).map((s: { id: string; base_price: number | null; base_price_usd: number | null }) => [
+        s.id,
+        s,
+      ]),
+    )
+
+    // Sum contracted services (total contratado) y votos de moneda por proyecto
     const totalsMap = new Map<string, number>()
-    ;(servicesRes.data || []).forEach((s: { account_id: string; final_price: number | null }) => {
+    const currencyVotes = new Map<string, { MXN: number; USD: number }>()
+    serviceRows.forEach((s) => {
       totalsMap.set(s.account_id, (totalsMap.get(s.account_id) || 0) + (Number(s.final_price) || 0))
+
+      const votes = currencyVotes.get(s.account_id) || { MXN: 0, USD: 0 }
+      if (s.currency_code === "USD" || s.currency_code === "MXN") {
+        // Moneda persistida: es autoritativa.
+        votes[s.currency_code] += 1
+      } else {
+        const base = s.service_id ? basePricesMap.get(s.service_id) : null
+        const unit = Number(s.unit_price) || 0
+        const usd = Number(base?.base_price_usd) || 0
+        const mxn = Number(base?.base_price) || 0
+        if (usd > 0 && usd !== mxn && Math.abs(unit - usd) < Math.abs(unit - mxn)) {
+          votes.USD += 1
+        } else {
+          votes.MXN += 1
+        }
+      }
+      currencyVotes.set(s.account_id, votes)
     })
+
+    const inferCurrency = (accountId: string) => {
+      const votes = currencyVotes.get(accountId)
+      if (!votes || votes.MXN + votes.USD === 0) return null
+      return votes.USD > votes.MXN ? "USD" : "MXN"
+    }
 
     const mappedData = data.map((account) => ({
       ...account,
       total_contracted: totalsMap.get(account.id) || 0,
-      currency_code: account.retainer_currency_id ? (currenciesMap.get(account.retainer_currency_id) || "—") : "—",
+      currency_code: account.retainer_currency_id
+        ? currenciesMap.get(account.retainer_currency_id) || inferCurrency(account.id) || "—"
+        : inferCurrency(account.id) || "—",
       client: account.client_id ? clientsMap.get(account.client_id) || null : null,
       agency: account.agency_id ? agenciesMap.get(account.agency_id) || null : null,
     }))
@@ -323,8 +375,9 @@ export default function ProjectsPage() {
   const visibleColumns = columns.filter((col) => col.visible)
   const { widths, setWidth, getColumnStyle } = useColumnWidths("projects-column-widths")
 
-  function renderProjectsTable(rows: ProjectAccount[]) {
-    const totals = computeTotals(rows)
+  function renderProjectsTable(rows: ProjectAccount[], showTotals = true) {
+    // Los totales por moneda (MXN/USD) solo se muestran para los proyectos activos.
+    const totals = showTotals ? computeTotals(rows) : []
     return (
       <div className="overflow-x-auto">
         <Table>
@@ -700,8 +753,8 @@ export default function ProjectsPage() {
                   <Badge variant="secondary" className="tabular-nums">{inactiveProjects.length}</Badge>
                 </Button>
                 {showInactive &&
-                  (inactiveProjects.length > 0 ? (
-                    renderProjectsTable(inactiveProjects)
+              (inactiveProjects.length > 0 ? (
+                renderProjectsTable(inactiveProjects, false)
                   ) : (
                     <p className="py-4 text-sm text-muted-foreground">No hay proyectos inactivos.</p>
                   ))}

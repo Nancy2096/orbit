@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { ArrowLeft, Building2, Plus, Trash2, Landmark, Coins, Users, Briefcase, Pencil, BadgePercent, Clock, Palette, Upload, Image as ImageIcon, Bell, Mail, Smartphone, Monitor, Palmtree, Award, Trophy, Medal, Handshake, Heart, Target, Lightbulb, Compass, GraduationCap, Rocket, MessageCircle, Flag, Zap } from "lucide-react"
+import { ArrowLeft, Building2, Plus, Trash2, Landmark, Coins, Users, Briefcase, Pencil, BadgePercent, Clock, Palette, Upload, Image as ImageIcon, Bell, Mail, Smartphone, Monitor, Palmtree, Award, Trophy, Medal, Handshake, Heart, Target, Lightbulb, Compass, GraduationCap, Rocket, MessageCircle, Flag, Zap, ArrowRightLeft } from "lucide-react"
 import Link from "next/link"
 
 interface Currency {
@@ -247,6 +247,9 @@ export default function EditAgencyPage({ params }: { params: Promise<{ id: strin
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [selectedCurrencies, setSelectedCurrencies] = useState<string[]>([])
   const [defaultCurrency, setDefaultCurrency] = useState<string>("")
+  // Tipo de cambio manual por moneda (currency_id -> valor en la moneda principal).
+  // Se usa como referencia para cálculos posteriores. La moneda principal es siempre 1.
+  const [exchangeRates, setExchangeRates] = useState<Record<string, string>>({})
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
 const [positions, setPositions] = useState<Position[]>([])
@@ -333,6 +336,13 @@ const [positions, setPositions] = useState<Position[]>([])
     annual_revenue_target_mxn: "",
     monthly_revenue_target_usd: "",
     annual_revenue_target_usd: "",
+    // Objetivos financieros expresados como % sobre los ingresos.
+    fin_cogs_pct: "",
+    fin_payroll_pct: "",
+    fin_fixed_opex_pct: "",
+    fin_marketing_pct: "",
+    fin_taxes_pct: "",
+    fin_net_profit_pct: "",
   })
 
   // Configuración de correos para onboarding (encuestas de satisfacción)
@@ -404,6 +414,12 @@ const [positions, setPositions] = useState<Position[]>([])
               obj.monthly_revenue_target_usd != null ? String(obj.monthly_revenue_target_usd) : "",
             annual_revenue_target_usd:
               obj.annual_revenue_target_usd != null ? String(obj.annual_revenue_target_usd) : "",
+            fin_cogs_pct: obj.fin_cogs_pct != null ? String(obj.fin_cogs_pct) : "",
+            fin_payroll_pct: obj.fin_payroll_pct != null ? String(obj.fin_payroll_pct) : "",
+            fin_fixed_opex_pct: obj.fin_fixed_opex_pct != null ? String(obj.fin_fixed_opex_pct) : "",
+            fin_marketing_pct: obj.fin_marketing_pct != null ? String(obj.fin_marketing_pct) : "",
+            fin_taxes_pct: obj.fin_taxes_pct != null ? String(obj.fin_taxes_pct) : "",
+            fin_net_profit_pct: obj.fin_net_profit_pct != null ? String(obj.fin_net_profit_pct) : "",
           })
         }
       }
@@ -431,6 +447,11 @@ const [positions, setPositions] = useState<Position[]>([])
         if (defaultCurr) {
           setDefaultCurrency(defaultCurr.currency_id)
         }
+        const rates: Record<string, string> = {}
+        agencyCurrencies.forEach((ac) => {
+          if (ac.exchange_rate != null) rates[ac.currency_id] = String(ac.exchange_rate)
+        })
+        setExchangeRates(rates)
       }
 
       // Load bank accounts
@@ -1040,6 +1061,17 @@ const [positions, setPositions] = useState<Position[]>([])
     setError(null)
 
     try {
+      // Releemos los settings actuales de la BD para hacer un guardado NO destructivo:
+      // fusionamos las claves que gestiona esta página sobre lo ya guardado, en lugar
+      // de reemplazar el objeto completo. Así los objetivos (y cualquier otra clave)
+      // no se pierden si el estado no está completo o si otro flujo escribió settings.
+      const { data: currentAgency } = await supabase
+        .from("agencies")
+        .select("settings")
+        .eq("id", id)
+        .single()
+      const existingSettings = (currentAgency?.settings as Record<string, unknown> | null) || {}
+
       // Update agency with branding
       const { error: agencyError } = await supabase
         .from("agencies")
@@ -1054,6 +1086,7 @@ const [positions, setPositions] = useState<Position[]>([])
           is_active: formData.is_active,
           logo_url: branding.logo_url || null,
           settings: {
+            ...existingSettings,
             branding: {
               primary_color: branding.primary_color,
               secondary_color: branding.secondary_color,
@@ -1088,6 +1121,18 @@ const [positions, setPositions] = useState<Position[]>([])
                 objectives.annual_revenue_target_usd === ""
                   ? null
                   : Number.parseFloat(objectives.annual_revenue_target_usd),
+              fin_cogs_pct:
+                objectives.fin_cogs_pct === "" ? null : Number.parseFloat(objectives.fin_cogs_pct),
+              fin_payroll_pct:
+                objectives.fin_payroll_pct === "" ? null : Number.parseFloat(objectives.fin_payroll_pct),
+              fin_fixed_opex_pct:
+                objectives.fin_fixed_opex_pct === "" ? null : Number.parseFloat(objectives.fin_fixed_opex_pct),
+              fin_marketing_pct:
+                objectives.fin_marketing_pct === "" ? null : Number.parseFloat(objectives.fin_marketing_pct),
+              fin_taxes_pct:
+                objectives.fin_taxes_pct === "" ? null : Number.parseFloat(objectives.fin_taxes_pct),
+              fin_net_profit_pct:
+                objectives.fin_net_profit_pct === "" ? null : Number.parseFloat(objectives.fin_net_profit_pct),
             },
           },
           updated_at: new Date().toISOString(),
@@ -1106,11 +1151,22 @@ const [positions, setPositions] = useState<Position[]>([])
       if (selectedCurrencies.length > 0) {
         await supabase
           .from("agency_currencies")
-          .insert(selectedCurrencies.map(currencyId => ({
-            agency_id: id,
-            currency_id: currencyId,
-            is_default: currencyId === defaultCurrency,
-          })))
+          .insert(selectedCurrencies.map(currencyId => {
+            const isDefault = currencyId === defaultCurrency
+            // La moneda principal siempre vale 1; el resto usa el tipo de cambio manual.
+            const rate = isDefault
+              ? 1
+              : exchangeRates[currencyId] && exchangeRates[currencyId] !== ""
+                ? Number.parseFloat(exchangeRates[currencyId])
+                : null
+            return {
+              agency_id: id,
+              currency_id: currencyId,
+              is_default: isDefault,
+              exchange_rate: rate,
+              last_rate_update: rate != null && !isDefault ? new Date().toISOString() : null,
+            }
+          }))
       }
 
       // Delete removed bank accounts
@@ -1837,6 +1893,103 @@ const [positions, setPositions] = useState<Position[]>([])
                       </div>
                     </div>
                   </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <BadgePercent className="h-4 w-4 text-muted-foreground" />
+                      Objetivos Financieros
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Define qué porcentaje de los ingresos debería representar cada rubro. Sirve de referencia para
+                      comparar contra el gasto real de otras secciones. Idealmente, la suma debe acercarse al 100%.
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2 mt-3">
+                      {[
+                        {
+                          key: "fin_cogs_pct" as const,
+                          label: "Costos de bienes o servicios (COGS)",
+                          help: "Gastos directos de producción: materias primas, manufactura o compra de mercancía.",
+                          placeholder: "Ej. 30",
+                        },
+                        {
+                          key: "fin_payroll_pct" as const,
+                          label: "Personal y nómina",
+                          help: "Salarios, bonificaciones, seguros médicos y prestaciones de los empleados.",
+                          placeholder: "Ej. 25",
+                        },
+                        {
+                          key: "fin_fixed_opex_pct" as const,
+                          label: "Gastos operativos fijos",
+                          help: "Alquiler de locales u oficinas, servicios públicos (agua, luz, internet) y seguros.",
+                          placeholder: "Ej. 15",
+                        },
+                        {
+                          key: "fin_marketing_pct" as const,
+                          label: "Marketing y ventas",
+                          help: "Publicidad, campañas digitales, relaciones públicas y comisiones de ventas.",
+                          placeholder: "Ej. 10",
+                        },
+                        {
+                          key: "fin_taxes_pct" as const,
+                          label: "Impuestos y pagos financieros",
+                          help: "Carga fiscal (IVA, ISR) y comisiones bancarias o intereses de deudas.",
+                          placeholder: "Ej. 10",
+                        },
+                        {
+                          key: "fin_net_profit_pct" as const,
+                          label: "Utilidad neta",
+                          help: "Remanente libre para repartir entre socios o reinvertir en el negocio.",
+                          placeholder: "Ej. 10",
+                        },
+                      ].map((field) => (
+                        <div key={field.key} className="grid gap-2">
+                          <Label htmlFor={field.key}>{field.label}</Label>
+                          <div className="relative">
+                            <Input
+                              id={field.key}
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              inputMode="decimal"
+                              className="pr-8"
+                              value={objectives[field.key]}
+                              onChange={(e) => setObjectives({ ...objectives, [field.key]: e.target.value })}
+                              placeholder={field.placeholder}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                              %
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{field.help}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {(() => {
+                      const total = [
+                        objectives.fin_cogs_pct,
+                        objectives.fin_payroll_pct,
+                        objectives.fin_fixed_opex_pct,
+                        objectives.fin_marketing_pct,
+                        objectives.fin_taxes_pct,
+                        objectives.fin_net_profit_pct,
+                      ].reduce((sum, v) => sum + (v === "" ? 0 : Number.parseFloat(v) || 0), 0)
+                      const rounded = Math.round(total * 100) / 100
+                      const isValid = rounded === 100
+                      return (
+                        <div
+                          className={`mt-4 flex items-center justify-between rounded-md border px-4 py-2 text-sm ${
+                            isValid
+                              ? "border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/20 dark:text-green-300"
+                              : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300"
+                          }`}
+                        >
+                          <span className="font-medium">Suma de porcentajes</span>
+                          <span className="font-semibold">{rounded}%</span>
+                        </div>
+                      )
+                    })()}
+                  </div>
                 </FieldGroup>
               </CardContent>
             </Card>
@@ -2250,6 +2403,83 @@ const [positions, setPositions] = useState<Position[]>([])
                       </div>
                     ))}
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <ArrowRightLeft className="h-5 w-5 text-primary" />
+                    <div>
+                      <CardTitle>Tipos de Cambio</CardTitle>
+                      <CardDescription>
+                        Define manualmente el tipo de cambio de las monedas no principales respecto a la moneda
+                        principal. Se usará como referencia para cálculos posteriores.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const principal = currencies.find((c) => c.id === defaultCurrency)
+                    const others = currencies.filter(
+                      (c) => selectedCurrencies.includes(c.id) && c.id !== defaultCurrency,
+                    )
+                    if (selectedCurrencies.length === 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          Primero habilita al menos una moneda arriba.
+                        </p>
+                      )
+                    }
+                    if (!principal) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          Marca una moneda como principal para definir los tipos de cambio.
+                        </p>
+                      )
+                    }
+                    if (others.length === 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          Solo tienes habilitada la moneda principal ({principal.code}). Habilita otras monedas para
+                          definir su tipo de cambio.
+                        </p>
+                      )
+                    }
+                    return (
+                      <div className="space-y-3">
+                        <p className="text-xs text-muted-foreground">
+                          Indica cuántas unidades de la moneda principal ({principal.code}) equivale 1 unidad de cada
+                          moneda.
+                        </p>
+                        {others.map((currency) => (
+                          <div key={currency.id} className="flex items-center gap-3">
+                            <div className="w-32 min-w-0">
+                              <p className="font-medium">{currency.code}</p>
+                              <p className="text-xs text-muted-foreground truncate">{currency.name}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-muted-foreground">1 {currency.code} =</span>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                inputMode="decimal"
+                                className="h-9 w-40 text-right"
+                                placeholder="0.0000"
+                                value={exchangeRates[currency.id] ?? ""}
+                                onChange={(e) =>
+                                  setExchangeRates((prev) => ({ ...prev, [currency.id]: e.target.value }))
+                                }
+                              />
+                              <span className="text-sm text-muted-foreground">{principal.code}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </CardContent>
               </Card>
 
