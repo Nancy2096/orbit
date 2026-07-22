@@ -26,9 +26,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins } from "lucide-react"
+import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins, GraduationCap } from "lucide-react"
 import { DepartmentFilter } from "@/components/hr/department-filter"
-import { BonusTypeSections } from "@/components/hr/bonus-type-sections"
+import { BonusTypePanel } from "@/components/hr/bonus-type-sections"
 import { useAgency } from "@/contexts/agency-context"
 import { STAGE_LABELS, STAGE_BADGE_STYLES } from "@/lib/bonus-workflow"
 
@@ -426,9 +426,13 @@ export default function BonusesPage() {
                   <ScrollText className="mr-2 h-4 w-4" />
                   Política de Bonos
                 </TabsTrigger>
-                <TabsTrigger value="types">
+                <TabsTrigger value="training">
+                  <GraduationCap className="mr-2 h-4 w-4" />
+                  Capacitación
+                </TabsTrigger>
+                <TabsTrigger value="year_end">
                   <HandCoins className="mr-2 h-4 w-4" />
-                  Tipos de Bono
+                  Bono fin de año
                 </TabsTrigger>
                 <TabsTrigger value="bonuses">
                   <Gift className="mr-2 h-4 w-4" />
@@ -440,9 +444,24 @@ export default function BonusesPage() {
                 </TabsTrigger>
               </TabsList>
 
-              {/* Tab: secciones por tipo de bono (política + solicitar) */}
-              <TabsContent value="types" className="mt-6">
-                <BonusTypeSections agencyId={selectedAgencyId} />
+              {/* Tab: Capacitación (política + solicitar por flujo de 4 pasos) */}
+              <TabsContent value="training" className="mt-6">
+                <BonusTypePanel
+                  agencyId={selectedAgencyId}
+                  matchNames={["capacit"]}
+                  label="Capacitación"
+                  requestMode="flow"
+                />
+              </TabsContent>
+
+              {/* Tab: Bono fin de año (política + solicitud directa) */}
+              <TabsContent value="year_end" className="mt-6">
+                <BonusTypePanel
+                  agencyId={selectedAgencyId}
+                  matchNames={["fin de año", "fin de ano", "año", "anual"]}
+                  label="Bono fin de año"
+                  requestMode="direct"
+                />
               </TabsContent>
 
               {/* Tab: lista de bonos */}
