@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { ArrowLeft, Building2, Plus, Trash2, Landmark, Coins, Users, Briefcase, Pencil, BadgePercent, Clock, Palette, Upload, Image as ImageIcon, Bell, Mail, Smartphone, Monitor, Palmtree, Award, Trophy, Medal, Handshake, Heart, Target, Lightbulb, Compass, GraduationCap, Rocket, MessageCircle, Flag, Zap } from "lucide-react"
+import { ArrowLeft, Building2, Plus, Trash2, Landmark, Coins, Users, Briefcase, Pencil, BadgePercent, Clock, Palette, Upload, Image as ImageIcon, Bell, Mail, Smartphone, Monitor, Palmtree, Award, Trophy, Medal, Handshake, Heart, Target, Lightbulb, Compass, GraduationCap, Rocket, MessageCircle, Flag, Zap, ArrowRightLeft } from "lucide-react"
 import Link from "next/link"
 
 interface Currency {
@@ -247,6 +247,9 @@ export default function EditAgencyPage({ params }: { params: Promise<{ id: strin
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [selectedCurrencies, setSelectedCurrencies] = useState<string[]>([])
   const [defaultCurrency, setDefaultCurrency] = useState<string>("")
+  // Tipo de cambio manual por moneda (currency_id -> valor en la moneda principal).
+  // Se usa como referencia para cálculos posteriores. La moneda principal es siempre 1.
+  const [exchangeRates, setExchangeRates] = useState<Record<string, string>>({})
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
 const [positions, setPositions] = useState<Position[]>([])
@@ -444,6 +447,11 @@ const [positions, setPositions] = useState<Position[]>([])
         if (defaultCurr) {
           setDefaultCurrency(defaultCurr.currency_id)
         }
+        const rates: Record<string, string> = {}
+        agencyCurrencies.forEach((ac) => {
+          if (ac.exchange_rate != null) rates[ac.currency_id] = String(ac.exchange_rate)
+        })
+        setExchangeRates(rates)
       }
 
       // Load bank accounts
@@ -1131,11 +1139,22 @@ const [positions, setPositions] = useState<Position[]>([])
       if (selectedCurrencies.length > 0) {
         await supabase
           .from("agency_currencies")
-          .insert(selectedCurrencies.map(currencyId => ({
-            agency_id: id,
-            currency_id: currencyId,
-            is_default: currencyId === defaultCurrency,
-          })))
+          .insert(selectedCurrencies.map(currencyId => {
+            const isDefault = currencyId === defaultCurrency
+            // La moneda principal siempre vale 1; el resto usa el tipo de cambio manual.
+            const rate = isDefault
+              ? 1
+              : exchangeRates[currencyId] && exchangeRates[currencyId] !== ""
+                ? Number.parseFloat(exchangeRates[currencyId])
+                : null
+            return {
+              agency_id: id,
+              currency_id: currencyId,
+              is_default: isDefault,
+              exchange_rate: rate,
+              last_rate_update: rate != null && !isDefault ? new Date().toISOString() : null,
+            }
+          }))
       }
 
       // Delete removed bank accounts
@@ -2372,6 +2391,83 @@ const [positions, setPositions] = useState<Position[]>([])
                       </div>
                     ))}
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <ArrowRightLeft className="h-5 w-5 text-primary" />
+                    <div>
+                      <CardTitle>Tipos de Cambio</CardTitle>
+                      <CardDescription>
+                        Define manualmente el tipo de cambio de las monedas no principales respecto a la moneda
+                        principal. Se usará como referencia para cálculos posteriores.
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const principal = currencies.find((c) => c.id === defaultCurrency)
+                    const others = currencies.filter(
+                      (c) => selectedCurrencies.includes(c.id) && c.id !== defaultCurrency,
+                    )
+                    if (selectedCurrencies.length === 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          Primero habilita al menos una moneda arriba.
+                        </p>
+                      )
+                    }
+                    if (!principal) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          Marca una moneda como principal para definir los tipos de cambio.
+                        </p>
+                      )
+                    }
+                    if (others.length === 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          Solo tienes habilitada la moneda principal ({principal.code}). Habilita otras monedas para
+                          definir su tipo de cambio.
+                        </p>
+                      )
+                    }
+                    return (
+                      <div className="space-y-3">
+                        <p className="text-xs text-muted-foreground">
+                          Indica cuántas unidades de la moneda principal ({principal.code}) equivale 1 unidad de cada
+                          moneda.
+                        </p>
+                        {others.map((currency) => (
+                          <div key={currency.id} className="flex items-center gap-3">
+                            <div className="w-32 min-w-0">
+                              <p className="font-medium">{currency.code}</p>
+                              <p className="text-xs text-muted-foreground truncate">{currency.name}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-muted-foreground">1 {currency.code} =</span>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                inputMode="decimal"
+                                className="h-9 w-40 text-right"
+                                placeholder="0.0000"
+                                value={exchangeRates[currency.id] ?? ""}
+                                onChange={(e) =>
+                                  setExchangeRates((prev) => ({ ...prev, [currency.id]: e.target.value }))
+                                }
+                              />
+                              <span className="text-sm text-muted-foreground">{principal.code}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </CardContent>
               </Card>
 
