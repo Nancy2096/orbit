@@ -323,8 +323,9 @@ export default function ProjectsPage() {
   const visibleColumns = columns.filter((col) => col.visible)
   const { widths, setWidth, getColumnStyle } = useColumnWidths("projects-column-widths")
 
-  function renderProjectsTable(rows: ProjectAccount[]) {
-    const totals = computeTotals(rows)
+  function renderProjectsTable(rows: ProjectAccount[], showTotals = true) {
+    // Los totales por moneda (MXN/USD) solo se muestran para los proyectos activos.
+    const totals = showTotals ? computeTotals(rows) : []
     return (
       <div className="overflow-x-auto">
         <Table>
@@ -700,8 +701,8 @@ export default function ProjectsPage() {
                   <Badge variant="secondary" className="tabular-nums">{inactiveProjects.length}</Badge>
                 </Button>
                 {showInactive &&
-                  (inactiveProjects.length > 0 ? (
-                    renderProjectsTable(inactiveProjects)
+              (inactiveProjects.length > 0 ? (
+                renderProjectsTable(inactiveProjects, false)
                   ) : (
                     <p className="py-4 text-sm text-muted-foreground">No hay proyectos inactivos.</p>
                   ))}
