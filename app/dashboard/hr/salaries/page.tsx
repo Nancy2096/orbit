@@ -365,11 +365,12 @@ export default function SalariesPage() {
     [filtered],
   )
 
-  const renderSalaryRow = (s: StaffSalary) => {
+  const renderSalaryRow = (s: StaffSalary, rowNumber: number) => {
     const eff = effective(s)
     const isDirty = !!edits[s.id]
     return (
       <TableRow key={s.id} className={isDirty ? "bg-primary/5" : undefined}>
+        <TableCell className="text-right text-sm tabular-nums text-muted-foreground">{rowNumber}</TableCell>
         <TableCell>
           <Link href={`/dashboard/hr/staff/${s.id}`} className="font-medium hover:underline">
             {s.first_name} {s.last_name}
@@ -1023,6 +1024,7 @@ export default function SalariesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12 text-right">#</TableHead>
                   <TableHead>Colaborador</TableHead>
                   <TableHead>Agencia</TableHead>
                   <TableHead>Estado</TableHead>
@@ -1038,7 +1040,7 @@ export default function SalariesPage() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
                       No hay colaboradores que coincidan con los filtros
                     </TableCell>
                   </TableRow>
@@ -1046,18 +1048,18 @@ export default function SalariesPage() {
                   <>
                     {activeRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="py-6 text-center text-sm text-muted-foreground">
+                        <TableCell colSpan={11} className="py-6 text-center text-sm text-muted-foreground">
                           No hay colaboradores activos con estos filtros
                         </TableCell>
                       </TableRow>
                     ) : (
-                      activeRows.map((s) => renderSalaryRow(s))
+                      activeRows.map((s, i) => renderSalaryRow(s, i + 1))
                     )}
 
                     {otherRows.length > 0 && (
                       <>
                         <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={10} className="p-0">
+                          <TableCell colSpan={11} className="p-0">
                             <button
                               type="button"
                               onClick={() => setShowOthers((v) => !v)}
@@ -1075,7 +1077,8 @@ export default function SalariesPage() {
                             </button>
                           </TableCell>
                         </TableRow>
-                        {showOthers && otherRows.map((s) => renderSalaryRow(s))}
+                        {showOthers &&
+                          otherRows.map((s, i) => renderSalaryRow(s, activeRows.length + i + 1))}
                       </>
                     )}
                   </>
