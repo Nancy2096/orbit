@@ -63,6 +63,7 @@ import {
   Tooltip,
 } from "recharts"
 import { toast } from "sonner"
+import { getEmploymentStatus } from "@/app/dashboard/hr/staff/page"
 
 interface Agency {
   id: string
@@ -876,6 +877,7 @@ export default function SalariesPage() {
                 <TableRow>
                   <TableHead>Colaborador</TableHead>
                   <TableHead>Agencia</TableHead>
+                  <TableHead>Estado</TableHead>
                   <TableHead className="w-36">Frecuencia</TableHead>
                   <TableHead className="w-28">Moneda</TableHead>
                   <TableHead className="text-right">Salario mensual</TableHead>
@@ -888,7 +890,7 @@ export default function SalariesPage() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
                       No hay colaboradores que coincidan con los filtros
                     </TableCell>
                   </TableRow>
@@ -905,9 +907,6 @@ export default function SalariesPage() {
                           >
                             {s.first_name} {s.last_name}
                           </Link>
-                          {s.employment_status === "terminated" && (
-                            <Badge variant="destructive" className="ml-2 text-xs">Baja</Badge>
-                          )}
                           <div className="text-xs text-muted-foreground">
                             {s.position || "Sin puesto"}
                             {s.employee_code ? ` · ${s.employee_code}` : ""}
@@ -919,6 +918,12 @@ export default function SalariesPage() {
                           ) : (
                             <Badge variant="secondary">Global</Badge>
                           )}
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const st = getEmploymentStatus(s.employment_status)
+                            return <Badge variant={st.badgeVariant}>{st.label}</Badge>
+                          })()}
                         </TableCell>
                         <TableCell>
                           <Select
