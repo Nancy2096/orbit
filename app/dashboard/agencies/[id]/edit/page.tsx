@@ -1061,6 +1061,17 @@ const [positions, setPositions] = useState<Position[]>([])
     setError(null)
 
     try {
+      // Releemos los settings actuales de la BD para hacer un guardado NO destructivo:
+      // fusionamos las claves que gestiona esta página sobre lo ya guardado, en lugar
+      // de reemplazar el objeto completo. Así los objetivos (y cualquier otra clave)
+      // no se pierden si el estado no está completo o si otro flujo escribió settings.
+      const { data: currentAgency } = await supabase
+        .from("agencies")
+        .select("settings")
+        .eq("id", id)
+        .single()
+      const existingSettings = (currentAgency?.settings as Record<string, unknown> | null) || {}
+
       // Update agency with branding
       const { error: agencyError } = await supabase
         .from("agencies")
@@ -1075,6 +1086,7 @@ const [positions, setPositions] = useState<Position[]>([])
           is_active: formData.is_active,
           logo_url: branding.logo_url || null,
           settings: {
+            ...existingSettings,
             branding: {
               primary_color: branding.primary_color,
               secondary_color: branding.secondary_color,
