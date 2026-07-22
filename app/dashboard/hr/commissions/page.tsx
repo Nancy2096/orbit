@@ -56,6 +56,7 @@ interface Commission {
   status: string
   period_date: string | null
   approved_at: string | null
+  paid_at: string | null
   prospect_id: string | null
   commission_type_id: string | null
   clientType: {
@@ -485,11 +486,10 @@ export default function CommissionsPage() {
                   <TableRow>
                     <TableHead>Empleado</TableHead>
                     <TableHead>Tipo de cliente</TableHead>
-                    <TableHead>Referencia</TableHead>
                     <TableHead>Prospecto</TableHead>
-                    <TableHead>%</TableHead>
                     <TableHead className="text-right">Comisión</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Pagado</TableHead>
                     <TableHead>Aprobada por</TableHead>
                     <TableHead className="w-[100px]">Acciones</TableHead>
                   </TableRow>
@@ -504,13 +504,7 @@ export default function CommissionsPage() {
                       </TableCell>
                       <TableCell>{commission.clientType?.name || "-"}</TableCell>
                       <TableCell>
-                        {commission.project?.name || commission.account?.account_name || "-"}
-                      </TableCell>
-                      <TableCell>
                         {commission.prospect?.company_name || commission.prospect?.contact_name || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {commission.commission_percentage ? `${commission.commission_percentage}%` : "-"}
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatCurrency(Number(commission.commission_amount || 0))}
@@ -520,6 +514,18 @@ export default function CommissionsPage() {
                           {locked && <Lock className="h-3 w-3" />}
                           {statusLabels[commission.status] || commission.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {commission.paid_at ? (
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-green-600">Pagado</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDate(commission.paid_at)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">Pendiente</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {commission.approver ? (
