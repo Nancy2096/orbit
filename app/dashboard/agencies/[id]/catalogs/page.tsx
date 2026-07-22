@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift } from "lucide-react"
+import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift, Trash2 } from "lucide-react"
 import Link from "next/link"
 
 const supabase = createClient()
@@ -247,6 +247,16 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
 
     setSavingBonus(false)
     setBonusDialogOpen(false)
+    fetchData()
+  }
+
+  async function deleteBonus(bonus: BonusType) {
+    if (!confirm(`¿Eliminar el tipo de bono "${bonus.name}"? Esta acción no se puede deshacer.`)) return
+    const { error } = await supabase.from("bonus_types").delete().eq("id", bonus.id)
+    if (error) {
+      alert("No se pudo eliminar el tipo de bono.")
+      return
+    }
     fetchData()
   }
 
@@ -678,9 +688,21 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon" onClick={() => openEditBonus(bonus)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEditBonus(bonus)}>
+                              <Pencil className="h-4 w-4" />
+                              <span className="sr-only">Editar</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => deleteBonus(bonus)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              <span className="sr-only">Eliminar</span>
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

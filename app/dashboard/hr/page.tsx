@@ -804,7 +804,7 @@ export default function HRDashboardPage() {
       {/* Quick Access */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Acceso Rápido</CardTitle>
+          <CardTitle className="text-base">Acceso R��pido</CardTitle>
           <CardDescription>Módulos de Recursos Humanos</CardDescription>
         </CardHeader>
         <CardContent>
@@ -872,7 +872,7 @@ export default function HRDashboardPage() {
             <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
               <Link href="/dashboard/hr/commissions">
                 <Briefcase className="h-5 w-5 text-indigo-500" />
-                <span>Comisiones</span>
+                <span>Comisiones Citas</span>
               </Link>
             </Button>
             <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>

@@ -23,11 +23,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users } from "lucide-react"
+import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins, GraduationCap } from "lucide-react"
 import { DepartmentFilter } from "@/components/hr/department-filter"
+import { BonusTypePanel } from "@/components/hr/bonus-type-sections"
 import { useAgency } from "@/contexts/agency-context"
+import { STAGE_LABELS, STAGE_BADGE_STYLES } from "@/lib/bonus-workflow"
 
 interface Bonus {
   id: string
@@ -37,6 +40,8 @@ interface Bonus {
   status: string
   effective_date: string | null
   created_at: string
+  course_name: string | null
+  workflow_stage: string | null
   staff: {
     id: string
     first_name: string
@@ -102,6 +107,12 @@ export default function BonusesPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [departmentFilter, setDepartmentFilter] = useState<string>("all")
+  // Política de bonos
+  const [policyContent, setPolicyContent] = useState("")
+  const [policyDraft, setPolicyDraft] = useState("")
+  const [policyUpdatedAt, setPolicyUpdatedAt] = useState<string | null>(null)
+  const [editingPolicy, setEditingPolicy] = useState(false)
+  const [savingPolicy, setSavingPolicy] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -117,7 +128,7 @@ export default function BonusesPage() {
     if (!selectedAgencyId) return
     setLoading(true)
     try {
-      const [bonusesRes, departmentsRes] = await Promise.all([
+      const [bonusesRes, departmentsRes, policyRes] = await Promise.all([
         supabase
           .from("bonuses")
           .select(`
@@ -131,14 +142,71 @@ export default function BonusesPage() {
           .from("departments")
           .select("id, name, agency_id")
           .order("name"),
+        supabase
+          .from("bonus_policies")
+          .select("content, updated_at")
+          .eq("agency_id", selectedAgencyId)
+          .is("bonus_type_id", null)
+          .maybeSingle(),
       ])
 
       if (bonusesRes.data) setBonuses(bonusesRes.data)
       if (departmentsRes.data) setDepartments(departmentsRes.data)
+      const policy = policyRes.data
+      setPolicyContent(policy?.content || "")
+      setPolicyDraft(policy?.content || "")
+      setPolicyUpdatedAt(policy?.updated_at || null)
+      setEditingPolicy(false)
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const savePolicy = async () => {
+    if (!selectedAgencyId) return
+    setSavingPolicy(true)
+    try {
+      const content = policyDraft.trim() || null
+      const nowIso = new Date().toISOString()
+
+      // Política general de la agencia (bonus_type_id nulo).
+      const { data: existing } = await supabase
+        .from("bonus_policies")
+        .select("id")
+        .eq("agency_id", selectedAgencyId)
+        .is("bonus_type_id", null)
+        .maybeSingle()
+
+      let saved: { content: string | null; updated_at: string | null } | null = null
+      if (existing?.id) {
+        const { data, error } = await supabase
+          .from("bonus_policies")
+          .update({ content, updated_at: nowIso })
+          .eq("id", existing.id)
+          .select("content, updated_at")
+          .single()
+        if (error) throw error
+        saved = data
+      } else {
+        const { data, error } = await supabase
+          .from("bonus_policies")
+          .insert({ agency_id: selectedAgencyId, content, updated_at: nowIso })
+          .select("content, updated_at")
+          .single()
+        if (error) throw error
+        saved = data
+      }
+
+      setPolicyContent(saved?.content || "")
+      setPolicyDraft(saved?.content || "")
+      setPolicyUpdatedAt(saved?.updated_at || null)
+      setEditingPolicy(false)
+    } catch (error) {
+      console.error("Error saving policy:", error)
+    } finally {
+      setSavingPolicy(false)
     }
   }
 
@@ -245,12 +313,6 @@ export default function BonusesPage() {
             Gestiona los bonos y gratificaciones del equipo
           </p>
         </div>
-        <Button asChild>
-          <Link href="/dashboard/hr/bonuses/new">
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Bono
-          </Link>
-        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -302,67 +364,46 @@ export default function BonusesPage() {
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por empleado o descripción..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <DepartmentFilter
-              departments={departments}
-              agencyId={selectedAgencyId}
-              value={departmentFilter}
-              onChange={setDepartmentFilter}
-            />
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-full sm:w-[160px]">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los tipos</SelectItem>
-                <SelectItem value="performance">Desempeño</SelectItem>
-                <SelectItem value="annual">Anual</SelectItem>
-                <SelectItem value="christmas">Aguinaldo</SelectItem>
-                <SelectItem value="productivity">Productividad</SelectItem>
-                <SelectItem value="attendance">Asistencia</SelectItem>
-                <SelectItem value="seniority">Antigüedad</SelectItem>
-                <SelectItem value="other">Otro</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[150px]">
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="pending">Pendiente</SelectItem>
-                <SelectItem value="approved">Aprobado</SelectItem>
-                <SelectItem value="paid">Pagado</SelectItem>
-                <SelectItem value="cancelled">Cancelado</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Spinner className="h-8 w-8" />
             </div>
           ) : (
-            <Tabs defaultValue="bonuses">
+            <Tabs defaultValue="training">
               <TabsList>
-                <TabsTrigger value="bonuses">
-                  <Gift className="mr-2 h-4 w-4" />
-                  Bonos
+                <TabsTrigger value="training">
+                  <GraduationCap className="mr-2 h-4 w-4" />
+                  Capacitación
+                </TabsTrigger>
+                <TabsTrigger value="year_end">
+                  <HandCoins className="mr-2 h-4 w-4" />
+                  Bono fin de año
                 </TabsTrigger>
                 <TabsTrigger value="staff">
                   <Users className="mr-2 h-4 w-4" />
                   Por Personal
                 </TabsTrigger>
               </TabsList>
+
+              {/* Tab: Capacitación (política + solicitar por flujo de 4 pasos) */}
+              <TabsContent value="training" className="mt-6">
+                <BonusTypePanel
+                  agencyId={selectedAgencyId}
+                  matchNames={["capacit"]}
+                  label="Capacitación"
+                  requestMode="flow"
+                />
+              </TabsContent>
+
+              {/* Tab: Bono fin de año (política + solicitud directa) */}
+              <TabsContent value="year_end" className="mt-6">
+                <BonusTypePanel
+                  agencyId={selectedAgencyId}
+                  matchNames={["fin de año", "fin de ano", "año", "anual"]}
+                  label="Bono fin de año"
+                  requestMode="direct"
+                />
+              </TabsContent>
 
               {/* Tab: lista de bonos */}
               <TabsContent value="bonuses" className="mt-6">
@@ -392,11 +433,10 @@ export default function BonusesPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Empleado</TableHead>
-                          <TableHead>Tipo</TableHead>
-                          <TableHead>Descripción</TableHead>
+                          <TableHead>Curso / Tipo</TableHead>
                           <TableHead>Fecha</TableHead>
                           <TableHead className="text-right">Monto</TableHead>
-                          <TableHead>Estado</TableHead>
+                          <TableHead>Etapa</TableHead>
                           <TableHead className="w-[100px]">Acciones</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -406,20 +446,34 @@ export default function BonusesPage() {
                             <TableCell className="font-medium">
                               {bonus.staff?.first_name} {bonus.staff?.last_name}
                             </TableCell>
-                            <TableCell>{typeLabels[bonus.bonus_type] || bonus.bonus_type}</TableCell>
-                            <TableCell className="max-w-[200px] truncate">
-                              {bonus.description || "-"}
+                            <TableCell className="max-w-[220px]">
+                              <div className="truncate font-medium">
+                                {bonus.course_name || typeLabels[bonus.bonus_type] || bonus.bonus_type}
+                              </div>
+                              {bonus.course_name && (
+                                <div className="truncate text-xs text-muted-foreground">
+                                  {typeLabels[bonus.bonus_type] || bonus.bonus_type}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>
-                              {bonus.effective_date ? formatDate(bonus.effective_date) : "-"}
+                              {bonus.effective_date
+                                ? formatDate(bonus.effective_date)
+                                : formatDate(bonus.created_at)}
                             </TableCell>
                             <TableCell className="text-right font-medium">
                               {formatCurrency(Number(bonus.amount || 0))}
                             </TableCell>
                             <TableCell>
-                              <Badge variant={statusColors[bonus.status]}>
-                                {statusLabels[bonus.status] || bonus.status}
-                              </Badge>
+                              {bonus.workflow_stage ? (
+                                <Badge className={STAGE_BADGE_STYLES[bonus.workflow_stage] || ""}>
+                                  {STAGE_LABELS[bonus.workflow_stage] || bonus.workflow_stage}
+                                </Badge>
+                              ) : (
+                                <Badge variant={statusColors[bonus.status]}>
+                                  {statusLabels[bonus.status] || bonus.status}
+                                </Badge>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Button variant="ghost" size="sm" asChild>
@@ -499,6 +553,95 @@ export default function BonusesPage() {
                     </Table>
                   </div>
                 )}
+              </TabsContent>
+
+              {/* Tab: política de bonos */}
+              <TabsContent value="policy" className="mt-6">
+                <div className="rounded-lg border bg-card">
+                  <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                        <ScrollText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold leading-tight">Política de Bonos</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Define cómo funcionan los bonos y los pasos a seguir.
+                        </p>
+                        {policyUpdatedAt && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Última actualización: {formatDate(policyUpdatedAt)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {!editingPolicy ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPolicyDraft(policyContent)
+                          setEditingPolicy(true)
+                        }}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        {policyContent ? "Editar" : "Escribir política"}
+                      </Button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setPolicyDraft(policyContent)
+                            setEditingPolicy(false)
+                          }}
+                          disabled={savingPolicy}
+                        >
+                          <X className="mr-2 h-4 w-4" />
+                          Cancelar
+                        </Button>
+                        <Button size="sm" onClick={savePolicy} disabled={savingPolicy}>
+                          {savingPolicy ? (
+                            <Spinner className="mr-2 h-4 w-4" />
+                          ) : (
+                            <Save className="mr-2 h-4 w-4" />
+                          )}
+                          Guardar
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-4">
+                    {editingPolicy ? (
+                      <Textarea
+                        value={policyDraft}
+                        onChange={(e) => setPolicyDraft(e.target.value)}
+                        placeholder={
+                          "Describe la política de bonos: en qué consiste, quién es elegible, cómo se calcula, y los pasos a realizar para otorgarlos.\n\nEjemplo:\n1. El bono de desempeño se evalúa trimestralmente.\n2. El líder de área propone el monto según los resultados.\n3. Recursos Humanos valida y aprueba.\n4. El bono se paga en la siguiente nómina."
+                        }
+                        rows={16}
+                        className="resize-y leading-relaxed"
+                      />
+                    ) : policyContent ? (
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                        {policyContent}
+                      </div>
+                    ) : (
+                      <Empty>
+                        <EmptyMedia variant="icon">
+                          <ScrollText className="h-6 w-6" />
+                        </EmptyMedia>
+                        <EmptyTitle>Sin política definida</EmptyTitle>
+                        <EmptyDescription>
+                          Aún no has escrito la política de bonos para esta agencia. Haz clic en
+                          &quot;Escribir política&quot; para comenzar.
+                        </EmptyDescription>
+                      </Empty>
+                    )}
+                  </div>
+                </div>
               </TabsContent>
             </Tabs>
           )}

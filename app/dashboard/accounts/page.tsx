@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ResizableTableHead, useColumnWidths } from "@/components/resizable-table-head"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,7 +37,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight, Copy } from "lucide-react"
 
 interface Account {
   id: string
@@ -229,6 +230,44 @@ export default function AccountsPage() {
     }
   }
 
+  async function handleDuplicate(id: string) {
+    if (!confirm("¿Duplicar esta cuenta? Se creará una copia con los mismos datos.")) return
+
+    // Traer la fila completa de la cuenta
+    const { data: original, error: fetchError } = await supabase
+      .from("accounts")
+      .select("*")
+      .eq("id", id)
+      .single()
+
+    if (fetchError || !original) {
+      alert("No se pudo duplicar la cuenta.")
+      return
+    }
+
+    // Quitar campos que no deben copiarse y ajustar el nombre
+    const {
+      id: _omitId,
+      created_at: _omitCreated,
+      updated_at: _omitUpdated,
+      account_code: _omitCode,
+      ...rest
+    } = original as Record<string, unknown>
+    const insertPayload = {
+      ...rest,
+      account_code: null,
+      account_name: `${original.account_name} (copia)`,
+    }
+
+    const { error: insertError } = await supabase.from("accounts").insert(insertPayload)
+    if (insertError) {
+      alert("No se pudo duplicar la cuenta.")
+      return
+    }
+
+    await fetchAccounts()
+  }
+
   function toggleColumn(key: string) {
     setColumns(columns.map(col =>
       col.key === key ? { ...col, visible: !col.visible } : col
@@ -307,6 +346,7 @@ export default function AccountsPage() {
   )
 
   const visibleColumns = columns.filter(col => col.visible)
+  const { widths, setWidth, getColumnStyle } = useColumnWidths("accounts-column-widths")
 
   function renderAccountsTable(rows: Account[]) {
     const totals = computeTotals(rows)
@@ -316,10 +356,17 @@ export default function AccountsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-12 text-right">#</TableHead>
-              {visibleColumns.map((column) => (
-                <TableHead key={column.key}>{column.label}</TableHead>
-              ))}
-              <TableHead className="w-12"></TableHead>
+                  {visibleColumns.map((column) => (
+                    <ResizableTableHead
+                      key={column.key}
+                      columnKey={column.key}
+                      width={widths[column.key]}
+                      onResize={setWidth}
+                    >
+                      {column.label}
+                    </ResizableTableHead>
+                  ))}
+                  <TableHead className="w-24 text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -329,7 +376,11 @@ export default function AccountsPage() {
                   {index + 1}
                 </TableCell>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.key}>
+                  <TableCell
+                    key={column.key}
+                    style={getColumnStyle(column.key)}
+                    className={getColumnStyle(column.key) ? "overflow-hidden text-ellipsis" : undefined}
+                  >
                     {column.key === "account_name" && (
                       <Link
                         href={`/dashboard/accounts/${account.id}`}
@@ -397,16 +448,20 @@ export default function AccountsPage() {
                           Editar
                         </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/projects?account=${account.id}`}>
-                          <FolderKanban className="mr-2 h-4 w-4" />
-                          Ver proyectos
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => handleDelete(account.id)}
-                      >
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/projects?account=${account.id}`}>
+                                <FolderKanban className="mr-2 h-4 w-4" />
+                                Ver proyectos
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDuplicate(account.id)}>
+                              <Copy className="mr-2 h-4 w-4" />
+                              Duplicar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDelete(account.id)}
+                            >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Eliminar
                       </DropdownMenuItem>
@@ -419,7 +474,7 @@ export default function AccountsPage() {
               <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
                 <TableCell />
                 {visibleColumns.map((column, i) => (
-                  <TableCell key={column.key}>
+                  <TableCell key={column.key} style={getColumnStyle(column.key)}>
                     {i === 0 && `Total contratado (${t.code})`}
                     {column.key === "total_contracted" && (
                       <span className="tabular-nums">

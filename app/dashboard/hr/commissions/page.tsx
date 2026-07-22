@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
-import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye, FileText, CalendarClock, UserPlus, Pencil } from "lucide-react"
+import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye, FileText, CalendarClock, UserPlus, Pencil, Trash2 } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
 
 interface Commission {
@@ -56,6 +56,7 @@ interface Commission {
   status: string
   period_date: string | null
   approved_at: string | null
+  paid_at: string | null
   prospect_id: string | null
   commission_type_id: string | null
   clientType: {
@@ -291,6 +292,24 @@ export default function CommissionsPage() {
     }
   }
 
+  const handleDelete = async (commission: Commission) => {
+    if (isLocked(commission.status)) {
+      toast.error("Esta comisión ya está liquidada y no puede eliminarse")
+      return
+    }
+    if (!confirm("¿Eliminar esta comisión? Esta acción no se puede deshacer.")) return
+    try {
+      const { error } = await supabase.from("commissions").delete().eq("id", commission.id)
+      if (error) throw error
+      setCommissions((prev) => prev.filter((c) => c.id !== commission.id))
+      toast.success("Comisión eliminada")
+    } catch (error) {
+      console.error("Error deleting commission:", error)
+      const message = error instanceof Error ? error.message : "No se pudo eliminar la comisión"
+      toast.error(message)
+    }
+  }
+
   const filteredCommissions = commissions.filter((commission) => {
     const staffName = `${commission.staff?.first_name || ""} ${commission.staff?.last_name || ""}`.toLowerCase()
     const matchesSearch = staffName.includes(searchTerm.toLowerCase()) ||
@@ -351,7 +370,7 @@ export default function CommissionsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Comisiones</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Comisiones Citas</h1>
           <p className="text-muted-foreground">
             Gestiona las comisiones del equipo por ventas y proyectos
           </p>
@@ -485,11 +504,10 @@ export default function CommissionsPage() {
                   <TableRow>
                     <TableHead>Empleado</TableHead>
                     <TableHead>Tipo de cliente</TableHead>
-                    <TableHead>Referencia</TableHead>
                     <TableHead>Prospecto</TableHead>
-                    <TableHead>%</TableHead>
                     <TableHead className="text-right">Comisión</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Pagado</TableHead>
                     <TableHead>Aprobada por</TableHead>
                     <TableHead className="w-[100px]">Acciones</TableHead>
                   </TableRow>
@@ -504,13 +522,7 @@ export default function CommissionsPage() {
                       </TableCell>
                       <TableCell>{commission.clientType?.name || "-"}</TableCell>
                       <TableCell>
-                        {commission.project?.name || commission.account?.account_name || "-"}
-                      </TableCell>
-                      <TableCell>
                         {commission.prospect?.company_name || commission.prospect?.contact_name || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {commission.commission_percentage ? `${commission.commission_percentage}%` : "-"}
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatCurrency(Number(commission.commission_amount || 0))}
@@ -520,6 +532,18 @@ export default function CommissionsPage() {
                           {locked && <Lock className="h-3 w-3" />}
                           {statusLabels[commission.status] || commission.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {commission.paid_at ? (
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-green-600">Pagado</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDate(commission.paid_at)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">Pendiente</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {commission.approver ? (
@@ -592,6 +616,18 @@ export default function CommissionsPage() {
                                   onClick={() => handleChangeStatus(commission, "cancelled")}
                                 >
                                   Cancelar
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {canEdit && !locked && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => handleDelete(commission)}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Eliminar
                                 </DropdownMenuItem>
                               </>
                             )}

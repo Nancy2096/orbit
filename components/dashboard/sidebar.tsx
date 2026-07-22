@@ -296,7 +296,7 @@ const crmNavItems = [
     icon: ClipboardList,
   },
   {
-    title: "Comisiones",
+    title: "Comisiones Citas",
     url: "/dashboard/hr/commissions",
     icon: BadgePercent,
   },

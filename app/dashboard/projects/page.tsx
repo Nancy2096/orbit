@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ResizableTableHead, useColumnWidths } from "@/components/resizable-table-head"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,7 +37,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight, Copy } from "lucide-react"
 
 // Los proyectos son cuentas con account_type = "project".
 interface ProjectAccount {
@@ -213,6 +214,44 @@ export default function ProjectsPage() {
     }
   }
 
+  async function handleDuplicate(id: string) {
+    if (!confirm("¿Duplicar este proyecto? Se creará una copia con los mismos datos.")) return
+
+    // Traer la fila completa del proyecto (los proyectos son cuentas tipo "project")
+    const { data: original, error: fetchError } = await supabase
+      .from("accounts")
+      .select("*")
+      .eq("id", id)
+      .single()
+
+    if (fetchError || !original) {
+      alert("No se pudo duplicar el proyecto.")
+      return
+    }
+
+    // Quitar campos que no deben copiarse y ajustar el nombre
+    const {
+      id: _omitId,
+      created_at: _omitCreated,
+      updated_at: _omitUpdated,
+      account_code: _omitCode,
+      ...rest
+    } = original as Record<string, unknown>
+    const insertPayload = {
+      ...rest,
+      account_code: null,
+      account_name: `${original.account_name} (copia)`,
+    }
+
+    const { error: insertError } = await supabase.from("accounts").insert(insertPayload)
+    if (insertError) {
+      alert("No se pudo duplicar el proyecto.")
+      return
+    }
+
+    await fetchProjects()
+  }
+
   function toggleColumn(key: string) {
     setColumns(columns.map((col) => (col.key === key ? { ...col, visible: !col.visible } : col)))
   }
@@ -282,6 +321,7 @@ export default function ProjectsPage() {
   )
 
   const visibleColumns = columns.filter((col) => col.visible)
+  const { widths, setWidth, getColumnStyle } = useColumnWidths("projects-column-widths")
 
   function renderProjectsTable(rows: ProjectAccount[]) {
     const totals = computeTotals(rows)
@@ -291,10 +331,17 @@ export default function ProjectsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-12 text-right">#</TableHead>
-              {visibleColumns.map((column) => (
-                <TableHead key={column.key}>{column.label}</TableHead>
-              ))}
-              <TableHead className="w-12"></TableHead>
+                  {visibleColumns.map((column) => (
+                    <ResizableTableHead
+                      key={column.key}
+                      columnKey={column.key}
+                      width={widths[column.key]}
+                      onResize={setWidth}
+                    >
+                      {column.label}
+                    </ResizableTableHead>
+                  ))}
+                  <TableHead className="w-24 text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -304,7 +351,11 @@ export default function ProjectsPage() {
                   {index + 1}
                 </TableCell>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.key}>
+                  <TableCell
+                    key={column.key}
+                    style={getColumnStyle(column.key)}
+                    className={getColumnStyle(column.key) ? "overflow-hidden text-ellipsis" : undefined}
+                  >
                     {column.key === "project" && (
                       <div>
                         <Link
@@ -363,16 +414,20 @@ export default function ProjectsPage() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/accounts/${project.id}`}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Editar
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => handleDelete(project.id)}
-                      >
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/accounts/${project.id}`}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDuplicate(project.id)}>
+                              <Copy className="mr-2 h-4 w-4" />
+                              Duplicar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDelete(project.id)}
+                            >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Eliminar
                       </DropdownMenuItem>
@@ -385,7 +440,7 @@ export default function ProjectsPage() {
               <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
                 <TableCell />
                 {visibleColumns.map((column, i) => (
-                  <TableCell key={column.key}>
+                  <TableCell key={column.key} style={getColumnStyle(column.key)}>
                     {i === 0 && `Total contratado (${t.code})`}
                     {column.key === "total_contracted" && (
                       <span className="tabular-nums">
