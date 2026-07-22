@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
-import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye, FileText, CalendarClock, UserPlus, Pencil } from "lucide-react"
+import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye, FileText, CalendarClock, UserPlus, Pencil, Trash2 } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
 
 interface Commission {
@@ -288,6 +288,24 @@ export default function CommissionsPage() {
     } catch (error) {
       console.error("Error updating commission status:", error)
       const message = error instanceof Error ? error.message : "No se pudo actualizar el estado de la comisión"
+      toast.error(message)
+    }
+  }
+
+  const handleDelete = async (commission: Commission) => {
+    if (isLocked(commission.status)) {
+      toast.error("Esta comisión ya está liquidada y no puede eliminarse")
+      return
+    }
+    if (!confirm("¿Eliminar esta comisión? Esta acción no se puede deshacer.")) return
+    try {
+      const { error } = await supabase.from("commissions").delete().eq("id", commission.id)
+      if (error) throw error
+      setCommissions((prev) => prev.filter((c) => c.id !== commission.id))
+      toast.success("Comisión eliminada")
+    } catch (error) {
+      console.error("Error deleting commission:", error)
+      const message = error instanceof Error ? error.message : "No se pudo eliminar la comisión"
       toast.error(message)
     }
   }
@@ -598,6 +616,18 @@ export default function CommissionsPage() {
                                   onClick={() => handleChangeStatus(commission, "cancelled")}
                                 >
                                   Cancelar
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {canEdit && !locked && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => handleDelete(commission)}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Eliminar
                                 </DropdownMenuItem>
                               </>
                             )}
