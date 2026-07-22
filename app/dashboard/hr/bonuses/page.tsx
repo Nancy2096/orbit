@@ -313,12 +313,6 @@ export default function BonusesPage() {
             Gestiona los bonos y gratificaciones del equipo
           </p>
         </div>
-        <Button asChild>
-          <Link href="/dashboard/hr/bonuses/new">
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Bono
-          </Link>
-        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -370,62 +364,13 @@ export default function BonusesPage() {
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por empleado o descripción..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <DepartmentFilter
-              departments={departments}
-              agencyId={selectedAgencyId}
-              value={departmentFilter}
-              onChange={setDepartmentFilter}
-            />
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-full sm:w-[160px]">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los tipos</SelectItem>
-                <SelectItem value="performance">Desempeño</SelectItem>
-                <SelectItem value="annual">Anual</SelectItem>
-                <SelectItem value="christmas">Aguinaldo</SelectItem>
-                <SelectItem value="productivity">Productividad</SelectItem>
-                <SelectItem value="attendance">Asistencia</SelectItem>
-                <SelectItem value="seniority">Antigüedad</SelectItem>
-                <SelectItem value="other">Otro</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[150px]">
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="pending">Pendiente</SelectItem>
-                <SelectItem value="approved">Aprobado</SelectItem>
-                <SelectItem value="paid">Pagado</SelectItem>
-                <SelectItem value="cancelled">Cancelado</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Spinner className="h-8 w-8" />
             </div>
           ) : (
-            <Tabs defaultValue="policy">
+            <Tabs defaultValue="training">
               <TabsList>
-                <TabsTrigger value="policy">
-                  <ScrollText className="mr-2 h-4 w-4" />
-                  Política de Bonos
-                </TabsTrigger>
                 <TabsTrigger value="training">
                   <GraduationCap className="mr-2 h-4 w-4" />
                   Capacitación
@@ -433,10 +378,6 @@ export default function BonusesPage() {
                 <TabsTrigger value="year_end">
                   <HandCoins className="mr-2 h-4 w-4" />
                   Bono fin de año
-                </TabsTrigger>
-                <TabsTrigger value="bonuses">
-                  <Gift className="mr-2 h-4 w-4" />
-                  Bonos
                 </TabsTrigger>
                 <TabsTrigger value="staff">
                   <Users className="mr-2 h-4 w-4" />
