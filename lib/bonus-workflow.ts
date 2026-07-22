@@ -61,6 +61,8 @@ export interface CurrentUserInfo {
   fullName: string
   positionName: string | null
   positionLevel: string | null // 'director' | 'manager' | 'senior' | 'mid' | ...
+  roleName: string | null // 'superadmin' | 'direccion_general' | 'rrhh' | ...
+  isGlobalAccess: boolean
   isManagerOrAbove: boolean
   isOperationsDirector: boolean
 }
@@ -123,7 +125,19 @@ export async function getCurrentUserInfo(): Promise<CurrentUserInfo | null> {
     fullName,
     positionName,
     positionLevel,
+    roleName,
+    isGlobalAccess: userRow?.is_global_access === true,
     isManagerOrAbove,
     isOperationsDirector,
   }
+}
+
+// Roles autorizados para modificar las políticas de bonos:
+// Recursos Humanos, Dirección General o Super administrador.
+const BONUS_POLICY_ROLES = ["rrhh", "direccion_general", "superadmin"]
+
+export function canManageBonusPolicy(user: CurrentUserInfo | null): boolean {
+  if (!user) return false
+  if (user.isGlobalAccess) return true
+  return user.roleName != null && BONUS_POLICY_ROLES.includes(user.roleName)
 }

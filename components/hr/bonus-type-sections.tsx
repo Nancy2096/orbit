@@ -25,7 +25,7 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field"
 import { ScrollText, Pencil, Save, X, HandCoins, ArrowRight } from "lucide-react"
 import { toast } from "sonner"
-import { BONUS_STAGES, getCurrentUserInfo, type CurrentUserInfo } from "@/lib/bonus-workflow"
+import { BONUS_STAGES, getCurrentUserInfo, canManageBonusPolicy, type CurrentUserInfo } from "@/lib/bonus-workflow"
 
 interface BonusType {
   id: string
@@ -152,11 +152,9 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
     }
   }
 
-  const canManagePolicy = currentUser
-    ? currentUser.roleLevel === "admin" ||
-      currentUser.roleLevel === "director" ||
-      currentUser.roleLevel === "manager"
-    : false
+  // Solo Recursos Humanos, Dirección General o Super administrador pueden
+  // modificar las políticas de los bonos.
+  const canManagePolicy = canManageBonusPolicy(currentUser)
 
   async function savePolicy() {
     if (!bonusType) return

@@ -31,6 +31,10 @@ import { DepartmentFilter } from "@/components/hr/department-filter"
 import { BonusTypePanel } from "@/components/hr/bonus-type-sections"
 import { useAgency } from "@/contexts/agency-context"
 import { STAGE_LABELS, STAGE_BADGE_STYLES } from "@/lib/bonus-workflow"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
+
+// Roles autorizados para modificar las políticas de bonos.
+const BONUS_POLICY_ROLES = ["rrhh", "direccion_general", "superadmin"]
 
 interface Bonus {
   id: string
@@ -114,6 +118,11 @@ export default function BonusesPage() {
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
   const supabase = createClient()
+
+  // Solo Recursos Humanos, Dirección General o Super administrador (o acceso
+  // total) pueden modificar la política de bonos.
+  const { roleName, fullAccess } = usePermissions()
+  const canManagePolicy = fullAccess || (roleName != null && BONUS_POLICY_ROLES.includes(roleName))
 
   useEffect(() => {
     if (selectedAgencyId) {
@@ -575,42 +584,43 @@ export default function BonusesPage() {
                         )}
                       </div>
                     </div>
-                    {!editingPolicy ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setPolicyDraft(policyContent)
-                          setEditingPolicy(true)
-                        }}
-                      >
-                        <Pencil className="mr-2 h-4 w-4" />
-                        {policyContent ? "Editar" : "Escribir política"}
-                      </Button>
-                    ) : (
-                      <div className="flex gap-2">
+                    {canManagePolicy &&
+                      (!editingPolicy ? (
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
                           onClick={() => {
                             setPolicyDraft(policyContent)
-                            setEditingPolicy(false)
+                            setEditingPolicy(true)
                           }}
-                          disabled={savingPolicy}
                         >
-                          <X className="mr-2 h-4 w-4" />
-                          Cancelar
+                          <Pencil className="mr-2 h-4 w-4" />
+                          {policyContent ? "Editar" : "Escribir política"}
                         </Button>
-                        <Button size="sm" onClick={savePolicy} disabled={savingPolicy}>
-                          {savingPolicy ? (
-                            <Spinner className="mr-2 h-4 w-4" />
-                          ) : (
-                            <Save className="mr-2 h-4 w-4" />
-                          )}
-                          Guardar
-                        </Button>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setPolicyDraft(policyContent)
+                              setEditingPolicy(false)
+                            }}
+                            disabled={savingPolicy}
+                          >
+                            <X className="mr-2 h-4 w-4" />
+                            Cancelar
+                          </Button>
+                          <Button size="sm" onClick={savePolicy} disabled={savingPolicy}>
+                            {savingPolicy ? (
+                              <Spinner className="mr-2 h-4 w-4" />
+                            ) : (
+                              <Save className="mr-2 h-4 w-4" />
+                            )}
+                            Guardar
+                          </Button>
+                        </div>
+                      ))}
                   </div>
 
                   <div className="p-4">
@@ -635,8 +645,9 @@ export default function BonusesPage() {
                         </EmptyMedia>
                         <EmptyTitle>Sin política definida</EmptyTitle>
                         <EmptyDescription>
-                          Aún no has escrito la política de bonos para esta agencia. Haz clic en
-                          &quot;Escribir política&quot; para comenzar.
+                          {canManagePolicy
+                            ? 'Aún no has escrito la política de bonos para esta agencia. Haz clic en "Escribir política" para comenzar.'
+                            : "Aún no se ha definido la política de bonos para esta agencia."}
                         </EmptyDescription>
                       </Empty>
                     )}
