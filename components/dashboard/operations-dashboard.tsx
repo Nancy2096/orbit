@@ -158,18 +158,6 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
       icon: TrendingUp,
     },
     {
-      title: "Cuentas activas",
-      value: kpis.activeRetainers.toLocaleString("es-MX"),
-      sub: `${kpis.totalAccounts} cuentas en total`,
-      icon: Layers,
-    },
-    {
-      title: "Proyectos activos",
-      value: kpis.activeProjects.toLocaleString("es-MX"),
-      sub: "Cuentas tipo proyecto",
-      icon: FolderKanban,
-    },
-    {
       title: "Clientes activos",
       value: kpis.clientsActive.toLocaleString("es-MX"),
       sub: `${kpis.clientsTotal} clientes registrados`,
