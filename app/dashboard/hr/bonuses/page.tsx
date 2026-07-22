@@ -26,8 +26,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X } from "lucide-react"
+import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins } from "lucide-react"
 import { DepartmentFilter } from "@/components/hr/department-filter"
+import { BonusTypeSections } from "@/components/hr/bonus-type-sections"
 import { useAgency } from "@/contexts/agency-context"
 import { STAGE_LABELS, STAGE_BADGE_STYLES } from "@/lib/bonus-workflow"
 
@@ -145,6 +146,7 @@ export default function BonusesPage() {
           .from("bonus_policies")
           .select("content, updated_at")
           .eq("agency_id", selectedAgencyId)
+          .is("bonus_type_id", null)
           .maybeSingle(),
       ])
 
@@ -166,23 +168,40 @@ export default function BonusesPage() {
     if (!selectedAgencyId) return
     setSavingPolicy(true)
     try {
-      const { data, error } = await supabase
-        .from("bonus_policies")
-        .upsert(
-          {
-            agency_id: selectedAgencyId,
-            content: policyDraft.trim() || null,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "agency_id" }
-        )
-        .select("content, updated_at")
-        .single()
+      const content = policyDraft.trim() || null
+      const nowIso = new Date().toISOString()
 
-      if (error) throw error
-      setPolicyContent(data?.content || "")
-      setPolicyDraft(data?.content || "")
-      setPolicyUpdatedAt(data?.updated_at || null)
+      // Política general de la agencia (bonus_type_id nulo).
+      const { data: existing } = await supabase
+        .from("bonus_policies")
+        .select("id")
+        .eq("agency_id", selectedAgencyId)
+        .is("bonus_type_id", null)
+        .maybeSingle()
+
+      let saved: { content: string | null; updated_at: string | null } | null = null
+      if (existing?.id) {
+        const { data, error } = await supabase
+          .from("bonus_policies")
+          .update({ content, updated_at: nowIso })
+          .eq("id", existing.id)
+          .select("content, updated_at")
+          .single()
+        if (error) throw error
+        saved = data
+      } else {
+        const { data, error } = await supabase
+          .from("bonus_policies")
+          .insert({ agency_id: selectedAgencyId, content, updated_at: nowIso })
+          .select("content, updated_at")
+          .single()
+        if (error) throw error
+        saved = data
+      }
+
+      setPolicyContent(saved?.content || "")
+      setPolicyDraft(saved?.content || "")
+      setPolicyUpdatedAt(saved?.updated_at || null)
       setEditingPolicy(false)
     } catch (error) {
       console.error("Error saving policy:", error)
@@ -407,6 +426,10 @@ export default function BonusesPage() {
                   <ScrollText className="mr-2 h-4 w-4" />
                   Política de Bonos
                 </TabsTrigger>
+                <TabsTrigger value="types">
+                  <HandCoins className="mr-2 h-4 w-4" />
+                  Tipos de Bono
+                </TabsTrigger>
                 <TabsTrigger value="bonuses">
                   <Gift className="mr-2 h-4 w-4" />
                   Bonos
@@ -416,6 +439,11 @@ export default function BonusesPage() {
                   Por Personal
                 </TabsTrigger>
               </TabsList>
+
+              {/* Tab: secciones por tipo de bono (política + solicitar) */}
+              <TabsContent value="types" className="mt-6">
+                <BonusTypeSections agencyId={selectedAgencyId} />
+              </TabsContent>
 
               {/* Tab: lista de bonos */}
               <TabsContent value="bonuses" className="mt-6">
