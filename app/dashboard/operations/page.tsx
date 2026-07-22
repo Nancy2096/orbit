@@ -54,9 +54,10 @@ async function getOperationsData(agencyId: string | null) {
   const activeRetainers = retainers.filter((a) => isActive(a.status))
   const activeProjects = projects.filter((a) => isActive(a.status))
 
-  // MRR (ingreso mensual recurrente) por moneda, solo cuentas retainer activas
+  // Ingreso mensual por moneda: monto contratado de cuentas retainer activas
+  // MÁS monto contratado de proyectos activos. Sirve de base para la proyección anual.
   const mrrByCurrency: Record<string, number> = {}
-  for (const a of activeRetainers) {
+  for (const a of [...activeRetainers, ...activeProjects]) {
     const code = codeOf(a.retainer_currency_id)
     mrrByCurrency[code] = (mrrByCurrency[code] || 0) + amt(a)
   }
