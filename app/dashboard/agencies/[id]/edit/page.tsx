@@ -333,6 +333,13 @@ const [positions, setPositions] = useState<Position[]>([])
     annual_revenue_target_mxn: "",
     monthly_revenue_target_usd: "",
     annual_revenue_target_usd: "",
+    // Objetivos financieros expresados como % sobre los ingresos.
+    fin_cogs_pct: "",
+    fin_payroll_pct: "",
+    fin_fixed_opex_pct: "",
+    fin_marketing_pct: "",
+    fin_taxes_pct: "",
+    fin_net_profit_pct: "",
   })
 
   // Configuración de correos para onboarding (encuestas de satisfacción)
@@ -404,6 +411,12 @@ const [positions, setPositions] = useState<Position[]>([])
               obj.monthly_revenue_target_usd != null ? String(obj.monthly_revenue_target_usd) : "",
             annual_revenue_target_usd:
               obj.annual_revenue_target_usd != null ? String(obj.annual_revenue_target_usd) : "",
+            fin_cogs_pct: obj.fin_cogs_pct != null ? String(obj.fin_cogs_pct) : "",
+            fin_payroll_pct: obj.fin_payroll_pct != null ? String(obj.fin_payroll_pct) : "",
+            fin_fixed_opex_pct: obj.fin_fixed_opex_pct != null ? String(obj.fin_fixed_opex_pct) : "",
+            fin_marketing_pct: obj.fin_marketing_pct != null ? String(obj.fin_marketing_pct) : "",
+            fin_taxes_pct: obj.fin_taxes_pct != null ? String(obj.fin_taxes_pct) : "",
+            fin_net_profit_pct: obj.fin_net_profit_pct != null ? String(obj.fin_net_profit_pct) : "",
           })
         }
       }
@@ -1088,6 +1101,18 @@ const [positions, setPositions] = useState<Position[]>([])
                 objectives.annual_revenue_target_usd === ""
                   ? null
                   : Number.parseFloat(objectives.annual_revenue_target_usd),
+              fin_cogs_pct:
+                objectives.fin_cogs_pct === "" ? null : Number.parseFloat(objectives.fin_cogs_pct),
+              fin_payroll_pct:
+                objectives.fin_payroll_pct === "" ? null : Number.parseFloat(objectives.fin_payroll_pct),
+              fin_fixed_opex_pct:
+                objectives.fin_fixed_opex_pct === "" ? null : Number.parseFloat(objectives.fin_fixed_opex_pct),
+              fin_marketing_pct:
+                objectives.fin_marketing_pct === "" ? null : Number.parseFloat(objectives.fin_marketing_pct),
+              fin_taxes_pct:
+                objectives.fin_taxes_pct === "" ? null : Number.parseFloat(objectives.fin_taxes_pct),
+              fin_net_profit_pct:
+                objectives.fin_net_profit_pct === "" ? null : Number.parseFloat(objectives.fin_net_profit_pct),
             },
           },
           updated_at: new Date().toISOString(),
@@ -1836,6 +1861,103 @@ const [positions, setPositions] = useState<Position[]>([])
                         <p className="text-xs text-muted-foreground">Meta de ingresos por año en USD.</p>
                       </div>
                     </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <BadgePercent className="h-4 w-4 text-muted-foreground" />
+                      Objetivos Financieros
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Define qué porcentaje de los ingresos debería representar cada rubro. Sirve de referencia para
+                      comparar contra el gasto real de otras secciones. Idealmente, la suma debe acercarse al 100%.
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2 mt-3">
+                      {[
+                        {
+                          key: "fin_cogs_pct" as const,
+                          label: "Costos de bienes o servicios (COGS)",
+                          help: "Gastos directos de producción: materias primas, manufactura o compra de mercancía.",
+                          placeholder: "Ej. 30",
+                        },
+                        {
+                          key: "fin_payroll_pct" as const,
+                          label: "Personal y nómina",
+                          help: "Salarios, bonificaciones, seguros médicos y prestaciones de los empleados.",
+                          placeholder: "Ej. 25",
+                        },
+                        {
+                          key: "fin_fixed_opex_pct" as const,
+                          label: "Gastos operativos fijos",
+                          help: "Alquiler de locales u oficinas, servicios públicos (agua, luz, internet) y seguros.",
+                          placeholder: "Ej. 15",
+                        },
+                        {
+                          key: "fin_marketing_pct" as const,
+                          label: "Marketing y ventas",
+                          help: "Publicidad, campañas digitales, relaciones públicas y comisiones de ventas.",
+                          placeholder: "Ej. 10",
+                        },
+                        {
+                          key: "fin_taxes_pct" as const,
+                          label: "Impuestos y pagos financieros",
+                          help: "Carga fiscal (IVA, ISR) y comisiones bancarias o intereses de deudas.",
+                          placeholder: "Ej. 10",
+                        },
+                        {
+                          key: "fin_net_profit_pct" as const,
+                          label: "Utilidad neta",
+                          help: "Remanente libre para repartir entre socios o reinvertir en el negocio.",
+                          placeholder: "Ej. 10",
+                        },
+                      ].map((field) => (
+                        <div key={field.key} className="grid gap-2">
+                          <Label htmlFor={field.key}>{field.label}</Label>
+                          <div className="relative">
+                            <Input
+                              id={field.key}
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              inputMode="decimal"
+                              className="pr-8"
+                              value={objectives[field.key]}
+                              onChange={(e) => setObjectives({ ...objectives, [field.key]: e.target.value })}
+                              placeholder={field.placeholder}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                              %
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{field.help}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {(() => {
+                      const total = [
+                        objectives.fin_cogs_pct,
+                        objectives.fin_payroll_pct,
+                        objectives.fin_fixed_opex_pct,
+                        objectives.fin_marketing_pct,
+                        objectives.fin_taxes_pct,
+                        objectives.fin_net_profit_pct,
+                      ].reduce((sum, v) => sum + (v === "" ? 0 : Number.parseFloat(v) || 0), 0)
+                      const rounded = Math.round(total * 100) / 100
+                      const isValid = rounded === 100
+                      return (
+                        <div
+                          className={`mt-4 flex items-center justify-between rounded-md border px-4 py-2 text-sm ${
+                            isValid
+                              ? "border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/20 dark:text-green-300"
+                              : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300"
+                          }`}
+                        >
+                          <span className="font-medium">Suma de porcentajes</span>
+                          <span className="font-semibold">{rounded}%</span>
+                        </div>
+                      )
+                    })()}
                   </div>
                 </FieldGroup>
               </CardContent>
