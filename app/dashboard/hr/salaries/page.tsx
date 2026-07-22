@@ -347,15 +347,10 @@ export default function SalariesPage() {
     })
   }, [staff, filterAgency, filterContract, filterFrequency, search])
 
-  // Colaboradores activos (excluye bajas), usados para los totales de nómina
-  // base mensual, ya que las bajas no perciben salario recurrente.
-  const activeFiltered = useMemo(
-    () => filtered.filter((s) => s.employment_status !== "terminated"),
-    [filtered],
-  )
-
   // Dos listas: colaboradores activos (siempre visibles) y el resto (bajas,
   // inactivos, suspendidos) agrupados aparte para desplegarlos bajo demanda.
+  // Los totales de nómina (base, 1ª quincena y fin de mes) solo consideran a
+  // los activos, ya que bajas/inactivos/suspendidos no perciben salario recurrente.
   const activeRows = useMemo(
     () => filtered.filter((s) => (s.employment_status || "active") === "active"),
     [filtered],
@@ -502,14 +497,14 @@ export default function SalariesPage() {
   // Totales de nómina base mensual agrupados por moneda.
   const totalsByCurrency = useMemo(() => {
     const map = new Map<string, number>()
-    activeFiltered.forEach((s) => {
+    activeRows.forEach((s) => {
       const code = currencyCode(s.currency_id)
       const eff = effective(s)
       const salary = Number.parseFloat(eff.monthly_salary) || 0
       map.set(code, (map.get(code) || 0) + salary)
     })
     return Array.from(map.entries()).filter(([, v]) => v > 0)
-  }, [activeFiltered, currencyCode, effective])
+  }, [activeRows, currencyCode, effective])
 
   // Frecuencia de pago efectiva (usa el valor editado si existe).
   const effectiveFrequency = useCallback(
@@ -534,7 +529,7 @@ export default function SalariesPage() {
     const end = new Map<string, number>()
     let biweeklyCount = 0
     let monthlyCount = 0
-    activeFiltered.forEach((s) => {
+    activeRows.forEach((s) => {
       const code = currencyCode(s.currency_id)
       const salary = Number.parseFloat(effective(s).monthly_salary) || 0
       if (salary <= 0) return
@@ -554,7 +549,7 @@ export default function SalariesPage() {
       biweeklyCount,
       monthlyCount,
     }
-  }, [activeFiltered, currencyCode, effective, effectiveFrequency])
+  }, [activeRows, currencyCode, effective, effectiveFrequency])
 
   const contractTypesPresent = useMemo(() => {
     const set = new Set<string>()
@@ -907,7 +902,7 @@ export default function SalariesPage() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{filtered.length}</div>
+            <div className="text-2xl font-bold">{activeRows.length}</div>
             <p className="mt-1 text-xs text-muted-foreground">Activos en la vista actual</p>
           </CardContent>
         </Card>
