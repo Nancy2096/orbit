@@ -988,9 +988,20 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
 
   if (!mounted) return null
 
+  // El equipo Comercial se gestiona en otra sección (CRM), por lo que se excluye
+  // de la vista de Cargas de Trabajo.
+  const isCommercialArea = (name: string | null | undefined) => {
+    const n = (name || "").trim().toLowerCase()
+    return n === "comercial" || n === "ventas"
+  }
+
+  const nonCommercialWorkload = workloadData.filter(
+    (s) => !isCommercialArea(s.departments?.name || s.department),
+  )
+
   const filteredWorkload = selectedDepartment === "all"
-    ? workloadData
-    : workloadData.filter((s) => (s.departments?.name || s.department) === selectedDepartment)
+    ? nonCommercialWorkload
+    : nonCommercialWorkload.filter((s) => (s.departments?.name || s.department) === selectedDepartment)
 
   const overloadedCount = filteredWorkload.filter((s) => getWorkloadStatus(s) === "over").length
   const underloadedCount = filteredWorkload.filter((s) => getWorkloadStatus(s) === "under").length
@@ -1035,6 +1046,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
             <SelectContent>
               <SelectItem value="all">Todas las áreas</SelectItem>
               {Array.from(new Map(departments.map((d) => [d.name, d])).values())
+                .filter((dept) => !isCommercialArea(dept.name))
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((dept) => (
                   <SelectItem key={dept.name} value={dept.name}>
@@ -1129,7 +1141,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas las personas</SelectItem>
-                    {workloadData.map(person => (
+                    {nonCommercialWorkload.map(person => (
                       <SelectItem key={person.id} value={person.id}>
                         {person.first_name} {person.last_name}
                       </SelectItem>
