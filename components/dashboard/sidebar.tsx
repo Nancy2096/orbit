@@ -66,6 +66,7 @@ import {
   FileUp,
   FileDown,
   ClipboardCheck,
+  MessagesSquare,
   Brain,
   PanelLeftClose,
   PanelLeft,
@@ -183,6 +184,11 @@ const hrNavItems = [
     title: "Reconocimientos",
     url: "/dashboard/hr/recognitions",
     icon: Award,
+  },
+  {
+    title: "Reportes one 2 one",
+    url: "/dashboard/hr/one-to-one",
+    icon: MessagesSquare,
   },
   {
     title: "Capacitación",

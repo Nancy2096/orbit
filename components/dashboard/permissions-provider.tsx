@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { getModulesForPath, isAlwaysAllowed } from "@/lib/permission-access"
+import { getModulesForPath, getRolesForPath, isAlwaysAllowed } from "@/lib/permission-access"
 
 interface PermissionsContextValue {
   loading: boolean
@@ -121,6 +121,10 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
   const canAccessPath = useCallback(
     (pathname: string) => {
       if (fullAccess) return true
+      // Rutas restringidas por rol: solo los roles autorizados pueden entrar,
+      // sin importar los módulos granulares que tengan asignados.
+      const allowedRoles = getRolesForPath(pathname)
+      if (allowedRoles) return roleName != null && allowedRoles.includes(roleName)
       if (isAlwaysAllowed(pathname)) return true
       const mods = getModulesForPath(pathname)
       // Denegar por defecto: una ruta sin módulo mapeado se bloquea hasta
@@ -128,7 +132,7 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
       if (!mods || mods.length === 0) return false
       return mods.some((m) => modules.has(m))
     },
-    [fullAccess, modules],
+    [fullAccess, modules, roleName],
   )
 
   return (

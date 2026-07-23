@@ -64,6 +64,28 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
 // Rutas siempre accesibles para cualquier usuario autenticado.
 const ALWAYS_ALLOWED = ["/dashboard", "/dashboard/profile"]
 
+// Rutas restringidas EXCLUSIVAMENTE por nombre de rol (además del acceso total).
+// A diferencia de los módulos, estas rutas no se conceden por permisos granulares:
+// solo los roles listados pueden entrar. Se usa para secciones sensibles como los
+// Reportes one 2 one, visibles únicamente para Dirección General, RRHH y Super Admin.
+const ROLE_RESTRICTED_ENTRIES: [string, string[]][] = [
+  ["/dashboard/hr/one-to-one", ["superadmin", "direccion_general", "rrhh"]],
+]
+
+// Devuelve los roles autorizados para una ruta restringida por rol, o null si la
+// ruta no tiene restricción de rol específica.
+export function getRolesForPath(pathname: string): string[] | null {
+  let best: { prefix: string; roles: string[] } | null = null
+  for (const [prefix, roles] of ROLE_RESTRICTED_ENTRIES) {
+    if (matchesPrefix(pathname, prefix)) {
+      if (!best || prefix.length > best.prefix.length) {
+        best = { prefix, roles }
+      }
+    }
+  }
+  return best?.roles ?? null
+}
+
 function matchesPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(prefix + "/")
 }
