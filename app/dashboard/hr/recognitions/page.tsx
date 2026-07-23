@@ -369,15 +369,23 @@ export default function RecognitionsPage() {
       fromAllocation = newAllocation
     }
 
-    // Create transaction
-    await supabase.from("recognition_transactions").insert({
+    // Create transaction. year y quarter son obligatorios (NOT NULL) en la tabla:
+    // omitirlos hacía que el insert fallara en silencio y no se registrara nada.
+    const { error: txError } = await supabase.from("recognition_transactions").insert({
       agency_id: selectedAgency,
       from_staff_id: fromStaffId,
       to_staff_id: sendForm.to_staff_id,
       category_id: sendForm.category_id,
       points: selectedCategory.points,
       reason: sendForm.reason,
+      year: currentYear,
+      quarter: currentQuarter,
     })
+
+    if (txError) {
+      alert("Error al registrar el reconocimiento: " + txError.message)
+      return
+    }
 
     // Update from allocation (recognitions given)
     await supabase
