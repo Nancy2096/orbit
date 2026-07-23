@@ -304,7 +304,7 @@ export default function OneToOneReportsPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Reportes one 2 one</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Reportes One 2 One</h1>
           <p className="text-muted-foreground text-pretty">
             Concentra los reportes de las reuniones de acompañamiento y las herramientas otorgadas al
             personal. Sección confidencial.
