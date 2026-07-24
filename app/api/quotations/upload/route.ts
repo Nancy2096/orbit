@@ -1,33 +1,49 @@
-import { del, put } from "@vercel/blob"
+import { del } from "@vercel/blob"
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 
-// Permite cuerpos grandes en el route handler (cotizaciones pesadas).
-export const maxDuration = 60
+// POST: genera el token para subir el archivo DIRECTO a Vercel Blob desde el
+// cliente. Esto evita el límite de ~4.5MB de los Route Handlers, por lo que la
+// cotización no tiene restricción de peso. El store es privado.
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const body = (await request.json()) as HandleUploadBody
 
-// POST: sube la cotización a Vercel Blob DESDE EL SERVIDOR (en un solo paso) y
-// la agrega al HISTORIAL de la cuenta. Nunca borra las cotizaciones anteriores:
-// cada subida es un registro nuevo.
-export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
-    const file = formData.get("file") as File | null
-    const accountId = formData.get("accountId") as string | null
-    const label = (formData.get("label") as string | null) || null
-
-    if (!file || !accountId) {
-      return NextResponse.json({ error: "Missing parameters" }, { status: 400 })
-    }
-
-    // El store de Blob es privado: se sube con access "private" y el archivo se
-    // sirve de forma autenticada a través de /api/file (no con una URL pública).
-    const blob = await put(`quotations/${accountId}/${file.name}`, file, {
-      access: "private",
-      addRandomSuffix: true,
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      onBeforeGenerateToken: async () => {
+        return {
+          // Store privado, sin restricción de peso ni de tipo de archivo.
+          access: "private",
+          addRandomSuffix: false,
+        }
+      },
+      // onUploadCompleted no se ejecuta en local/preview, por eso la BD se
+      // guarda desde el cliente vía PATCH.
+      onUploadCompleted: async () => {},
     })
 
-    // URL de descarga que pasa por nuestro route autenticado.
-    const fileUrl = `/api/file?pathname=${encodeURIComponent(blob.pathname)}`
+    return NextResponse.json(jsonResponse)
+  } catch (error) {
+    console.error("Token generation error:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Error al subir la cotización" },
+      { status: 400 },
+    )
+  }
+}
+
+// PATCH: guarda en el HISTORIAL de la cuenta el registro de la cotización ya
+// subida a Blob. Nunca borra las anteriores: cada subida es un registro nuevo.
+export async function PATCH(request: NextRequest) {
+  try {
+    const { accountId, url, filename, label } = await request.json()
+
+    if (!accountId || !url) {
+      return NextResponse.json({ error: "Missing parameters" }, { status: 400 })
+    }
 
     const supabase = await createClient()
     const { data, error } = await supabase
@@ -35,16 +51,16 @@ export async function POST(request: NextRequest) {
       .insert({
         owner_type: "account",
         owner_id: accountId,
-        url: fileUrl,
-        filename: file.name,
-        label,
+        url,
+        filename: filename || null,
+        label: label || null,
       })
       .select()
       .single()
 
     if (error) {
       // Si falla la BD, borra el archivo recién subido para no dejar huérfanos.
-      await del(blob.pathname)
+      await del(url).catch(() => {})
       console.error("Save error:", error)
       return NextResponse.json({ error: "Failed to save quotation" }, { status: 500 })
     }
