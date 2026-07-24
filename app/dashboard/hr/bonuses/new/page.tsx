@@ -8,13 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { ArrowLeft, GraduationCap, Save, User, Clock, TrendingUp } from "lucide-react"
@@ -201,26 +194,31 @@ export default function NewBonusPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <Field>
-                <FieldLabel>Solicita el bono *</FieldLabel>
-                <Select
-                  value={formData.staff_id}
-                  onValueChange={(v) => setFormData((prev) => ({ ...prev, staff_id: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona a la persona" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {staff.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.first_name} {s.last_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <FieldLabel>Solicita el bono</FieldLabel>
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2.5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                    <User className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {currentUser?.fullName || "Usuario actual"}
+                    </p>
+                    {currentUser?.positionName && (
+                      <p className="truncate text-sm text-muted-foreground">
+                        {currentUser.positionName}
+                      </p>
+                    )}
+                  </div>
+                </div>
                 <FieldDescription>
-                  <User className="mr-1 inline h-3 w-3" />
-                  Por defecto eres tú ({currentUser?.fullName || "usuario actual"}). Puedes cambiarlo.
+                  El bono se solicita a tu nombre como usuario que ha iniciado sesión.
                 </FieldDescription>
+                {!formData.staff_id && (
+                  <p className="mt-1 text-sm text-destructive">
+                    Tu usuario no tiene un registro de personal en esta agencia, por lo que no puedes
+                    solicitar el bono aquí.
+                  </p>
+                )}
               </Field>
 
               <Field>

@@ -96,6 +96,9 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
   const [loading, setLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<CurrentUserInfo | null>(null)
   const [working, setWorking] = useState(false)
+  // user_id de los jefes/directores del solicitante (cadena de reports_to_id).
+  // Solo ellos (o dirección general / super admin) pueden autorizar el bono.
+  const [authorizerUserIds, setAuthorizerUserIds] = useState<string[]>([])
 
   // Estado de formularios de acciones
   const [managerNote, setManagerNote] = useState("")
@@ -137,6 +140,33 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
     setCurrentUser(userInfo)
     setVideocallUrl(data.videocall_url || "")
     setVideocallDate(data.videocall_scheduled_at ? data.videocall_scheduled_at.slice(0, 16) : "")
+
+    // Construir la cadena de jefes/directores del solicitante siguiendo
+    // reports_to_id hacia arriba, para limitar quién puede autorizar el bono.
+    const requesterStaffId = data.staff?.id
+    const bonusAgencyId = data.agency?.id
+    if (requesterStaffId && bonusAgencyId) {
+      const { data: staffRows } = await supabase
+        .from("staff")
+        .select("id, user_id, reports_to_id")
+        .eq("agency_id", bonusAgencyId)
+
+      const byId = new Map((staffRows || []).map((s: any) => [s.id, s]))
+      const chainUserIds: string[] = []
+      const visited = new Set<string>()
+      let nextId = byId.get(requesterStaffId)?.reports_to_id as string | null | undefined
+      while (nextId && !visited.has(nextId)) {
+        visited.add(nextId)
+        const node = byId.get(nextId)
+        if (!node) break
+        if (node.user_id) chainUserIds.push(node.user_id)
+        nextId = node.reports_to_id
+      }
+      setAuthorizerUserIds(chainUserIds)
+    } else {
+      setAuthorizerUserIds([])
+    }
+
     setLoading(false)
   }
 
@@ -275,7 +305,15 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
   const stage = bonus.workflow_stage || BONUS_STAGES.PENDING_MANAGER
   const activeIdx = activeStepIndex(stage)
   const isRejected = stage === BONUS_STAGES.REJECTED
-  const canAuthorize = currentUser?.isManagerOrAbove
+  // Dirección general / super admin / acceso global pueden autorizar siempre
+  // (para no bloquear la administración). En los demás casos, solo los jefes o
+  // directores del solicitante (su cadena de reports_to_id) pueden autorizar.
+  const isTopAuthorizer =
+    currentUser?.isGlobalAccess === true ||
+    currentUser?.roleName === "superadmin" ||
+    currentUser?.roleName === "direccion_general"
+  const isRequesterManager = currentUser ? authorizerUserIds.includes(currentUser.userId) : false
+  const canAuthorize = isTopAuthorizer || (currentUser?.isManagerOrAbove === true && isRequesterManager)
   const canPay = currentUser?.isOperationsDirector
   const hasCertificate = !!bonus.certificate_url
   const hasPresentation = !!bonus.presentation_url
@@ -463,7 +501,8 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    Este bono está pendiente de autorización por parte de un jefe o dirección.
+                    Este bono está pendiente de autorización por parte del jefe o dirección del
+                    solicitante.
                   </p>
                 )}
               </CardContent>
