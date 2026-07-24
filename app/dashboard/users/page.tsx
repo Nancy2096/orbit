@@ -213,7 +213,13 @@ export default function UsersPage() {
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium">{getDisplayName(user)}</p>
+                        <Link
+                          href={`/dashboard/users/${user.id}`}
+                          className="font-medium hover:text-primary hover:underline underline-offset-4 transition-colors"
+                          title="Editar usuario"
+                        >
+                          {getDisplayName(user)}
+                        </Link>
                         <p className="text-sm text-muted-foreground">{user.email}</p>
                       </div>
                     </div>
