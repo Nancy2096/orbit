@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { ArrowLeft, Briefcase, DollarSign, Plus, Trash2, Package, Users, Pencil, FileText, Upload, Download, Eye } from "lucide-react"
 import { getFileViewUrl, getFileDownloadUrl } from "@/lib/file-url"
+import { upload } from "@vercel/blob/client"
 
 interface Client {
   id: string
@@ -235,19 +236,28 @@ await Promise.all([
     setError(null)
 
     try {
-      // Sube el archivo al servidor en un solo paso (FormData). El servidor lo
-      // guarda en Vercel Blob y lo agrega al historial (nunca borra anteriores).
-      const formData = new FormData()
-      formData.append("file", file)
-      formData.append("accountId", id)
+      // Sube el archivo DIRECTO a Vercel Blob (store privado), sin pasar por el
+      // servidor, así no aplica el límite de ~4.5MB de los Route Handlers ni
+      // ninguna restricción de peso.
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+      const blob = await upload(`quotations/${id}/${Date.now()}-${safeName}`, file, {
+        access: "private",
+        handleUploadUrl: "/api/quotations/upload",
+      })
 
+      // Guarda el registro en el historial de la cuenta (nunca borra anteriores).
       const res = await fetch("/api/quotations/upload", {
-        method: "POST",
-        body: formData,
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: id,
+          url: blob.url,
+          filename: file.name,
+        }),
       })
 
       if (!res.ok) {
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
         throw new Error(data.error || "Error al subir archivo")
       }
 
