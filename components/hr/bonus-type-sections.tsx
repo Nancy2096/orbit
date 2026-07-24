@@ -127,8 +127,11 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
           .eq("is_active", true),
         supabase
           .from("staff")
-          .select("id, first_name, last_name, monthly_salary, user_id")
-          .eq("agency_id", agencyId)
+          .select("id, first_name, last_name, monthly_salary, user_id, payroll_agency_id")
+          // Incluye al personal de la agencia y también a las personas (p. ej.
+          // globales) cuya nómina la paga esta agencia, para que aparezcan aquí
+          // y el bono se pague desde la agencia que cubre su sueldo.
+          .or(`agency_id.eq.${agencyId},payroll_agency_id.eq.${agencyId}`)
           .eq("is_active", true)
           .order("first_name"),
         getCurrentUserInfo(),

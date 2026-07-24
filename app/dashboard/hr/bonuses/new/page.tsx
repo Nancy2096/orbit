@@ -28,6 +28,7 @@ interface Staff {
   last_name: string
   email: string
   agency_id: string
+  payroll_agency_id: string | null
   monthly_salary: number | null
 }
 
@@ -67,8 +68,11 @@ export default function NewBonusPage() {
       const [staffRes, userInfo] = await Promise.all([
         supabase
           .from("staff")
-          .select("id, first_name, last_name, email, agency_id, monthly_salary, user_id")
-          .eq("agency_id", selectedAgencyId)
+          .select("id, first_name, last_name, email, agency_id, payroll_agency_id, monthly_salary, user_id")
+          // Incluye al personal de la agencia y también a las personas (p. ej.
+          // globales) cuya nómina la paga esta agencia, para que aparezcan aquí
+          // y el bono se pague desde la agencia que cubre su sueldo.
+          .or(`agency_id.eq.${selectedAgencyId},payroll_agency_id.eq.${selectedAgencyId}`)
           .eq("is_active", true)
           .order("first_name"),
         getCurrentUserInfo(),
