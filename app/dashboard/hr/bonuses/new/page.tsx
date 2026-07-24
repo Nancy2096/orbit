@@ -9,6 +9,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { ArrowLeft, GraduationCap, Save, User, Clock, TrendingUp } from "lucide-react"
 import { toast } from "sonner"
@@ -33,6 +40,9 @@ export default function NewBonusPage() {
   const [saving, setSaving] = useState(false)
   const [staff, setStaff] = useState<Staff[]>([])
   const [currentUser, setCurrentUser] = useState<CurrentUserInfo | null>(null)
+  // Indica si el usuario logueado tiene su propio registro de personal en esta
+  // agencia. Los usuarios globales normalmente no lo tienen.
+  const [hasOwnStaffRecord, setHasOwnStaffRecord] = useState(false)
 
   const [formData, setFormData] = useState({
     staff_id: "",
@@ -70,12 +80,15 @@ export default function NewBonusPage() {
 
       // Por defecto, el solicitante es el usuario logueado (si tiene registro de
       // staff en esta agencia).
-      if (userInfo?.staffId && staffList.some((s: any) => s.id === userInfo.staffId)) {
-        setFormData((prev) => ({ ...prev, staff_id: userInfo.staffId as string }))
-      } else if (userInfo?.userId) {
-        const match = staffList.find((s: any) => s.user_id === userInfo.userId)
-        if (match) setFormData((prev) => ({ ...prev, staff_id: match.id }))
+      const ownStaffId =
+        userInfo?.staffId && staffList.some((s: any) => s.id === userInfo.staffId)
+          ? (userInfo.staffId as string)
+          : staffList.find((s: any) => s.user_id === userInfo?.userId)?.id || ""
+
+      if (ownStaffId) {
+        setFormData((prev) => ({ ...prev, staff_id: ownStaffId }))
       }
+      setHasOwnStaffRecord(Boolean(ownStaffId))
     } catch (error) {
       console.error("Error fetching initial data:", error)
     } finally {
@@ -193,33 +206,61 @@ export default function NewBonusPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Field>
-                <FieldLabel>Solicita el bono</FieldLabel>
-                <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2.5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                    <User className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">
-                      {currentUser?.fullName || "Usuario actual"}
-                    </p>
-                    {currentUser?.positionName && (
-                      <p className="truncate text-sm text-muted-foreground">
-                        {currentUser.positionName}
+              {hasOwnStaffRecord ? (
+                <Field>
+                  <FieldLabel>Solicita el bono</FieldLabel>
+                  <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <User className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">
+                        {currentUser?.fullName || "Usuario actual"}
                       </p>
-                    )}
+                      {currentUser?.positionName && (
+                        <p className="truncate text-sm text-muted-foreground">
+                          {currentUser.positionName}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <FieldDescription>
-                  El bono se solicita a tu nombre como usuario que ha iniciado sesión.
-                </FieldDescription>
-                {!formData.staff_id && (
+                  <FieldDescription>
+                    El bono se solicita a tu nombre como usuario que ha iniciado sesión.
+                  </FieldDescription>
+                </Field>
+              ) : currentUser?.isGlobalAccess ? (
+                <Field>
+                  <FieldLabel>Solicita el bono *</FieldLabel>
+                  <Select
+                    value={formData.staff_id}
+                    onValueChange={(v) => setFormData((prev) => ({ ...prev, staff_id: v }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona a la persona" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staff.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.first_name} {s.last_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>
+                    <User className="mr-1 inline h-3 w-3" />
+                    Como usuario global, selecciona a la persona de {selectedAgency?.name} que
+                    solicita el bono.
+                  </FieldDescription>
+                </Field>
+              ) : (
+                <Field>
+                  <FieldLabel>Solicita el bono</FieldLabel>
                   <p className="mt-1 text-sm text-destructive">
                     Tu usuario no tiene un registro de personal en esta agencia, por lo que no puedes
                     solicitar el bono aquí.
                   </p>
-                )}
-              </Field>
+                </Field>
+              )}
 
               <Field>
                 <FieldLabel>Nombre del curso *</FieldLabel>
