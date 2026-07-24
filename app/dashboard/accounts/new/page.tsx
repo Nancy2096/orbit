@@ -1040,7 +1040,9 @@ function handleServiceSelect(serviceId: string) {
                         <Field>
                           <FieldLabel>Total</FieldLabel>
                           <div className="h-9 flex items-center font-medium">
-                            ${service.final_price.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                            {service.currency_code === "USD"
+                              ? `USD $${service.final_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+                              : `MXN $${service.final_price.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`}
                           </div>
                         </Field>
                       </div>
