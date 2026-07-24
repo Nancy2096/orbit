@@ -533,23 +533,11 @@ async function fetchAgencyDepartments(agencyId: string) {
   }
 
   function handleServiceCurrencyChange(serviceId: string, currency: "MXN" | "USD") {
-    const service = services.find(s => s.id === serviceId)
-    if (!service) return
-    
-    const newUnitPrice = currency === "USD" 
-      ? (service.base_price_usd || 0) 
-      : service.base_price
-
+    // Solo cambia la etiqueta de moneda. NO convertimos ni sobrescribimos el
+    // monto: el precio capturado es el monto real y se mantiene tal cual.
     setContractedServices(contractedServices.map(s => {
       if (s.service_id !== serviceId) return s
-      const discountAmount = (newUnitPrice * s.quantity * s.discount_percentage) / 100
-      return {
-        ...s,
-        currency_code: currency,
-        unit_price: newUnitPrice,
-        discount_amount: discountAmount,
-        final_price: Math.max(0, (newUnitPrice * s.quantity) - discountAmount)
-      }
+      return { ...s, currency_code: currency }
     }))
   }
 
@@ -587,9 +575,16 @@ async function fetchAgencyDepartments(agencyId: string) {
   }
 
   function getTotalContractedAmount() {
-    return contractedServices
-      .filter(s => !s.is_deleted)
+    // Sumamos por moneda sin ninguna conversión: el total de pesos y el total
+    // de dólares se muestran por separado.
+    const activeServices = contractedServices.filter(s => !s.is_deleted)
+    const totalMXN = activeServices
+      .filter(s => (s.currency_code || "MXN") === "MXN")
       .reduce((sum, s) => sum + s.final_price, 0)
+    const totalUSD = activeServices
+      .filter(s => s.currency_code === "USD")
+      .reduce((sum, s) => sum + s.final_price, 0)
+    return { totalMXN, totalUSD }
   }
 
   function addTeamMember(departmentId: string) {
@@ -1302,11 +1297,21 @@ setClients([])
                     </div>
                   ))}
                   <div className="flex justify-end p-4 bg-muted rounded-lg">
-                    <div className="text-right">
+                    <div className="text-right space-y-1">
                       <p className="text-sm text-muted-foreground">Total contratado</p>
-                      <p className="text-2xl font-bold">
-                        ${getTotalContractedAmount().toLocaleString("es-MX", { minimumFractionDigits: 2 })}
-                      </p>
+                      {getTotalContractedAmount().totalMXN > 0 && (
+                        <p className="text-2xl font-bold">
+                          MXN ${getTotalContractedAmount().totalMXN.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                        </p>
+                      )}
+                      {getTotalContractedAmount().totalUSD > 0 && (
+                        <p className="text-2xl font-bold">
+                          USD ${getTotalContractedAmount().totalUSD.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </p>
+                      )}
+                      {getTotalContractedAmount().totalMXN === 0 && getTotalContractedAmount().totalUSD === 0 && (
+                        <p className="text-2xl font-bold">$0.00</p>
+                      )}
                     </div>
                   </div>
                 </div>
