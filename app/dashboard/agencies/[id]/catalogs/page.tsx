@@ -102,6 +102,15 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   })
   const [savingBonus, setSavingBonus] = useState(false)
 
+  // Scope / propagación: los catálogos de Bonos y Fuentes deben ser iguales en
+  // todas las agencias. Tras cada cambio se pregunta si aplica a todas o solo a
+  // esta, replicando el patrón de "configurar" de la agencia.
+  const [otherAgencies, setOtherAgencies] = useState<{ id: string; name: string }[]>([])
+  const [scopeDialogOpen, setScopeDialogOpen] = useState(false)
+  const [scopeMode, setScopeMode] = useState<"all" | "selected">("all")
+  const [scopeSelectedIds, setScopeSelectedIds] = useState<string[]>([])
+  const [propagating, setPropagating] = useState(false)
+
   useEffect(() => {
     fetchData()
   }, [id])
@@ -109,19 +118,57 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   async function fetchData() {
     setLoading(true)
 
-    const [agencyRes, industriesRes, sourcesRes, bonusTypesRes] = await Promise.all([
+    const [agencyRes, industriesRes, sourcesRes, bonusTypesRes, otherAgenciesRes] = await Promise.all([
       supabase.from("agencies").select("id, name").eq("id", id).single(),
       supabase.from("industries").select("*").eq("agency_id", id).order("name"),
       supabase.from("referral_sources").select("*").eq("agency_id", id).order("name"),
       supabase.from("bonus_types").select("*").eq("agency_id", id).order("name"),
+      supabase.from("agencies").select("id, name").neq("id", id).order("name"),
     ])
 
     if (agencyRes.data) setAgency(agencyRes.data)
     if (industriesRes.data) setIndustries(industriesRes.data)
     if (sourcesRes.data) setReferralSources(sourcesRes.data)
     if (bonusTypesRes.data) setBonusTypes(bonusTypesRes.data)
+    if (otherAgenciesRes.data) setOtherAgencies(otherAgenciesRes.data)
 
     setLoading(false)
+  }
+
+  // Abre el diálogo de alcance tras un cambio en Bonos o Fuentes. Si no hay
+  // otras agencias, no hay nada que propagar.
+  function promptScope() {
+    if (otherAgencies.length === 0) return
+    setScopeMode("all")
+    setScopeSelectedIds([])
+    setScopeDialogOpen(true)
+  }
+
+  // Propaga los catálogos (Bonos y Fuentes) de esta agencia a las demás,
+  // dejándolas idénticas mediante el RPC sync_agency_catalogs.
+  async function applyScope() {
+    const targets =
+      scopeMode === "all" ? otherAgencies.map((a) => a.id) : scopeSelectedIds
+    if (targets.length === 0) {
+      setScopeDialogOpen(false)
+      return
+    }
+    setPropagating(true)
+    for (const targetId of targets) {
+      const { error } = await supabase.rpc("sync_agency_catalogs", {
+        p_source: id,
+        p_target: targetId,
+      })
+      if (error) console.error("[v0] sync_agency_catalogs error:", error.message)
+    }
+    setPropagating(false)
+    setScopeDialogOpen(false)
+  }
+
+  function toggleScopeAgency(agencyId: string) {
+    setScopeSelectedIds((prev) =>
+      prev.includes(agencyId) ? prev.filter((a) => a !== agencyId) : [...prev, agencyId]
+    )
   }
 
   // Industry handlers
@@ -214,7 +261,8 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
 
     setSavingSource(false)
     setSourceDialogOpen(false)
-    fetchData()
+    await fetchData()
+    promptScope()
   }
 
   // Bonus type handlers
@@ -283,7 +331,8 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
 
     setSavingBonus(false)
     setBonusDialogOpen(false)
-    fetchData()
+    await fetchData()
+    promptScope()
   }
 
   async function deleteBonus(bonus: BonusType) {
@@ -293,7 +342,8 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
       alert("No se pudo eliminar el tipo de bono.")
       return
     }
-    fetchData()
+    await fetchData()
+    promptScope()
   }
 
   if (loading) {
@@ -841,6 +891,96 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={scopeDialogOpen} onOpenChange={(open) => !propagating && setScopeDialogOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿A qué agencias aplica este cambio?</DialogTitle>
+            <DialogDescription>
+              Los catálogos de Bonos y Fuentes/Referencias deben mantenerse iguales entre agencias.
+              Elige si este cambio se aplica a todas o solo a algunas.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <button
+              type="button"
+              onClick={() => setScopeMode("all")}
+              className={`flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
+                scopeMode === "all" ? "border-primary bg-primary/5" : "border-input hover:bg-muted"
+              }`}
+            >
+              <span
+                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                  scopeMode === "all" ? "border-primary" : "border-muted-foreground"
+                }`}
+              >
+                {scopeMode === "all" && <span className="h-2 w-2 rounded-full bg-primary" />}
+              </span>
+              <span>
+                <span className="block font-medium">Todas las agencias</span>
+                <span className="block text-sm text-muted-foreground">
+                  Aplica este cambio a las {otherAgencies.length} agencia(s) restante(s).
+                </span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setScopeMode("selected")}
+              className={`flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
+                scopeMode === "selected" ? "border-primary bg-primary/5" : "border-input hover:bg-muted"
+              }`}
+            >
+              <span
+                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                  scopeMode === "selected" ? "border-primary" : "border-muted-foreground"
+                }`}
+              >
+                {scopeMode === "selected" && <span className="h-2 w-2 rounded-full bg-primary" />}
+              </span>
+              <span>
+                <span className="block font-medium">Solo agencias específicas</span>
+                <span className="block text-sm text-muted-foreground">
+                  Selecciona manualmente a qué agencias aplicar.
+                </span>
+              </span>
+            </button>
+
+            {scopeMode === "selected" && (
+              <div className="space-y-2 rounded-lg border p-3">
+                {otherAgencies.map((a) => (
+                  <label key={a.id} className="flex cursor-pointer items-center gap-3 text-sm">
+                    <Switch
+                      checked={scopeSelectedIds.includes(a.id)}
+                      onCheckedChange={() => toggleScopeAgency(a.id)}
+                    />
+                    {a.name}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setScopeDialogOpen(false)}
+              disabled={propagating}
+            >
+              Solo esta agencia
+            </Button>
+            <Button
+              type="button"
+              onClick={applyScope}
+              disabled={propagating || (scopeMode === "selected" && scopeSelectedIds.length === 0)}
+            >
+              {propagating ? "Aplicando..." : "Aplicar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
