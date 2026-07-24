@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { ArrowLeft, Building2, Plus, Trash2, Landmark, Coins, Users, Briefcase, Pencil, BadgePercent, Clock, Palette, Upload, Image as ImageIcon, Bell, Mail, Smartphone, Monitor, Palmtree, Award, Trophy, Medal, Handshake, Heart, Target, Lightbulb, Compass, GraduationCap, Rocket, MessageCircle, Flag, Zap, ArrowRightLeft } from "lucide-react"
+import { ArrowLeft, Building2, Plus, Trash2, Landmark, Coins, Users, Briefcase, Pencil, BadgePercent, Clock, Palette, Upload, Image as ImageIcon, Bell, Mail, Smartphone, Monitor, Palmtree, Award, Trophy, Medal, Handshake, Heart, Target, Lightbulb, Compass, GraduationCap, Rocket, MessageCircle, Flag, Zap, ArrowRightLeft, Gift } from "lucide-react"
 import Link from "next/link"
 
 interface Currency {
@@ -170,6 +170,16 @@ interface RecognitionSettings {
   min_redemption_points: number
 }
 
+interface RecognitionReward {
+  id: string
+  agency_id: string
+  name: string
+  description: string | null
+  points_cost: number
+  is_active: boolean
+  isNew?: boolean
+}
+
 // Formatea un costo por hora de ejemplo (salario ÷ horas) en pesos.
 function formatCurrencyExample(salary: number, hours: number) {
   const perHour = hours > 0 ? salary / hours : 0
@@ -298,6 +308,10 @@ const [positions, setPositions] = useState<Position[]>([])
   const [editingCategory, setEditingCategory] = useState<RecognitionCategory | null>(null)
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [deletedCategories, setDeletedCategories] = useState<string[]>([])
+  const [recognitionRewards, setRecognitionRewards] = useState<RecognitionReward[]>([])
+  const [editingReward, setEditingReward] = useState<RecognitionReward | null>(null)
+  const [rewardDialogOpen, setRewardDialogOpen] = useState(false)
+  const [deletedRewards, setDeletedRewards] = useState<string[]>([])
 
   // Alcance de aplicación de cambios de configuración unificada
   // (monedas, bancos, departamentos, puestos, contratos, permisos, reconocimientos, horas)
@@ -583,6 +597,17 @@ const [positions, setPositions] = useState<Position[]>([])
       
       if (recCategoriesData) {
         setRecognitionCategories(recCategoriesData)
+      }
+
+      // Load recognition rewards (catálogo de recompensas canjeables) for agency
+      const { data: recRewardsData } = await supabase
+        .from("recognition_rewards")
+        .select("*")
+        .eq("agency_id", id)
+        .order("points_cost")
+
+      if (recRewardsData) {
+        setRecognitionRewards(recRewardsData)
       }
 
       // Cargar todas las agencias activas para el diálogo de alcance
@@ -1042,6 +1067,46 @@ const [positions, setPositions] = useState<Position[]>([])
     setRecognitionCategories(prev => prev.filter(c => c.id !== categoryId))
   }
 
+  const openRewardDialog = (reward?: RecognitionReward) => {
+    if (reward) {
+      setEditingReward(reward)
+    } else {
+      setEditingReward({
+        id: `new-${Date.now()}`,
+        agency_id: id,
+        name: "",
+        description: null,
+        points_cost: 50,
+        is_active: true,
+        isNew: true,
+      })
+    }
+    setRewardDialogOpen(true)
+  }
+
+  const saveReward = () => {
+    if (!editingReward || !editingReward.name.trim()) return
+
+    setRecognitionRewards(prev => {
+      const existing = prev.find(r => r.id === editingReward.id)
+      if (existing) {
+        return prev.map(r => r.id === editingReward.id ? editingReward : r)
+      } else {
+        return [...prev, editingReward]
+      }
+    })
+    setRewardDialogOpen(false)
+    setEditingReward(null)
+  }
+
+  const removeReward = (rewardId: string) => {
+    const reward = recognitionRewards.find(r => r.id === rewardId)
+    if (reward && !reward.isNew) {
+      setDeletedRewards(prev => [...prev, rewardId])
+    }
+    setRecognitionRewards(prev => prev.filter(r => r.id !== rewardId))
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     // Si hay más de una agencia, preguntar el alcance antes de guardar,
@@ -1438,6 +1503,32 @@ const [positions, setPositions] = useState<Position[]>([])
             is_active: cat.is_active,
             updated_at: new Date().toISOString(),
           }).eq("id", cat.id)
+        }
+      }
+
+      // Delete removed recognition rewards
+      if (deletedRewards.length > 0) {
+        await supabase.from("recognition_rewards").delete().in("id", deletedRewards)
+      }
+
+      // Save recognition rewards (catálogo de recompensas canjeables)
+      for (const reward of recognitionRewards) {
+        if (reward.isNew) {
+          await supabase.from("recognition_rewards").insert({
+            agency_id: id,
+            name: reward.name,
+            description: reward.description || null,
+            points_cost: reward.points_cost,
+            is_active: reward.is_active,
+          })
+        } else {
+          await supabase.from("recognition_rewards").update({
+            name: reward.name,
+            description: reward.description || null,
+            points_cost: reward.points_cost,
+            is_active: reward.is_active,
+            updated_at: new Date().toISOString(),
+          }).eq("id", reward.id)
         }
       }
   
@@ -3373,6 +3464,78 @@ const [positions, setPositions] = useState<Position[]>([])
                     )}
                   </CardContent>
                 </Card>
+
+                {/* Rewards Card */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle>Recompensas</CardTitle>
+                      <CardDescription>
+                        Define las recompensas que el personal puede canjear con sus puntos
+                      </CardDescription>
+                    </div>
+                    <Button type="button" onClick={() => openRewardDialog()}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Nueva Recompensa
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    {recognitionRewards.length === 0 ? (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <Gift className="mx-auto h-12 w-12 mb-4 opacity-30" />
+                        <p className="font-medium">No hay recompensas configuradas</p>
+                        <p className="text-sm mt-1">Agrega recompensas como Día libre, Tarjeta de regalo, Bono, etc.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {recognitionRewards.map((reward) => (
+                          <div
+                            key={reward.id}
+                            className="flex items-start gap-4 p-4 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors"
+                          >
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-primary/10">
+                              <Gift className="h-5 w-5 text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <span className="font-semibold">{reward.name}</span>
+                                <Badge variant="outline" className="text-xs font-medium">
+                                  {reward.points_cost} puntos
+                                </Badge>
+                                <Badge variant={reward.is_active ? "default" : "secondary"} className="text-xs">
+                                  {reward.is_active ? "Activo" : "Inactivo"}
+                                </Badge>
+                              </div>
+                              {reward.description && (
+                                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
+                                  {reward.description}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openRewardDialog(reward)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeReward(reward.id)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             </TabsContent>
           </Tabs>
@@ -4122,6 +4285,69 @@ const [positions, setPositions] = useState<Position[]>([])
               Cancelar
             </Button>
             <Button type="button" onClick={saveCategory}>
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rewardDialogOpen} onOpenChange={setRewardDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {editingReward?.isNew ? "Nueva Recompensa" : "Editar Recompensa"}
+            </DialogTitle>
+            <DialogDescription>
+              Define las características de la recompensa canjeable
+            </DialogDescription>
+          </DialogHeader>
+          {editingReward && (
+            <div className="space-y-4 py-4">
+              <Field>
+                <FieldLabel>Nombre *</FieldLabel>
+                <Input
+                  value={editingReward.name}
+                  onChange={(e) => setEditingReward({ ...editingReward, name: e.target.value })}
+                  placeholder="Ej: Día libre, Tarjeta de regalo, Bono"
+                />
+              </Field>
+              <Field>
+                <FieldLabel>Descripción</FieldLabel>
+                <Textarea
+                  value={editingReward.description || ""}
+                  onChange={(e) => setEditingReward({ ...editingReward, description: e.target.value })}
+                  placeholder="Describe en qué consiste la recompensa"
+                  rows={3}
+                  className="resize-y min-h-[80px]"
+                />
+              </Field>
+              <Field>
+                <FieldLabel>Costo en Puntos</FieldLabel>
+                <Input
+                  type="number"
+                  min={0}
+                  value={editingReward.points_cost}
+                  onChange={(e) => setEditingReward({ ...editingReward, points_cost: parseInt(e.target.value) || 0 })}
+                />
+                <p className="text-xs text-muted-foreground mt-1">Puntos que el colaborador debe canjear para obtenerla</p>
+              </Field>
+              <div className="flex items-center gap-3 p-3 border rounded-lg">
+                <Switch
+                  checked={editingReward.is_active}
+                  onCheckedChange={(checked) => setEditingReward({ ...editingReward, is_active: checked })}
+                />
+                <div>
+                  <FieldLabel className="!mb-0">Activo</FieldLabel>
+                  <p className="text-xs text-muted-foreground">Disponible para canjear por el personal</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRewardDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={saveReward}>
               Guardar
             </Button>
           </DialogFooter>

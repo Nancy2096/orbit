@@ -188,6 +188,14 @@ export default function EditAccountPage({ params }: { params: Promise<{ id: stri
         notes: a.notes || "",
       })
 
+      // La moneda guardada de la cuenta es la fuente de verdad del selector.
+      // Así, lo que el usuario guardó (USD o MXN) se refleja tal cual y no se
+      // recalcula a partir de los servicios.
+      const savedCurrencyCode = currenciesRes.data?.find((c: any) => c.id === a.retainer_currency_id)?.code
+      if (savedCurrencyCode === "USD" || savedCurrencyCode === "MXN") {
+        setSelectedServiceCurrency(savedCurrencyCode)
+      }
+
       // Cargar el historial de cotizaciones
       await fetchQuotations()
 
@@ -199,7 +207,7 @@ await Promise.all([
   fetchAgencyStaff(a.agency_id),
   fetchAgencyDepartments(a.agency_id),
   fetchAgencyBankAccounts(a.agency_id),
-  fetchContractedServices(),
+  fetchContractedServices(!a.retainer_currency_id),
   fetchTeamMembers(),
   fetchCommissions(a.account_manager_id, a.sales_advisor_id),
   ])
@@ -435,7 +443,7 @@ async function fetchAgencyDepartments(agencyId: string) {
     setCommissions(Array.from(commissionsMap.values()))
   }
 
-  async function fetchContractedServices() {
+  async function fetchContractedServices(syncCurrencyFromServices: boolean = true) {
     const { data } = await supabase
       .from("account_services")
       .select(`
@@ -476,11 +484,14 @@ async function fetchAgencyDepartments(agencyId: string) {
         is_deleted: false,
       }))
       setContractedServices(mapped)
-      // Sincroniza el selector de moneda de la cuenta con la moneda guardada.
-      if (mapped.some((m) => m.currency_code === "USD") && mapped.every((m) => m.currency_code === "USD")) {
-        setSelectedServiceCurrency("USD")
-      } else if (mapped.length > 0 && mapped.every((m) => m.currency_code === "MXN")) {
-        setSelectedServiceCurrency("MXN")
+      // Solo como respaldo para cuentas sin moneda guardada: deducir el selector
+      // a partir de los servicios. Si la cuenta ya tiene moneda, esa manda.
+      if (syncCurrencyFromServices) {
+        if (mapped.length > 0 && mapped.every((m) => m.currency_code === "USD")) {
+          setSelectedServiceCurrency("USD")
+        } else if (mapped.length > 0 && mapped.every((m) => m.currency_code === "MXN")) {
+          setSelectedServiceCurrency("MXN")
+        }
       }
     }
   }
@@ -509,6 +520,16 @@ async function fetchAgencyDepartments(agencyId: string) {
       notes: "",
       is_new: true,
     }])
+  }
+
+  // Cambia la moneda de la cuenta desde el selector principal. Propaga la
+  // moneda a todos los servicios existentes conservando los importes ya
+  // capturados (no recalculamos precios para no modificar lo guardado).
+  function handleAccountCurrencyChange(currency: "MXN" | "USD") {
+    setSelectedServiceCurrency(currency)
+    setContractedServices((prev) =>
+      prev.map((s) => (s.is_deleted ? s : { ...s, currency_code: currency }))
+    )
   }
 
   function handleServiceCurrencyChange(serviceId: string, currency: "MXN" | "USD") {
@@ -644,12 +665,13 @@ async function fetchAgencyDepartments(agencyId: string) {
     setError(null)
     setLoading(true)
 
-    // La moneda de la cuenta se define con el selector de moneda de los
-    // servicios (MXN/USD). Mapeamos ese código a su id en la tabla currencies
-    // para persistir retainer_currency_id, que es lo que muestra la lista.
+    // La moneda de la cuenta se define con el selector principal (MXN/USD) que
+    // el usuario ve y elige. Su selección manda: mapeamos ese código a su id en
+    // currencies para persistir retainer_currency_id (lo que muestra la lista).
+    // Así, si el usuario elige USD, se guarda USD y no revierte a MXN.
     const resolvedCurrencyId =
-      formData.retainer_currency_id ||
       currencies.find((c) => c.code === selectedServiceCurrency)?.id ||
+      formData.retainer_currency_id ||
       null
 
     // Update account
@@ -1148,7 +1170,7 @@ setClients([])
                 <div className="flex items-center gap-2">
                   <Select
                     value={selectedServiceCurrency}
-                    onValueChange={(value: "MXN" | "USD") => setSelectedServiceCurrency(value)}
+                    onValueChange={(value: "MXN" | "USD") => handleAccountCurrencyChange(value)}
                   >
                     <SelectTrigger className="w-[100px]">
                       <SelectValue />
