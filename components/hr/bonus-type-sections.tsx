@@ -23,9 +23,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Field, FieldLabel } from "@/components/ui/field"
-import { ScrollText, Pencil, Save, X, HandCoins, ArrowRight } from "lucide-react"
+import { ScrollText, Pencil, Save, X, HandCoins, ArrowRight, CalendarClock, Lock } from "lucide-react"
 import { toast } from "sonner"
 import { BONUS_STAGES, getCurrentUserInfo, canManageBonusPolicy, type CurrentUserInfo } from "@/lib/bonus-workflow"
+import {
+  describeAvailableMonths,
+  describeLimit,
+  isMonthAvailable,
+  getPeriodRange,
+  getPeriodLabel,
+} from "@/lib/bonus-availability"
 
 interface BonusType {
   id: string
@@ -33,6 +40,9 @@ interface BonusType {
   description: string | null
   benefit_type: string
   benefit_value: number
+  available_months: number[]
+  limit_period: string
+  limit_count: number
 }
 
 interface StaffMember {
@@ -112,7 +122,7 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
       const [typesRes, staffRes, userInfo] = await Promise.all([
         supabase
           .from("bonus_types")
-          .select("id, name, description, benefit_type, benefit_value")
+          .select("id, name, description, benefit_type, benefit_value, available_months, limit_period, limit_count")
           .eq("agency_id", agencyId)
           .eq("is_active", true),
         supabase
@@ -203,12 +213,62 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
     }
   }
 
+  // Verifica que el bono esté habilitado este mes y que el colaborador no haya
+  // superado el número de veces permitido en el periodo configurado.
+  async function checkEligibility(staffId: string): Promise<{ ok: boolean; reason?: string }> {
+    if (!bonusType) return { ok: false, reason: "Bono no disponible" }
+
+    if (!isMonthAvailable(bonusType.available_months)) {
+      return {
+        ok: false,
+        reason: `Este bono solo está habilitado en ciertos meses. ${describeAvailableMonths(bonusType.available_months)}.`,
+      }
+    }
+
+    const range = getPeriodRange(bonusType.limit_period)
+    if (range && bonusType.limit_count > 0) {
+      const { count, error } = await supabase
+        .from("bonuses")
+        .select("id", { count: "exact", head: true })
+        .eq("agency_id", agencyId)
+        .eq("staff_id", staffId)
+        .eq("bonus_type_id", bonusType.id)
+        .neq("status", "rejected")
+        .gte("created_at", range.start.toISOString())
+        .lt("created_at", range.end.toISOString())
+
+      if (error) {
+        console.error("Error checking bonus usage:", error)
+        return { ok: false, reason: "No se pudo validar la disponibilidad del bono" }
+      }
+
+      if ((count ?? 0) >= bonusType.limit_count) {
+        const noun = getPeriodLabel(bonusType.limit_period)
+        return {
+          ok: false,
+          reason: `Este colaborador ya alcanzó el límite de ${bonusType.limit_count} ${
+            bonusType.limit_count === 1 ? "vez" : "veces"
+          } por ${noun}. Estará disponible nuevamente en el siguiente ${noun}.`,
+        }
+      }
+    }
+
+    return { ok: true }
+  }
+
   async function submitRequest() {
     if (!bonusType) return
     if (!requestStaffId) return toast.error("Selecciona quién solicita el bono")
 
     setSubmitting(true)
     try {
+      const eligibility = await checkEligibility(requestStaffId)
+      if (!eligibility.ok) {
+        toast.error(eligibility.reason || "El bono no está disponible")
+        setSubmitting(false)
+        return
+      }
+
       const member = staff.find((s) => s.id === requestStaffId) || null
       const amount = computeAmount(bonusType, member)
 
@@ -261,6 +321,8 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
   }
 
   const requestMember = staff.find((s) => s.id === requestStaffId) || null
+  const availableThisMonth = isMonthAvailable(bonusType.available_months)
+  const hasMonthRestriction = (bonusType.available_months?.length ?? 0) > 0 && bonusType.available_months.length < 12
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -352,6 +414,23 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
             )}
           </div>
 
+          <div className="flex flex-col gap-2 rounded-lg border border-dashed p-3 text-sm">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <CalendarClock className="h-4 w-4 shrink-0" />
+              <span>{describeAvailableMonths(bonusType.available_months)}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Lock className="h-4 w-4 shrink-0" />
+              <span>{describeLimit(bonusType.limit_period, bonusType.limit_count)}</span>
+            </div>
+          </div>
+
+          {hasMonthRestriction && !availableThisMonth && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+              Este bono no está habilitado este mes. {describeAvailableMonths(bonusType.available_months)}.
+            </div>
+          )}
+
           {requestMode === "flow" ? (
             <>
               <p className="text-sm text-muted-foreground">
@@ -359,7 +438,10 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
                 autorización, evidencias (certificado, presentación y videollamada) y autorización de
                 pago.
               </p>
-              <Button onClick={() => router.push("/dashboard/hr/bonuses/new")}>
+              <Button
+                onClick={() => router.push("/dashboard/hr/bonuses/new")}
+                disabled={!availableThisMonth}
+              >
                 Solicitar por capacitación
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
@@ -370,7 +452,7 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
                 Al solicitar, se creará el bono a nombre del solicitante y quedará pendiente de
                 autorización de tu jefe o dirección.
               </p>
-              <Button onClick={() => setDialogOpen(true)}>
+              <Button onClick={() => setDialogOpen(true)} disabled={!availableThisMonth}>
                 <HandCoins className="mr-2 h-4 w-4" />
                 Solicitar el bono
               </Button>

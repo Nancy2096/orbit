@@ -15,6 +15,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift, Trash2 } from "lucide-react"
 import Link from "next/link"
+import {
+  MONTH_OPTIONS,
+  LIMIT_PERIOD_OPTIONS,
+  describeAvailableMonths,
+  describeLimit,
+} from "@/lib/bonus-availability"
 
 const supabase = createClient()
 
@@ -40,6 +46,9 @@ interface BonusType {
   benefit_type: string
   benefit_value: number
   is_active: boolean
+  available_months: number[]
+  limit_period: string
+  limit_count: number
 }
 
 const benefitTypeLabels: Record<string, string> = {
@@ -87,6 +96,9 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
     benefit_type: "money",
     benefit_value: "",
     is_active: true,
+    available_months: [] as number[],
+    limit_period: "none",
+    limit_count: "1",
   })
   const [savingBonus, setSavingBonus] = useState(false)
 
@@ -208,7 +220,16 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   // Bonus type handlers
   function openNewBonus() {
     setEditingBonus(null)
-    setBonusForm({ name: "", description: "", benefit_type: "money", benefit_value: "", is_active: true })
+    setBonusForm({
+      name: "",
+      description: "",
+      benefit_type: "money",
+      benefit_value: "",
+      is_active: true,
+      available_months: [],
+      limit_period: "none",
+      limit_count: "1",
+    })
     setBonusDialogOpen(true)
   }
 
@@ -220,8 +241,20 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
       benefit_type: bonus.benefit_type || "money",
       benefit_value: bonus.benefit_value != null ? String(bonus.benefit_value) : "",
       is_active: bonus.is_active,
+      available_months: bonus.available_months || [],
+      limit_period: bonus.limit_period || "none",
+      limit_count: bonus.limit_count != null ? String(bonus.limit_count) : "1",
     })
     setBonusDialogOpen(true)
+  }
+
+  function toggleBonusMonth(month: number) {
+    setBonusForm((prev) => ({
+      ...prev,
+      available_months: prev.available_months.includes(month)
+        ? prev.available_months.filter((m) => m !== month)
+        : [...prev.available_months, month].sort((a, b) => a - b),
+    }))
   }
 
   async function saveBonus() {
@@ -234,6 +267,9 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
       benefit_type: bonusForm.benefit_type,
       benefit_value: Number.parseFloat(bonusForm.benefit_value) || 0,
       is_active: bonusForm.is_active,
+      available_months: bonusForm.available_months,
+      limit_period: bonusForm.limit_period,
+      limit_count: bonusForm.limit_period === "none" ? 0 : Math.max(1, Number.parseInt(bonusForm.limit_count) || 1),
     }
 
     if (editingBonus) {
@@ -635,6 +671,84 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                         onCheckedChange={(checked) => setBonusForm({ ...bonusForm, is_active: checked })}
                       />
                     </div>
+
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <div>
+                        <FieldLabel className="!mb-1">Disponibilidad por mes</FieldLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Selecciona los meses en que este bono se habilita. Si no eliges ninguno, estará disponible todo el año.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {MONTH_OPTIONS.map((m) => {
+                          const selected = bonusForm.available_months.includes(m.value)
+                          return (
+                            <button
+                              type="button"
+                              key={m.value}
+                              onClick={() => toggleBonusMonth(m.value)}
+                              className={`rounded-md border px-2 py-1.5 text-sm transition-colors ${
+                                selected
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-input bg-background hover:bg-muted"
+                              }`}
+                              aria-pressed={selected}
+                            >
+                              {m.short}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-3">
+                      <div>
+                        <FieldLabel className="!mb-1">Límite de uso por colaborador</FieldLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Controla cuántas veces un colaborador puede recibir este bono en cada periodo, para que no se genere de forma continua.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field>
+                          <FieldLabel htmlFor="limit_period">Periodo</FieldLabel>
+                          <Select
+                            value={bonusForm.limit_period}
+                            onValueChange={(value) => setBonusForm({ ...bonusForm, limit_period: value })}
+                          >
+                            <SelectTrigger id="limit_period">
+                              <SelectValue placeholder="Selecciona" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {LIMIT_PERIOD_OPTIONS.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field>
+                          <FieldLabel htmlFor="limit_count">Veces permitidas</FieldLabel>
+                          <Input
+                            id="limit_count"
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={bonusForm.limit_count}
+                            disabled={bonusForm.limit_period === "none"}
+                            onChange={(e) => setBonusForm({ ...bonusForm, limit_count: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {describeLimit(
+                          bonusForm.limit_period,
+                          Number.parseInt(bonusForm.limit_count) || 1,
+                        )}
+                        {". "}
+                        {describeAvailableMonths(bonusForm.available_months)}.
+                      </p>
+                    </div>
                   </FieldGroup>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setBonusDialogOpen(false)}>
@@ -657,8 +771,8 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nombre</TableHead>
-                      <TableHead>Descripción</TableHead>
                       <TableHead>Beneficio</TableHead>
+                      <TableHead>Disponibilidad y límite</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="w-[100px]">Acciones</TableHead>
                     </TableRow>
@@ -666,9 +780,13 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                   <TableBody>
                     {bonusTypes.map((bonus) => (
                       <TableRow key={bonus.id}>
-                        <TableCell className="font-medium">{bonus.name}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {bonus.description || "-"}
+                        <TableCell className="font-medium">
+                          <div className="flex flex-col">
+                            <span>{bonus.name}</span>
+                            {bonus.description && (
+                              <span className="text-xs text-muted-foreground">{bonus.description}</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col">
@@ -679,6 +797,16 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                                 : bonus.benefit_type === "salary_days"
                                   ? `${bonus.benefit_value} día(s) de sueldo`
                                   : `${bonus.benefit_value} día(s) libre(s)`}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1 text-xs">
+                            <span className="text-muted-foreground">
+                              {describeAvailableMonths(bonus.available_months)}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {describeLimit(bonus.limit_period, bonus.limit_count)}
                             </span>
                           </div>
                         </TableCell>
