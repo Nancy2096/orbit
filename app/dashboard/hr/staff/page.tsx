@@ -30,7 +30,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { StaffAvatar } from "@/components/staff-avatar"
 import { ProfileCompletionBar } from "@/components/hr/profile-completion"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Users, Shield, CircleDot } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Users, Shield, CircleDot, ChevronDown, ChevronRight } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   DropdownMenuSeparator,
@@ -159,6 +159,9 @@ export default function StaffPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [canManageRoles, setCanManageRoles] = useState(false)
+  // Controla si se muestra la lista de colaboradores con otros estados
+  // (baja, inactivo, suspendido). Por defecto está colapsada.
+  const [showOthers, setShowOthers] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -392,6 +395,18 @@ export default function StaffPage() {
     return true
   })
 
+  // Cuando no se filtra por un estado específico, la lista principal muestra
+  // solo a los activos y el resto (baja, inactivo, suspendido) se agrupa en una
+  // lista secundaria colapsable. Si el usuario elige un estado concreto en el
+  // filtro, se respeta esa selección y no se separan las listas.
+  const isDefaultStatusView = selectedStatus === "all"
+  const activeStaff = isDefaultStatusView
+    ? filteredStaff.filter((s) => (s.employment_status || "active") === "active")
+    : filteredStaff
+  const otherStaff = isDefaultStatusView
+    ? filteredStaff.filter((s) => (s.employment_status || "active") !== "active")
+    : []
+
   // Filter departments based on selected agency.
   // Departments repeat across agencies (same name, different id), so we
   // dedupe by name to show each department only once.
@@ -403,6 +418,163 @@ export default function StaffPage() {
   const filteredDepartments = Array.from(
     new Map(agencyDepartments.map((d) => [d.name, d])).values(),
   ).sort((a, b) => a.name.localeCompare(b.name))
+
+  function renderStaffTable(members: Staff[]) {
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Agencia</TableHead>
+            <TableHead>Nombre</TableHead>
+            <TableHead>Departamento</TableHead>
+            <TableHead>Puesto</TableHead>
+            <TableHead>Jefe Inmediato</TableHead>
+            <TableHead>Perfil</TableHead>
+            <TableHead>Estado</TableHead>
+            <TableHead className="w-12"></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {members.map((member) => (
+            <TableRow key={member.id}>
+              <TableCell>
+                <span className="text-sm">
+                  {member.agency?.name || <span className="text-primary font-medium">Global</span>}
+                </span>
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-3">
+                  <StaffAvatar
+                    photoUrl={member.photo_url}
+                    firstName={member.first_name}
+                    lastName={member.last_name}
+                    className="h-10 w-10"
+                    fallbackClassName="text-sm"
+                  />
+                  <div>
+                    <Link
+                      href={`/dashboard/hr/staff/${member.id}`}
+                      className="font-medium hover:text-primary hover:underline underline-offset-4 transition-colors"
+                      title="Editar miembro"
+                    >
+                      {member.first_name} {member.last_name}
+                    </Link>
+                    {member.employee_code && (
+                      <div className="text-xs text-muted-foreground">
+                        {member.employee_code}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </TableCell>
+              <TableCell>
+                <span className="text-sm">
+                  {member.department_info?.name || member.department || <span className="text-muted-foreground">Sin departamento</span>}
+                </span>
+              </TableCell>
+              <TableCell>
+                <span className="text-sm font-medium">
+                  {member.position_info?.name || member.position || <span className="text-muted-foreground">Sin puesto</span>}
+                </span>
+              </TableCell>
+              <TableCell>
+                {member.manager ? (
+                  <span className="text-sm">
+                    {member.manager.first_name} {member.manager.last_name}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground text-sm">Sin jefe asignado</span>
+                )}
+              </TableCell>
+              <TableCell>
+                <ProfileCompletionBar staff={member} />
+              </TableCell>
+              <TableCell>
+                {(() => {
+                  const st = getEmploymentStatus(member.employment_status)
+                  return <Badge variant={st.badgeVariant}>{st.label}</Badge>
+                })()}
+              </TableCell>
+              <TableCell>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem asChild>
+                      <Link href={`/dashboard/hr/staff/${member.id}`}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Editar
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <CircleDot className="mr-2 h-4 w-4" />
+                        Cambiar estado
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="max-w-xs">
+                          <DropdownMenuLabel>Estado del empleado</DropdownMenuLabel>
+                          {EMPLOYMENT_STATUSES.map((st) => (
+                            <DropdownMenuItem
+                              key={st.value}
+                              onClick={() => handleStatusChange(member.id, st.value)}
+                              className="flex-col items-start gap-0.5"
+                            >
+                              <span className="flex items-center gap-2 font-medium">
+                                {st.label}
+                                {member.employment_status === st.value && (
+                                  <Badge variant="outline" className="text-[10px] py-0">
+                                    Actual
+                                  </Badge>
+                                )}
+                              </span>
+                              <span className="text-xs text-muted-foreground whitespace-normal">
+                                {st.description}
+                              </span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                    {canManageRoles && (
+                      <>
+                        <DropdownMenuItem asChild>
+                          <Link href={`/dashboard/hr/staff/${member.id}/role`}>
+                            <Shield className="mr-2 h-4 w-4" />
+                            Asignar Rol
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() => handleDelete(member.id)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Eliminar
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    {!canManageRoles && (
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => handleDelete(member.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Eliminar
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    )
+  }
 
   if (!mounted) {
     return (
@@ -511,16 +683,22 @@ export default function StaffPage() {
             <div className="flex items-center justify-center h-64">
               <Spinner className="h-8 w-8" />
             </div>
-          ) : filteredStaff.length === 0 ? (
+          ) : activeStaff.length === 0 ? (
             <Empty>
               <EmptyMedia variant="icon">
                 <Users className="h-6 w-6" />
               </EmptyMedia>
-              <EmptyTitle>No hay miembros del equipo</EmptyTitle>
+              <EmptyTitle>
+                {isDefaultStatusView ? "No hay personal activo" : "No hay miembros del equipo"}
+              </EmptyTitle>
               <EmptyDescription>
-                {searchTerm ? "No se encontraron resultados para tu búsqueda" : "Comienza agregando el primer miembro del equipo"}
+                {searchTerm
+                  ? "No se encontraron resultados para tu búsqueda"
+                  : isDefaultStatusView
+                    ? "No hay colaboradores activos. Revisa la lista de otros estados más abajo."
+                    : "Comienza agregando el primer miembro del equipo"}
               </EmptyDescription>
-              {!searchTerm && (
+              {!searchTerm && !isDefaultStatusView && (
                 <Button asChild>
                   <Link href="/dashboard/hr/staff/new">
                     <Plus className="mr-2 h-4 w-4" />
@@ -530,161 +708,39 @@ export default function StaffPage() {
               )}
             </Empty>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Agencia</TableHead>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Departamento</TableHead>
-                  <TableHead>Puesto</TableHead>
-                  <TableHead>Jefe Inmediato</TableHead>
-                  <TableHead>Perfil</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredStaff.map((member) => (
-                  <TableRow key={member.id}>
-                    <TableCell>
-                      <span className="text-sm">
-                        {member.agency?.name || <span className="text-primary font-medium">Global</span>}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <StaffAvatar
-                          photoUrl={member.photo_url}
-                          firstName={member.first_name}
-                          lastName={member.last_name}
-                          className="h-10 w-10"
-                          fallbackClassName="text-sm"
-                        />
-                        <div>
-                          <Link
-                            href={`/dashboard/hr/staff/${member.id}`}
-                            className="font-medium hover:text-primary hover:underline underline-offset-4 transition-colors"
-                            title="Editar miembro"
-                          >
-                            {member.first_name} {member.last_name}
-                          </Link>
-                          {member.employee_code && (
-                            <div className="text-xs text-muted-foreground">
-                              {member.employee_code}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm">
-                        {member.department_info?.name || member.department || <span className="text-muted-foreground">Sin departamento</span>}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm font-medium">
-                        {member.position_info?.name || member.position || <span className="text-muted-foreground">Sin puesto</span>}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {member.manager ? (
-                        <span className="text-sm">
-                          {member.manager.first_name} {member.manager.last_name}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">Sin jefe asignado</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <ProfileCompletionBar staff={member} />
-                    </TableCell>
-                    <TableCell>
-                      {(() => {
-                        const st = getEmploymentStatus(member.employment_status)
-                        return <Badge variant={st.badgeVariant}>{st.label}</Badge>
-                      })()}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/dashboard/hr/staff/${member.id}`}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Editar
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                              <CircleDot className="mr-2 h-4 w-4" />
-                              Cambiar estado
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuPortal>
-                              <DropdownMenuSubContent className="max-w-xs">
-                                <DropdownMenuLabel>Estado del empleado</DropdownMenuLabel>
-                                {EMPLOYMENT_STATUSES.map((st) => (
-                                  <DropdownMenuItem
-                                    key={st.value}
-                                    onClick={() => handleStatusChange(member.id, st.value)}
-                                    className="flex-col items-start gap-0.5"
-                                  >
-                                    <span className="flex items-center gap-2 font-medium">
-                                      {st.label}
-                                      {member.employment_status === st.value && (
-                                        <Badge variant="outline" className="text-[10px] py-0">
-                                          Actual
-                                        </Badge>
-                                      )}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground whitespace-normal">
-                                      {st.description}
-                                    </span>
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuPortal>
-                          </DropdownMenuSub>
-                          {canManageRoles && (
-                            <>
-                              <DropdownMenuItem asChild>
-                                <Link href={`/dashboard/hr/staff/${member.id}/role`}>
-                                  <Shield className="mr-2 h-4 w-4" />
-                                  Asignar Rol
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={() => handleDelete(member.id)}
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Eliminar
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                          {!canManageRoles && (
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleDelete(member.id)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Eliminar
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            renderStaffTable(activeStaff)
           )}
         </CardContent>
       </Card>
+
+      {/* Lista secundaria: colaboradores con otros estados (baja, inactivo, suspendido) */}
+      {!loading && isDefaultStatusView && otherStaff.length > 0 && (
+        <Card>
+          <CardHeader className="pb-4">
+            <button
+              type="button"
+              onClick={() => setShowOthers((prev) => !prev)}
+              className="flex w-full items-center justify-between text-left"
+              aria-expanded={showOthers}
+            >
+              <div>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  {showOthers ? (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  )}
+                  Otros estados
+                </CardTitle>
+                <CardDescription className="ml-7">
+                  {otherStaff.length} colaborador{otherStaff.length !== 1 ? "es" : ""} con estado de baja, inactivo o suspendido
+                </CardDescription>
+              </div>
+            </button>
+          </CardHeader>
+          {showOthers && <CardContent>{renderStaffTable(otherStaff)}</CardContent>}
+        </Card>
+      )}
     </div>
   )
 }
