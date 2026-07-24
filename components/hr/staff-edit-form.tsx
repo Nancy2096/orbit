@@ -978,6 +978,28 @@ hire_date: formData.hire_date || null,
                   </p>
                 </Field>
 
+                <Field>
+                  <FieldLabel htmlFor="payroll_agency_id_labor">¿Qué agencia paga su sueldo?</FieldLabel>
+                  <Select
+                    value={formData.payroll_agency_id}
+                    onValueChange={(value) => setFormData({ ...formData, payroll_agency_id: value })}
+                  >
+                    <SelectTrigger id="payroll_agency_id_labor">
+                      <SelectValue placeholder="Selecciona la agencia que paga el sueldo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {agencies.map((agency) => (
+                        <SelectItem key={agency.id} value={agency.id}>
+                          {agency.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Agencia responsable del pago del sueldo de este colaborador
+                  </p>
+                </Field>
+
 <div className="grid grid-cols-2 gap-4">
                   <Field>
                     <FieldLabel htmlFor="contract_type">Tipo de Contrato</FieldLabel>

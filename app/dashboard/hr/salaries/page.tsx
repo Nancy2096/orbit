@@ -99,6 +99,7 @@ interface StaffSalary {
   position: string | null
   department: string | null
   agency_id: string | null
+  payroll_agency_id: string | null
   is_global: boolean | null
   is_active: boolean
   employment_status: string | null
@@ -253,7 +254,7 @@ export default function SalariesPage() {
       supabase
         .from("staff")
         .select(
-          "id, employee_code, first_name, last_name, position, department, agency_id, is_global, is_active, employment_status, contract_type, hourly_cost, monthly_salary, currency_id, commission_percentage, commission_type, payment_frequency, finiquito, finiquito_paid_at",
+          "id, employee_code, first_name, last_name, position, department, agency_id, payroll_agency_id, is_global, is_active, employment_status, contract_type, hourly_cost, monthly_salary, currency_id, commission_percentage, commission_type, payment_frequency, finiquito, finiquito_paid_at",
         )
         // Incluye al personal activo y también a quienes están en baja
         // (employment_status = 'terminated'), para poder gestionar su finiquito.
@@ -375,6 +376,12 @@ export default function SalariesPage() {
     [agencies],
   )
 
+  // Agencia responsable del pago del sueldo (definida en Información laboral).
+  const payrollAgencyName = useCallback(
+    (s: StaffSalary) => (s.payroll_agency_id ? agencies.find((a) => a.id === s.payroll_agency_id)?.name || "-" : "-"),
+    [agencies],
+  )
+
   // Horas laborables al mes de la agencia. El personal Global (sin agencia)
   // usa el valor de cualquier agencia que lo tenga configurado, pues es igual
   // para todas. Si nadie lo tiene, se usa el valor por defecto.
@@ -482,6 +489,9 @@ export default function SalariesPage() {
           ) : (
             <Badge variant="secondary">Global</Badge>
           )}
+        </TableCell>
+        <TableCell>
+          <span className="text-sm text-muted-foreground">{payrollAgencyName(s)}</span>
         </TableCell>
         <TableCell>
           {(() => {
@@ -1224,9 +1234,10 @@ export default function SalariesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12 text-right">#</TableHead>
-                  <TableHead>Colaborador</TableHead>
-                  <TableHead>Agencia</TableHead>
-                  <TableHead>Estado</TableHead>
+                    <TableHead>Colaborador</TableHead>
+                    <TableHead>Agencia</TableHead>
+                    <TableHead>Agencia que paga</TableHead>
+                    <TableHead>Estado</TableHead>
                   <TableHead className="w-36">Frecuencia</TableHead>
                   <TableHead className="w-28">Moneda</TableHead>
                   <TableHead className="text-right">Salario mensual</TableHead>
@@ -1239,7 +1250,7 @@ export default function SalariesPage() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={12} className="py-8 text-center text-muted-foreground">
                       No hay colaboradores que coincidan con los filtros
                     </TableCell>
                   </TableRow>
@@ -1247,7 +1258,7 @@ export default function SalariesPage() {
                   <>
                     {activeRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={11} className="py-6 text-center text-sm text-muted-foreground">
+                        <TableCell colSpan={12} className="py-6 text-center text-sm text-muted-foreground">
                           No hay colaboradores activos con estos filtros
                         </TableCell>
                       </TableRow>
@@ -1258,7 +1269,7 @@ export default function SalariesPage() {
                     {otherRows.length > 0 && (
                       <>
                         <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={11} className="p-0">
+                          <TableCell colSpan={12} className="p-0">
                             <button
                               type="button"
                               onClick={() => setShowOthers((v) => !v)}
