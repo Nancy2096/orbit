@@ -571,21 +571,11 @@ async function fetchAgencyServices(agencyId: string) {
   }
 
   function handleServiceCurrencyChange(serviceId: string, currency: "MXN" | "USD") {
-    const service = services.find(s => s.id === serviceId)
-    if (!service) return
-
+    // Solo cambia la etiqueta de moneda. NO convertimos ni sobrescribimos el
+    // monto: el precio capturado es el monto real y se mantiene tal cual.
     setContractedServices(contractedServices.map(cs => {
       if (cs.service_id !== serviceId) return cs
-      const newUnitPrice = currency === "MXN" ? service.base_price : (service.base_price_usd || 0)
-      const subtotal = cs.quantity * newUnitPrice
-      const discountAmount = subtotal * (cs.discount_percentage / 100)
-      return {
-        ...cs,
-        currency,
-        unit_price: newUnitPrice,
-        discount_amount: discountAmount,
-        final_price: subtotal - discountAmount,
-      }
+      return { ...cs, currency }
     }))
   }
 
@@ -1378,7 +1368,9 @@ async function fetchAgencyServices(agencyId: string) {
                         <Field>
                           <FieldLabel>Total</FieldLabel>
                           <div className="h-9 flex items-center font-medium">
-                            ${service.final_price.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                            {service.currency === "USD"
+                              ? `USD $${service.final_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+                              : `MXN $${service.final_price.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`}
                           </div>
                         </Field>
                       </div>
