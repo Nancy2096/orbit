@@ -70,9 +70,18 @@ import {
   UserPlus,
   Pencil,
   X,
+  MoreVertical,
+  XCircle,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface Stage {
   id: string
@@ -1384,6 +1393,23 @@ state_province: prospectData.state_province || "",
     toast.success(`Cita ${status === 'completed' ? 'completada' : 'cancelada'}`)
   }
 
+  // Elimina la reunión por completo de la base de datos.
+  const deleteAppointment = async (appointmentId: string) => {
+    const { error } = await supabase
+      .from("crm_appointments")
+      .delete()
+      .eq("id", appointmentId)
+
+    if (error) {
+      console.error("Error al eliminar la cita:", error)
+      toast.error(error.message || "No se pudo eliminar la cita")
+      return
+    }
+
+    setAppointments(appointments.filter(a => a.id !== appointmentId))
+    toast.success("Reunión eliminada")
+  }
+
 
   const getStageColor = (color: string | null): string => {
     if (color && color.startsWith("#")) return color
@@ -2491,24 +2517,36 @@ state_province: prospectData.state_province || "",
                                     </a>
                                   </Button>
                                 )}
-                                {apt.status === 'scheduled' && (
-                                  <>
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline"
-                                      onClick={() => updateAppointmentStatus(apt.id, 'completed')}
-                                    >
-                                      <CheckCircle className="h-4 w-4" />
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button size="sm" variant="ghost">
+                                      <MoreVertical className="h-4 w-4" />
+                                      <span className="sr-only">Acciones de la cita</span>
                                     </Button>
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost"
-                                      onClick={() => updateAppointmentStatus(apt.id, 'cancelled')}
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {apt.status !== 'completed' && (
+                                      <DropdownMenuItem onClick={() => updateAppointmentStatus(apt.id, 'completed')}>
+                                        <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
+                                        Cita cumplida
+                                      </DropdownMenuItem>
+                                    )}
+                                    {apt.status !== 'cancelled' && (
+                                      <DropdownMenuItem onClick={() => updateAppointmentStatus(apt.id, 'cancelled')}>
+                                        <XCircle className="mr-2 h-4 w-4 text-amber-600" />
+                                        Cita cancelada
+                                      </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onClick={() => deleteAppointment(apt.id)}
                                     >
-                                      <Trash2 className="h-4 w-4 text-destructive" />
-                                    </Button>
-                                  </>
-                                )}
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Eliminar reunión
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             </div>
                           </div>
