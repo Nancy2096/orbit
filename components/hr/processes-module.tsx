@@ -63,6 +63,8 @@ import {
   Target,
   Play,
   Flag,
+  Clock,
+  Network,
 } from "lucide-react"
 
 interface Department {
@@ -140,6 +142,9 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
   const [positions, setPositions] = useState<Position[]>([])
   const [processes, setProcesses] = useState<Process[]>([])
   const [areaFilter, setAreaFilter] = useState<string>("all")
+
+  // Proceso mostrado como diagrama de flujo (Inicio → pasos → Fin).
+  const [diagramProcess, setDiagramProcess] = useState<Process | null>(null)
 
   // Builder dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -586,6 +591,17 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                           </AccordionItem>
                         </Accordion>
                       )}
+                      {(p.process_steps.length > 0 || p.start_point || p.end_point) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full gap-2"
+                          onClick={() => setDiagramProcess(p)}
+                        >
+                          <Network className="h-4 w-4" />
+                          Ver diagrama
+                        </Button>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
@@ -948,6 +964,98 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Diagrama de flujo del proceso (Inicio → pasos → Fin) */}
+      <Dialog open={!!diagramProcess} onOpenChange={(open) => !open && setDiagramProcess(null)}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Network className="h-5 w-5 text-primary" />
+              Diagrama del proceso
+            </DialogTitle>
+            <DialogDescription>
+              {diagramProcess?.name}
+              {diagramProcess?.objective ? ` — ${diagramProcess.objective}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {diagramProcess && (
+            <div className="flex flex-col items-center gap-0 py-2">
+              {/* Nodo Inicio */}
+              <div className="w-full max-w-md rounded-full border-2 border-green-500 bg-green-50 px-4 py-3 text-center">
+                <div className="flex items-center justify-center gap-2 text-sm font-semibold text-green-700">
+                  <Play className="h-4 w-4" />
+                  Inicio
+                </div>
+                {diagramProcess.start_point && (
+                  <p className="mt-0.5 whitespace-pre-wrap text-xs text-green-800/80">
+                    {diagramProcess.start_point}
+                  </p>
+                )}
+              </div>
+
+              {/* Pasos */}
+              {diagramProcess.process_steps.map((s, i) => {
+                const duration = s.estimated_duration ? parseDuration(s.estimated_duration) : null
+                return (
+                  <div key={s.id || i} className="flex w-full flex-col items-center">
+                    <ArrowDown className="my-1 h-5 w-5 shrink-0 text-muted-foreground" />
+                    <div className="w-full max-w-md rounded-lg border-2 border-primary/40 bg-card p-3 shadow-sm">
+                      <div className="flex items-start gap-2">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                          {i + 1}
+                        </span>
+                        <span className="font-medium leading-tight text-foreground">{s.title}</span>
+                      </div>
+                      {s.description && (
+                        <p className="mt-1.5 whitespace-pre-wrap pl-8 text-sm text-muted-foreground">
+                          {s.description}
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap gap-1.5 pl-8">
+                        <Badge variant="outline" className="gap-1 font-normal">
+                          <Building2 className="h-3 w-3" />
+                          {departmentName(s.responsible_department_id)}
+                        </Badge>
+                        <Badge variant="outline" className="gap-1 font-normal">
+                          <Users className="h-3 w-3" />
+                          {positionName(s.responsible_position_id)}
+                        </Badge>
+                        {duration && (
+                          <Badge variant="outline" className="gap-1 font-normal">
+                            <Clock className="h-3 w-3" />
+                            {duration.amount ? `${duration.amount} ${duration.unit}` : s.estimated_duration}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Nodo Fin */}
+              <ArrowDown className="my-1 h-5 w-5 shrink-0 text-muted-foreground" />
+              <div className="w-full max-w-md rounded-full border-2 border-red-500 bg-red-50 px-4 py-3 text-center">
+                <div className="flex items-center justify-center gap-2 text-sm font-semibold text-red-700">
+                  <Flag className="h-4 w-4" />
+                  Fin
+                </div>
+                {diagramProcess.end_point && (
+                  <p className="mt-0.5 whitespace-pre-wrap text-xs text-red-800/80">
+                    {diagramProcess.end_point}
+                  </p>
+                )}
+              </div>
+
+              {diagramProcess.process_steps.length === 0 && (
+                <p className="mt-4 text-center text-sm text-muted-foreground">
+                  Este proceso aún no tiene pasos. Edítalo para agregarlos y verlos en el diagrama.
+                </p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

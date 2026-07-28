@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Field, FieldLabel } from "@/components/ui/field"
-import { ScrollText, Pencil, Save, X, HandCoins, ArrowRight, CalendarClock, Lock } from "lucide-react"
+import { ScrollText, Pencil, Save, X, HandCoins, ArrowRight, CalendarClock, Lock, Bold } from "lucide-react"
 import { toast } from "sonner"
 import { BONUS_STAGES, getCurrentUserInfo, canManageBonusPolicy, type CurrentUserInfo } from "@/lib/bonus-workflow"
 import {
@@ -104,6 +104,41 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
   const [policyUpdatedAt, setPolicyUpdatedAt] = useState<string | null>(null)
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
+  const policyTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Envuelve el texto seleccionado en el textarea con **...** (negrita). Si no
+  // hay selección, inserta un marcador de ejemplo listo para escribir.
+  function applyBold() {
+    const el = policyTextareaRef.current
+    if (!el) return
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    const selected = policyDraft.slice(start, end)
+    const inner = selected || "texto en negrita"
+    const next = policyDraft.slice(0, start) + `**${inner}**` + policyDraft.slice(end)
+    setPolicyDraft(next)
+    // Reposiciona el cursor/selección sobre el texto en negrita.
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + 2, start + 2 + inner.length)
+    })
+  }
+
+  // Renderiza el texto convirtiendo los tramos **...** en negrita, respetando
+  // los saltos de línea (whitespace-pre-wrap en el contenedor).
+  function renderRichText(text: string) {
+    const parts = text.split(/(\*\*[^*]+\*\*)/g)
+    return parts.map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+        return (
+          <strong key={i} className="font-semibold text-foreground">
+            {part.slice(2, -2)}
+          </strong>
+        )
+      }
+      return <span key={i}>{part}</span>
+    })
+  }
 
   // Solicitud directa
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -355,7 +390,24 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
         <CardContent>
           {editingPolicy ? (
             <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={applyBold}
+                  className="gap-2"
+                  title="Poner en negrita el texto seleccionado"
+                >
+                  <Bold className="h-4 w-4" />
+                  Negrita
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Selecciona un texto y presiona Negrita (se marca con **doble asterisco**).
+                </span>
+              </div>
               <Textarea
+                ref={policyTextareaRef}
                 value={policyDraft}
                 onChange={(e) => setPolicyDraft(e.target.value)}
                 placeholder={`Describe la política del bono de ${label}...`}
@@ -387,7 +439,7 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
             </div>
           ) : policyContent ? (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-              {policyContent}
+              {renderRichText(policyContent)}
             </p>
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">

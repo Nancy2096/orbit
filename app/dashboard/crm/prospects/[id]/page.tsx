@@ -70,9 +70,18 @@ import {
   UserPlus,
   Pencil,
   X,
+  MoreVertical,
+  XCircle,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface Stage {
   id: string
@@ -403,6 +412,7 @@ state_province: prospectData.state_province || "",
       prospectServicesRes,
       quotationsRes,
       contactsRes,
+      appointmentsRes,
     ] = await Promise.all([
       supabase.from("crm_pipeline_stages").select("*").eq("agency_id", agencyId).eq("is_active", true).order("sort_order"),
       supabase.from("crm_lead_sources").select("id, name").eq("agency_id", agencyId).eq("is_active", true).order("name"),
@@ -417,6 +427,7 @@ state_province: prospectData.state_province || "",
       supabase.from("crm_prospect_services").select(`id, quantity, unit_price, total_price, billing_type, service:services(id, name, description, base_price)`).eq("prospect_id", prospectId),
       supabase.from("crm_prospect_quotations").select("*").eq("prospect_id", prospectId).order("created_at", { ascending: false }),
       supabase.from("crm_prospect_contacts").select("id, contact_name, contact_email, contact_phone, contact_position").eq("prospect_id", prospectId),
+      supabase.from("crm_appointments").select("*").eq("prospect_id", prospectId).order("start_datetime", { ascending: true }),
     ])
 
     if (stagesRes.data) setStages(stagesRes.data)
@@ -437,6 +448,7 @@ state_province: prospectData.state_province || "",
     if (prospectServicesRes.data) setProspectServices(prospectServicesRes.data as ProspectService[])
     if (quotationsRes.data) setQuotations(quotationsRes.data)
     if (contactsRes.data) setAdditionalContacts(contactsRes.data.map(c => ({ ...c, isNew: false })))
+    if (appointmentsRes.data) setAppointments(appointmentsRes.data as Appointment[])
 
     setLoading(false)
   }
@@ -1339,29 +1351,16 @@ state_province: prospectData.state_province || "",
       .select()
       .single()
 
-    if (error) {
-      // If table doesn't exist, simulate locally
-      const newApt: Appointment = {
-        id: crypto.randomUUID(),
-        prospect_id: prospectId,
-        title: newAppointment.title,
-        description: newAppointment.description || null,
-        appointment_type: newAppointment.appointment_type,
-        start_datetime: startDatetime,
-        end_datetime: endDatetime,
-        location: newAppointment.location || null,
-        meeting_link: newAppointment.meeting_link || null,
-        status: 'scheduled',
-        reminder_sent: false,
-        notes: null,
-        created_at: new Date().toISOString(),
-      }
-      setAppointments([...appointments, newApt])
-      toast.success("Cita agendada (modo local)")
-    } else {
-      setAppointments([...appointments, data])
-      toast.success("Cita agendada exitosamente")
+    if (error || !data) {
+      console.error("Error al agendar cita:", error)
+      toast.error(error?.message || "No se pudo agendar la cita")
+      return
     }
+
+    // La cita queda guardada en la base de datos al instante (no depende de
+    // "Guardar cambios") y persiste al recargar la página.
+    setAppointments([...appointments, data as Appointment])
+    toast.success("Cita agendada exitosamente")
 
     setAppointmentModalOpen(false)
     setNewAppointment({
@@ -1383,17 +1382,32 @@ state_province: prospectData.state_province || "",
       .eq("id", appointmentId)
 
     if (error) {
-      // Update locally if table doesn't exist
-      setAppointments(appointments.map(a => 
-        a.id === appointmentId ? { ...a, status } : a
-      ))
-      toast.success(`Cita ${status === 'completed' ? 'completada' : 'cancelada'} (modo local)`)
-    } else {
-      setAppointments(appointments.map(a => 
-        a.id === appointmentId ? { ...a, status } : a
-      ))
-      toast.success(`Cita ${status === 'completed' ? 'completada' : 'cancelada'}`)
+      console.error("Error al actualizar la cita:", error)
+      toast.error(error.message || "No se pudo actualizar la cita")
+      return
     }
+
+    setAppointments(appointments.map(a =>
+      a.id === appointmentId ? { ...a, status } : a
+    ))
+    toast.success(`Cita ${status === 'completed' ? 'completada' : 'cancelada'}`)
+  }
+
+  // Elimina la reunión por completo de la base de datos.
+  const deleteAppointment = async (appointmentId: string) => {
+    const { error } = await supabase
+      .from("crm_appointments")
+      .delete()
+      .eq("id", appointmentId)
+
+    if (error) {
+      console.error("Error al eliminar la cita:", error)
+      toast.error(error.message || "No se pudo eliminar la cita")
+      return
+    }
+
+    setAppointments(appointments.filter(a => a.id !== appointmentId))
+    toast.success("Reunión eliminada")
   }
 
 
@@ -2503,24 +2517,36 @@ state_province: prospectData.state_province || "",
                                     </a>
                                   </Button>
                                 )}
-                                {apt.status === 'scheduled' && (
-                                  <>
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline"
-                                      onClick={() => updateAppointmentStatus(apt.id, 'completed')}
-                                    >
-                                      <CheckCircle className="h-4 w-4" />
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button size="sm" variant="ghost">
+                                      <MoreVertical className="h-4 w-4" />
+                                      <span className="sr-only">Acciones de la cita</span>
                                     </Button>
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost"
-                                      onClick={() => updateAppointmentStatus(apt.id, 'cancelled')}
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {apt.status !== 'completed' && (
+                                      <DropdownMenuItem onClick={() => updateAppointmentStatus(apt.id, 'completed')}>
+                                        <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
+                                        Cita cumplida
+                                      </DropdownMenuItem>
+                                    )}
+                                    {apt.status !== 'cancelled' && (
+                                      <DropdownMenuItem onClick={() => updateAppointmentStatus(apt.id, 'cancelled')}>
+                                        <XCircle className="mr-2 h-4 w-4 text-amber-600" />
+                                        Cita cancelada
+                                      </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onClick={() => deleteAppointment(apt.id)}
                                     >
-                                      <Trash2 className="h-4 w-4 text-destructive" />
-                                    </Button>
-                                  </>
-                                )}
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Eliminar reunión
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             </div>
                           </div>
