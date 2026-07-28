@@ -99,11 +99,11 @@ export default function EditCommissionPage({ params }: { params: Promise<{ id: s
             .eq("id", data.prospect_id)
             .maybeSingle(),
           supabase
-            .from("crm_activities")
-            .select("activity_date")
+            .from("crm_appointments")
+            .select("start_datetime")
             .eq("prospect_id", data.prospect_id)
-            .eq("activity_type", "meeting")
-            .order("activity_date", { ascending: true })
+            .eq("status", "completed")
+            .order("start_datetime", { ascending: true })
             .limit(1)
             .maybeSingle(),
           supabase
@@ -114,7 +114,7 @@ export default function EditCommissionPage({ params }: { params: Promise<{ id: s
         ])
         setProspectInfo({
           name: prospectRes.data?.company_name || prospectRes.data?.contact_name || null,
-          appointmentDate: appointmentRes.data?.activity_date ?? null,
+          appointmentDate: appointmentRes.data?.start_datetime ?? null,
           quotations: quotationsRes.data || [],
         })
       }

@@ -284,11 +284,13 @@ const fetchInitialData = async () => {
     setRequirements({ loading: true, hasMeeting: false, hasQuotation: false })
     try {
       const [meetingRes, quotationRes] = await Promise.all([
+        // La cita debe estar registrada en el apartado de Citas del prospecto
+        // (crm_appointments) Y estar completada para habilitar la comisión.
         supabase
-          .from("crm_activities")
+          .from("crm_appointments")
           .select("id", { count: "exact", head: true })
           .eq("prospect_id", prospectId)
-          .eq("activity_type", "meeting"),
+          .eq("status", "completed"),
         supabase
           .from("crm_prospect_quotations")
           .select("id", { count: "exact", head: true })
@@ -338,7 +340,7 @@ const fetchInitialData = async () => {
     // a aprobación.
     if (!requirements.hasMeeting || !requirements.hasQuotation) {
       const faltantes = [
-        !requirements.hasMeeting ? "una cita registrada" : null,
+        !requirements.hasMeeting ? "una cita registrada y completada" : null,
         !requirements.hasQuotation ? "una cotización cargada" : null,
       ].filter(Boolean)
       toast.error(`No se puede mandar a aprobación: el prospecto necesita ${faltantes.join(" y ")}.`)
@@ -557,7 +559,7 @@ const fetchInitialData = async () => {
                             <XCircle className="h-4 w-4 text-red-600" />
                           )}
                           <span className={requirements.hasMeeting ? "" : "text-red-600"}>
-                            Cita registrada
+                            Cita registrada y completada
                           </span>
                         </li>
                         <li className="flex items-center gap-2">
@@ -671,7 +673,7 @@ const fetchInitialData = async () => {
               {selectedProspect && !requirements.loading && (!requirements.hasMeeting || !requirements.hasQuotation) && (
                 <div className="p-4 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-900">
                   <p className="text-sm text-red-700 dark:text-red-300">
-                    Este prospecto no cumple los requisitos para mandarse a aprobación. Registra una cita y carga una cotización en el CRM antes de continuar.
+                    Este prospecto no cumple los requisitos para mandarse a aprobación. En el CRM, registra una cita en el apartado de Citas del prospecto y márcala como completada, y carga una cotización antes de continuar.
                   </p>
                 </div>
               )}
