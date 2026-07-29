@@ -3159,36 +3159,56 @@ const handleCreateTemplate = () => {
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4 sm:grid-cols-7 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="dashboard" className="gap-2">
-            <BarChart3 className="h-4 w-4" />
-            <span className="hidden sm:inline">Dashboard</span>
-          </TabsTrigger>
-          <TabsTrigger value="selection" className="gap-2">
-            <UserPlus className="h-4 w-4" />
-            <span className="hidden sm:inline">Selección</span>
-          </TabsTrigger>
-          <TabsTrigger value="permanence" className="gap-2">
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">Permanencia</span>
-          </TabsTrigger>
-          <TabsTrigger value="objectives" className="gap-2">
-            <Target className="h-4 w-4" />
-            <span className="hidden sm:inline">Objetivos</span>
-          </TabsTrigger>
-          <TabsTrigger value="onboarding" className="gap-2">
-            <ClipboardList className="h-4 w-4" />
-            <span className="hidden sm:inline">Onboarding</span>
-          </TabsTrigger>
-          <TabsTrigger value="ninebox" className="gap-2">
-            <Grid3X3 className="h-4 w-4" />
-            <span className="hidden sm:inline">Nine Box</span>
-          </TabsTrigger>
-          <TabsTrigger value="climate" className="gap-2">
-            <ThermometerSun className="h-4 w-4" />
-            <span className="hidden sm:inline">Clima</span>
-          </TabsTrigger>
-        </TabsList>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:gap-8">
+          {/* Grupo: Evaluaciones (procesos que se aplican al personal) */}
+          <div className="flex flex-col gap-1.5">
+            <span className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Evaluaciones
+            </span>
+            <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+              <TabsTrigger value="selection" className="gap-2">
+                <UserPlus className="h-4 w-4" />
+                <span className="hidden sm:inline">Selección</span>
+              </TabsTrigger>
+              <TabsTrigger value="permanence" className="gap-2">
+                <Users className="h-4 w-4" />
+                <span className="hidden sm:inline">Permanencia</span>
+              </TabsTrigger>
+              <TabsTrigger value="objectives" className="gap-2">
+                <Target className="h-4 w-4" />
+                <span className="hidden sm:inline">Objetivos</span>
+              </TabsTrigger>
+              <TabsTrigger value="onboarding" className="gap-2">
+                <ClipboardList className="h-4 w-4" />
+                <span className="hidden sm:inline">Onboarding</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          {/* Separador visual entre los dos grupos */}
+          <div className="hidden self-stretch border-l lg:block" aria-hidden="true" />
+
+          {/* Grupo: Resultados (análisis y reportes) */}
+          <div className="flex flex-col gap-1.5">
+            <span className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Resultados
+            </span>
+            <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+              <TabsTrigger value="dashboard" className="gap-2">
+                <BarChart3 className="h-4 w-4" />
+                <span className="hidden sm:inline">Dashboard</span>
+              </TabsTrigger>
+              <TabsTrigger value="ninebox" className="gap-2">
+                <Grid3X3 className="h-4 w-4" />
+                <span className="hidden sm:inline">Nine Box</span>
+              </TabsTrigger>
+              <TabsTrigger value="climate" className="gap-2">
+                <ThermometerSun className="h-4 w-4" />
+                <span className="hidden sm:inline">Clima</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+        </div>
 
         {/* Dashboard Tab */}
         <TabsContent value="dashboard" className="space-y-4">
