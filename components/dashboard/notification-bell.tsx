@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Bell, GraduationCap, Receipt, CalendarDays, Award, Check } from "lucide-react"
+import { Bell, GraduationCap, Receipt, CalendarDays, Award, Check, MessagesSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -14,6 +14,7 @@ const ICONS: Record<NotificationType, typeof Bell> = {
   expense: Receipt,
   leave: CalendarDays,
   bonus: Award,
+  one2one: MessagesSquare,
 }
 
 export function NotificationBell() {

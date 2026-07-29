@@ -39,14 +39,21 @@ export function useNotifications() {
     await markNotificationRead(userId, key)
   }
 
-  const markAllRead = async () => {
+  // Sin argumentos marca todas las no leídas; con `onlyKeys` limita el efecto
+  // a ese subconjunto (p. ej. solo las notificaciones One 2 One).
+  const markAllRead = async (onlyKeys?: string[]) => {
     if (!userId) return
-    const keys = notifications.filter((n) => !n.read).map((n) => n.key)
+    const limit = onlyKeys ? new Set(onlyKeys) : null
+    const keys = notifications
+      .filter((n) => !n.read && (!limit || limit.has(n.key)))
+      .map((n) => n.key)
+    if (keys.length === 0) return
+    const keySet = new Set(keys)
     mutate(
       (prev) => {
         if (!prev) return prev
-        const next = prev.notifications.map((n) => ({ ...n, read: true }))
-        return { ...prev, notifications: next, unreadCount: 0 }
+        const next = prev.notifications.map((n) => (keySet.has(n.key) ? { ...n, read: true } : n))
+        return { ...prev, notifications: next, unreadCount: next.filter((n) => !n.read).length }
       },
       { revalidate: false },
     )

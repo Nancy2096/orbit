@@ -186,7 +186,7 @@ const hrNavItems = [
     icon: Award,
   },
   {
-    title: "Reportes One 2 One",
+    title: "Reuniones One 2 One",
     url: "/dashboard/hr/one-to-one",
     icon: MessagesSquare,
   },
