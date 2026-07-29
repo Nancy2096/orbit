@@ -865,11 +865,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
               </span>
               <span className="font-medium">
                 {hasAccountConfig ? (
-                  <>
-                    {totalAccounts} / {maxAccounts}
-                    {minAccounts > 0 && <span className="text-muted-foreground ml-1">(mín: {minAccounts})</span>}
-                    {optimalAccounts > 0 && <span className="text-green-600 ml-1">(ópt: {optimalAccounts})</span>}
-                  </>
+                  <>{totalAccounts} / {maxAccounts}</>
                 ) : (
                   <>{totalAccounts}</>
                 )}
@@ -888,6 +884,13 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                     title={`Óptimo: ${optimalAccounts}`}
                   />
                 )}
+              </div>
+            )}
+            {hasAccountConfig && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Mín: <span className="font-medium text-foreground">{minAccounts}</span></span>
+                <span className="text-green-600">Óptimo: <span className="font-medium">{optimalAccounts > 0 ? optimalAccounts : "—"}</span></span>
+                <span className="text-muted-foreground">Máx: <span className="font-medium text-foreground">{maxAccounts}</span></span>
               </div>
             )}
 {/* Resumen por rol: solo para gerentes/directores */}
@@ -935,11 +938,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
               </span>
               <span className="font-medium">
                 {hasProjectConfig ? (
-                  <>
-                    {totalProjects} / {maxProjects}
-                    {minProjects > 0 && <span className="text-muted-foreground ml-1">(mín: {minProjects})</span>}
-                    {optimalProjects > 0 && <span className="text-green-600 ml-1">(ópt: {optimalProjects})</span>}
-                  </>
+                  <>{totalProjects} / {maxProjects}</>
                 ) : (
                   <>{totalProjects}</>
                 )}
@@ -958,6 +957,13 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                     title={`Óptimo: ${optimalProjects}`}
                   />
                 )}
+              </div>
+            )}
+            {hasProjectConfig && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Mín: <span className="font-medium text-foreground">{minProjects}</span></span>
+                <span className="text-green-600">Óptimo: <span className="font-medium">{optimalProjects > 0 ? optimalProjects : "—"}</span></span>
+                <span className="text-muted-foreground">Máx: <span className="font-medium text-foreground">{maxProjects}</span></span>
               </div>
             )}
             {/* Resumen por rol: solo para gerentes/directores */}
