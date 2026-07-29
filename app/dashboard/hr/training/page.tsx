@@ -408,7 +408,7 @@ export default function TrainingPage() {
       .from("training_enrollments")
       .select(`
         *,
-        staff:staff(id, first_name, last_name, email, position),
+        staff:staff!training_enrollments_staff_id_fkey(id, first_name, last_name, email, position),
         course:training_courses!inner(id, title, is_mandatory, agency_id)
       `)
       .order("created_at", { ascending: false })
