@@ -115,6 +115,23 @@ interface StaffWorkload extends StaffMember {
   max_subordinates: number
 }
 
+// Orden fijo de las áreas en Cargas de Trabajo (vistas Cargas y Lista).
+const DEPARTMENT_ORDER = [
+  "planeación estratégica",
+  "creatividad y diseño",
+  "tecnología y programación",
+  "calidad",
+  "administración y finanzas",
+  "dirección",
+]
+
+// Devuelve el índice de orden de un área; las no listadas van al final.
+function departmentOrderIndex(name: string): number {
+  const key = name.trim().toLowerCase()
+  const idx = DEPARTMENT_ORDER.findIndex((d) => key.includes(d))
+  return idx === -1 ? DEPARTMENT_ORDER.length : idx
+}
+
 export default function WorkloadPage() {
   const [mounted, setMounted] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -1382,7 +1399,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                     })
                   })
 
-                  return Array.from(deptGroups.entries()).map(([deptName, staffList]) => (
+                  return Array.from(deptGroups.entries())
+                    .sort(([a], [b]) => departmentOrderIndex(a) - departmentOrderIndex(b) || a.localeCompare(b))
+                    .map(([deptName, staffList]) => (
                     <div key={deptName} className="space-y-4">
                       <h3 className="text-lg font-semibold border-b pb-2 flex items-center gap-2">
                         <Users className="h-5 w-5 text-primary" />
@@ -1441,7 +1460,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                     })
                   })
 
-                  return Array.from(deptGroups.entries()).map(([deptName, staffList]) => (
+                  return Array.from(deptGroups.entries())
+                    .sort(([a], [b]) => departmentOrderIndex(a) - departmentOrderIndex(b) || a.localeCompare(b))
+                    .map(([deptName, staffList]) => (
                     <Card key={deptName}>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-lg flex items-center gap-2">
