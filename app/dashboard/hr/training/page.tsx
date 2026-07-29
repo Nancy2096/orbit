@@ -140,6 +140,9 @@ interface Enrollment {
   started_at: string | null
   completed_at: string | null
   final_score: number | null
+  created_at?: string | null
+  certificate_url?: string | null
+  certificate_uploaded_at?: string | null
   staff?: Staff
   course?: Course
 }
@@ -236,6 +239,10 @@ export default function TrainingPage() {
   const [showEnrollDialog, setShowEnrollDialog] = useState(false)
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([])
   const [enrollCourseId, setEnrollCourseId] = useState("")
+  // Registro de personal del usuario autenticado (para auto-inscripción).
+  const [currentStaffId, setCurrentStaffId] = useState<string | null>(null)
+  // Inscripción cuyo certificado se está subiendo (para mostrar spinner).
+  const [uploadingCertFor, setUploadingCertFor] = useState<string | null>(null)
 
   // Departamentos disponibles a partir del personal cargado de la agencia.
   // Se deduplican por nombre (los departamentos son iguales en todas las agencias).
@@ -259,7 +266,21 @@ export default function TrainingPage() {
 
   useEffect(() => {
     fetchAgencies()
+    fetchCurrentStaff()
   }, [])
+
+  // Vincula el usuario autenticado con su registro en "staff" para permitir
+  // que se inscriba a sí mismo en los cursos.
+  const fetchCurrentStaff = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase
+      .from("staff")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle()
+    if (data) setCurrentStaffId(data.id)
+  }
 
   useEffect(() => {
     if (selectedAgency) {
@@ -379,14 +400,18 @@ export default function TrainingPage() {
   }
 
   const fetchEnrollments = async () => {
+    if (!selectedAgency) return
+    // Se cargan TODAS las inscripciones de los cursos de la agencia para que
+    // la vista de Equipo, las tarjetas de curso y los certificados reflejen
+    // el estado real en todos los cursos, no solo en uno.
     const { data } = await supabase
       .from("training_enrollments")
       .select(`
         *,
         staff:staff(id, first_name, last_name, email, position),
-        course:training_courses(id, title, passing_score)
+        course:training_courses!inner(id, title, passing_score, agency_id)
       `)
-      .eq("course_id", selectedCourse?.id || courses[0]?.id)
+      .eq("course.agency_id", selectedAgency)
       .order("created_at", { ascending: false })
     if (data) setEnrollments(data)
   }
@@ -649,6 +674,57 @@ export default function TrainingPage() {
     fetchEnrollments()
   }
 
+  // Auto-inscripción del usuario actual desde la tarjeta del curso. Queda
+  // registrado en Equipo con la fecha de inscripción y en estado "en progreso".
+  const handleSelfEnroll = async (course: Course) => {
+    if (!currentStaffId) {
+      alert("Tu usuario no está vinculado a un registro de personal, por lo que no puedes inscribirte.")
+      return
+    }
+    await supabase.from("training_enrollments").upsert(
+      {
+        course_id: course.id,
+        staff_id: currentStaffId,
+        status: "in_progress",
+        started_at: new Date().toISOString(),
+      },
+      { onConflict: "course_id,staff_id", ignoreDuplicates: true },
+    )
+    fetchEnrollments()
+  }
+
+  // Sube el certificado / evidencia de una inscripción. Al subirlo se da el
+  // curso por completado y se refleja en la sección de Equipo.
+  const handleUploadCertificate = async (enrollment: Enrollment, file: File) => {
+    setUploadingCertFor(enrollment.id)
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+      const blob = await upload(`training-certificates/${enrollment.id}-${Date.now()}-${safeName}`, file, {
+        access: "private",
+        handleUploadUrl: "/api/training/upload",
+        contentType: file.type || undefined,
+      })
+      const pathname = blob.url.split(".vercel-storage.com/")[1] ?? blob.pathname
+      const fileUrl = `/api/file?pathname=${encodeURIComponent(pathname)}`
+      await supabase
+        .from("training_enrollments")
+        .update({
+          certificate_url: fileUrl,
+          certificate_uploaded_at: new Date().toISOString(),
+          status: "completed",
+          progress_percentage: 100,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", enrollment.id)
+      fetchEnrollments()
+    } catch (error) {
+      console.log("[v0] Error al subir certificado:", (error as Error).message)
+      alert("No se pudo subir el certificado. Verifica el tipo y tamaño (máx. 200 MB).")
+    } finally {
+      setUploadingCertFor(null)
+    }
+  }
+
   const getContentIcon = (type: string) => {
     switch (type) {
       case "video": return <Video className="h-4 w-4" />
@@ -760,7 +836,7 @@ export default function TrainingPage() {
           </TabsTrigger>
           <TabsTrigger value="evaluations" className="flex items-center gap-2">
             <ClipboardList className="h-4 w-4" />
-            Evaluaciones
+            Evaluaciones / Certificados
           </TabsTrigger>
           <TabsTrigger value="processes" className="flex items-center gap-2">
             <Workflow className="h-4 w-4" />
@@ -808,7 +884,11 @@ export default function TrainingPage() {
           )}
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {filteredCourses.map((course) => (
+            {filteredCourses.map((course) => {
+              const myEnrollment = currentStaffId
+                ? enrollments.find((e) => e.course_id === course.id && e.staff_id === currentStaffId)
+                : undefined
+              return (
               <Card
                 key={course.id}
                 className="group relative flex flex-col overflow-hidden rounded-xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
@@ -889,6 +969,23 @@ export default function TrainingPage() {
                       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">inscritos</span>
                     </div>
                   </div>
+                  {/* Auto-inscripción del usuario actual */}
+                  {myEnrollment ? (
+                    <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed py-2 text-sm">
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      <span className="text-muted-foreground">Ya estás inscrito:</span>
+                      {getStatusBadge(myEnrollment.status)}
+                    </div>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      className="w-full"
+                      onClick={() => handleSelfEnroll(course)}
+                    >
+                      <GraduationCap className="mr-2 h-4 w-4" />
+                      Inscribirse
+                    </Button>
+                  )}
                   <div className="mt-auto flex items-center justify-between border-t pt-3">
                     <div className="flex items-center gap-2">
                       {course.is_mandatory && <Badge variant="destructive">Obligatorio</Badge>}
@@ -926,7 +1023,8 @@ export default function TrainingPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              )
+            })}
           </div>
 
           {filteredCourses.length === 0 && (
