@@ -42,7 +42,8 @@ import {
   ChevronRight,
   Loader2,
   Upload,
-  Workflow
+  Workflow,
+  Lock
 } from "lucide-react"
 import { upload } from "@vercel/blob/client"
 import { DepartmentFilter } from "@/components/hr/department-filter"
@@ -154,6 +155,10 @@ export default function TrainingPage() {
   const [showCategoryDialog, setShowCategoryDialog] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [newCategory, setNewCategory] = useState({ name: "", description: "", color: "#6366f1" })
+  // Solo RRHH, Dirección General y Super Admin pueden editar las categorías.
+  const [canEditCategories, setCanEditCategories] = useState(false)
+  // Filtro por categoría para dar acceso directo a sus cursos.
+  const [categoryFilter, setCategoryFilter] = useState<string>("all")
 
   // Courses
   const [courses, setCourses] = useState<Course[]>([])
@@ -251,7 +256,22 @@ export default function TrainingPage() {
 
   useEffect(() => {
     fetchAgencies()
+    checkCategoryPermissions()
   }, [])
+
+  const checkCategoryPermissions = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data: staffData } = await supabase
+      .from("staff")
+      .select("roles:role_id(name)")
+      .eq("user_id", user.id)
+      .single()
+    const roleName = (staffData?.roles as { name: string } | null)?.name
+    // Roles con permiso de edición de categorías.
+    const editorRoles = ["superadmin", "direccion_general", "rrhh"]
+    setCanEditCategories(roleName ? editorRoles.includes(roleName) : false)
+  }
 
   useEffect(() => {
     if (selectedAgency) {
@@ -385,6 +405,10 @@ export default function TrainingPage() {
 
   // Category handlers
   const handleSaveCategory = async () => {
+    if (!canEditCategories) {
+      alert("No tienes permisos para editar las categorías.")
+      return
+    }
     if (editingCategory) {
       await supabase
         .from("training_categories")
@@ -402,6 +426,10 @@ export default function TrainingPage() {
   }
 
   const handleDeleteCategory = async (id: string) => {
+    if (!canEditCategories) {
+      alert("No tienes permisos para eliminar categorías.")
+      return
+    }
     if (confirm("¿Eliminar esta categoría?")) {
       await supabase.from("training_categories").delete().eq("id", id)
       fetchCategories()
@@ -654,8 +682,11 @@ export default function TrainingPage() {
   }
 
   const filteredCourses = courses.filter(c => 
-    c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.description?.toLowerCase().includes(searchTerm.toLowerCase())
+    (categoryFilter === "all" || c.category_id === categoryFilter) &&
+    (
+      c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.description?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
   )
 
   if (loading) {
@@ -770,6 +801,23 @@ export default function TrainingPage() {
               Nuevo Curso
             </Button>
           </div>
+
+          {categoryFilter !== "all" && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Categoría:</span>
+              <Badge variant="secondary" className="gap-1">
+                {categories.find(c => c.id === categoryFilter)?.name || "Categoría"}
+                <button
+                  type="button"
+                  onClick={() => setCategoryFilter("all")}
+                  className="ml-1 rounded-full hover:text-foreground"
+                  aria-label="Quitar filtro de categoría"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                </button>
+              </Badge>
+            </div>
+          )}
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filteredCourses.map((course) => (
@@ -909,44 +957,78 @@ export default function TrainingPage() {
 
         {/* Categories Tab */}
         <TabsContent value="categories" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={() => { setEditingCategory(null); setNewCategory({ name: "", description: "", color: "#6366f1" }); setShowCategoryDialog(true) }}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nueva Categoría
-            </Button>
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              Selecciona una categoría para ver sus cursos y descripción.
+            </p>
+            {canEditCategories ? (
+              <Button onClick={() => { setEditingCategory(null); setNewCategory({ name: "", description: "", color: "#6366f1" }); setShowCategoryDialog(true) }}>
+                <Plus className="mr-2 h-4 w-4" />
+                Nueva Categoría
+              </Button>
+            ) : (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Lock className="h-3 w-3" />
+                Solo lectura
+              </span>
+            )}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {categories.map((category) => (
-              <Card key={category.id}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: category.color }} />
-                      <CardTitle className="text-lg">{category.name}</CardTitle>
+            {categories.map((category) => {
+              const courseCount = courses.filter(c => c.category_id === category.id).length
+              const openCategory = () => {
+                setCategoryFilter(category.id)
+                setActiveTab("courses")
+              }
+              return (
+                <Card
+                  key={category.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={openCategory}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCategory() } }}
+                  className="cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/40"
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: category.color }} />
+                        <CardTitle className="text-lg">{category.name}</CardTitle>
+                      </div>
+                      {canEditCategories && (
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingCategory(category)
+                            setNewCategory({ name: category.name, description: category.description || "", color: category.color })
+                            setShowCategoryDialog(true)
+                          }}>
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteCategory(category.id)
+                          }}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => {
-                        setEditingCategory(category)
-                        setNewCategory({ name: category.name, description: category.description || "", color: category.color })
-                        setShowCategoryDialog(true)
-                      }}>
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDeleteCategory(category.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">{category.description || "Sin descripción"}</p>
+                    <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+                      <span>{courseCount} cursos</span>
+                      <span className="flex items-center gap-1 text-primary">
+                        Ver cursos
+                        <ChevronRight className="h-4 w-4" />
+                      </span>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">{category.description || "Sin descripción"}</p>
-                  <div className="mt-3 text-sm text-muted-foreground">
-                    {courses.filter(c => c.category_id === category.id).length} cursos
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
 
           {categories.length === 0 && (
