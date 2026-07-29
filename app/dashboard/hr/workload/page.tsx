@@ -47,8 +47,10 @@ interface Position {
   name: string
   level: number | null
   min_accounts: number | null
+  optimal_accounts: number | null
   max_accounts: number | null
   min_projects: number | null
+  optimal_projects: number | null
   max_projects: number | null
   min_subordinates: number | null
   max_subordinates: number | null
@@ -104,11 +106,30 @@ interface StaffWorkload extends StaffMember {
   subordinate_count: number
   // Cargas desde el puesto (Puestos y Cargas de la agencia)
   min_accounts: number
+  optimal_accounts: number
   max_accounts: number
   min_projects: number
+  optimal_projects: number
   max_projects: number
   min_subordinates: number
   max_subordinates: number
+}
+
+// Orden fijo de las áreas en Cargas de Trabajo (vistas Cargas y Lista).
+const DEPARTMENT_ORDER = [
+  "planeación estratégica",
+  "creatividad y diseño",
+  "tecnología y programación",
+  "calidad",
+  "administración y finanzas",
+  "dirección",
+]
+
+// Devuelve el índice de orden de un área; las no listadas van al final.
+function departmentOrderIndex(name: string): number {
+  const key = name.trim().toLowerCase()
+  const idx = DEPARTMENT_ORDER.findIndex((d) => key.includes(d))
+  return idx === -1 ? DEPARTMENT_ORDER.length : idx
 }
 
 export default function WorkloadPage() {
@@ -246,8 +267,10 @@ export default function WorkloadPage() {
           id,
           name,
           min_accounts,
+          optimal_accounts,
           max_accounts,
           min_projects,
+          optimal_projects,
           max_projects,
           min_subordinates,
           max_subordinates,
@@ -503,8 +526,10 @@ export default function WorkloadPage() {
         // Get workload limits from position (Puestos y Cargas)
         const position = staff.positions
         const minAccounts = position?.min_accounts || 0
+        const optimalAccounts = position?.optimal_accounts || 0
         const maxAccounts = position?.max_accounts || 0
         const minProjects = position?.min_projects || 0
+        const optimalProjects = position?.optimal_projects || 0
         const maxProjects = position?.max_projects || 0
         const minSubordinates = position?.min_subordinates || 0
         const maxSubordinates = position?.max_subordinates || 0
@@ -526,8 +551,10 @@ export default function WorkloadPage() {
           total_assignments: totalAccounts + totalProjects,
           subordinate_count: subordinateCount,
           min_accounts: minAccounts,
+          optimal_accounts: optimalAccounts,
           max_accounts: maxAccounts,
           min_projects: minProjects,
+          optimal_projects: optimalProjects,
           max_projects: maxProjects,
           min_subordinates: minSubordinates,
           max_subordinates: maxSubordinates,
@@ -637,26 +664,34 @@ export default function WorkloadPage() {
 function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" | "none" {
     const totalAccounts = staff.total_accounts
     const minAccounts = staff.min_accounts
+    const optimalAccounts = staff.optimal_accounts
     const maxAccounts = staff.max_accounts
     
     // Si no tiene configuración de cargas, no aplica
     if (maxAccounts === 0 && minAccounts === 0) return "none"
     
-    if (minAccounts > 0 && totalAccounts < minAccounts) return "under"
     if (maxAccounts > 0 && totalAccounts > maxAccounts) return "over"
+    // Si hay objetivo óptimo definido, se considera subcarga por debajo de él;
+    // de lo contrario se usa el mínimo.
+    const lowerBound = optimalAccounts > 0 ? optimalAccounts : minAccounts
+    if (lowerBound > 0 && totalAccounts < lowerBound) return "under"
     return "optimal"
   }
 
   function getProjectStatus(staff: StaffWorkload): "under" | "optimal" | "over" | "none" {
     const totalProjects = staff.total_projects
     const minProjects = staff.min_projects
+    const optimalProjects = staff.optimal_projects
     const maxProjects = staff.max_projects
     
     // Si no tiene configuración de proyectos, no aplica
     if (maxProjects === 0 && minProjects === 0) return "none"
     
-    if (minProjects > 0 && totalProjects < minProjects) return "under"
     if (maxProjects > 0 && totalProjects > maxProjects) return "over"
+    // Si hay objetivo óptimo definido, se considera subcarga por debajo de él;
+    // de lo contrario se usa el mínimo.
+    const lowerBound = optimalProjects > 0 ? optimalProjects : minProjects
+    if (lowerBound > 0 && totalProjects < lowerBound) return "under"
     return "optimal"
   }
 
@@ -768,13 +803,23 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
     
     const totalAccounts = staff.total_accounts
     const minAccounts = staff.min_accounts
+    const optimalAccounts = staff.optimal_accounts
     const maxAccounts = staff.max_accounts
     const hasAccountConfig = maxAccounts > 0 || minAccounts > 0
+    // Posición (0-100%) del marcador de valor óptimo sobre la barra de cuentas.
+    const optimalAccountsPos = maxAccounts > 0 && optimalAccounts > 0
+      ? Math.min((optimalAccounts / maxAccounts) * 100, 100)
+      : null
     
     const totalProjects = staff.total_projects
     const minProjects = staff.min_projects
+    const optimalProjects = staff.optimal_projects
     const maxProjects = staff.max_projects
     const hasProjectConfig = maxProjects > 0 || minProjects > 0
+    // Posición (0-100%) del marcador de valor óptimo sobre la barra de proyectos.
+    const optimalProjectsPos = maxProjects > 0 && optimalProjects > 0
+      ? Math.min((optimalProjects / maxProjects) * 100, 100)
+      : null
     
     // Detect if staff is a Manager or Director based on position name
     const positionLower = (staff.position || "").toLowerCase()
@@ -837,21 +882,32 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
               </span>
               <span className="font-medium">
                 {hasAccountConfig ? (
-                  <>
-                    {totalAccounts} / {maxAccounts}
-                    {minAccounts > 0 && <span className="text-muted-foreground ml-1">(mín: {minAccounts})</span>}
-                  </>
+                  <>{totalAccounts} / {maxAccounts}</>
                 ) : (
                   <>{totalAccounts}</>
                 )}
               </span>
             </div>
             {hasAccountConfig && (
-              <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div className="relative h-2 rounded-full bg-muted overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${progressColor[workloadStatus]}`}
                   style={{ width: `${accountPercentage}%` }}
                 />
+                {optimalAccountsPos !== null && (
+                  <div
+                    className="absolute top-0 h-full w-0.5 bg-green-600"
+                    style={{ left: `${optimalAccountsPos}%` }}
+                    title={`Óptimo: ${optimalAccounts}`}
+                  />
+                )}
+              </div>
+            )}
+            {hasAccountConfig && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Mín: <span className="font-medium text-foreground">{minAccounts}</span></span>
+                <span className="text-green-600">Óptimo: <span className="font-medium">{optimalAccounts > 0 ? optimalAccounts : "—"}</span></span>
+                <span className="text-muted-foreground">Máx: <span className="font-medium text-foreground">{maxAccounts}</span></span>
               </div>
             )}
 {/* Resumen por rol: solo para gerentes/directores */}
@@ -899,21 +955,32 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
               </span>
               <span className="font-medium">
                 {hasProjectConfig ? (
-                  <>
-                    {totalProjects} / {maxProjects}
-                    {minProjects > 0 && <span className="text-muted-foreground ml-1">(mín: {minProjects})</span>}
-                  </>
+                  <>{totalProjects} / {maxProjects}</>
                 ) : (
                   <>{totalProjects}</>
                 )}
               </span>
             </div>
             {hasProjectConfig && (
-              <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div className="relative h-2 rounded-full bg-muted overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${progressColor[projectStatus]}`}
                   style={{ width: `${projectPercentage}%` }}
                 />
+                {optimalProjectsPos !== null && (
+                  <div
+                    className="absolute top-0 h-full w-0.5 bg-green-600"
+                    style={{ left: `${optimalProjectsPos}%` }}
+                    title={`Óptimo: ${optimalProjects}`}
+                  />
+                )}
+              </div>
+            )}
+            {hasProjectConfig && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Mín: <span className="font-medium text-foreground">{minProjects}</span></span>
+                <span className="text-green-600">Óptimo: <span className="font-medium">{optimalProjects > 0 ? optimalProjects : "—"}</span></span>
+                <span className="text-muted-foreground">Máx: <span className="font-medium text-foreground">{maxProjects}</span></span>
               </div>
             )}
             {/* Resumen por rol: solo para gerentes/directores */}
@@ -1306,6 +1373,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                   const deptGroups = new Map<string, StaffWorkload[]>()
                   filteredWorkload.forEach((staff) => {
                     const deptName = staff.departments?.name || staff.department || "Sin área"
+                    // Ocultar el área de Recursos Humanos en Cargas de Trabajo;
+                    // así "Creatividad y Diseño" sube a esa posición.
+                    if (deptName.toLowerCase().includes("recursos humanos")) return
                     if (!deptGroups.has(deptName)) {
                       deptGroups.set(deptName, [])
                     }
@@ -1329,7 +1399,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                     })
                   })
 
-                  return Array.from(deptGroups.entries()).map(([deptName, staffList]) => (
+                  return Array.from(deptGroups.entries())
+                    .sort(([a], [b]) => departmentOrderIndex(a) - departmentOrderIndex(b) || a.localeCompare(b))
+                    .map(([deptName, staffList]) => (
                     <div key={deptName} className="space-y-4">
                       <h3 className="text-lg font-semibold border-b pb-2 flex items-center gap-2">
                         <Users className="h-5 w-5 text-primary" />
@@ -1362,6 +1434,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                   const deptGroups = new Map<string, StaffWorkload[]>()
                   filteredWorkload.forEach((staff) => {
                     const deptName = staff.departments?.name || staff.department || "Sin área"
+                    // Ocultar el área de Recursos Humanos en Cargas de Trabajo;
+                    // así "Creatividad y Diseño" sube a esa posición.
+                    if (deptName.toLowerCase().includes("recursos humanos")) return
                     if (!deptGroups.has(deptName)) {
                       deptGroups.set(deptName, [])
                     }
@@ -1385,7 +1460,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                     })
                   })
 
-                  return Array.from(deptGroups.entries()).map(([deptName, staffList]) => (
+                  return Array.from(deptGroups.entries())
+                    .sort(([a], [b]) => departmentOrderIndex(a) - departmentOrderIndex(b) || a.localeCompare(b))
+                    .map(([deptName, staffList]) => (
                     <Card key={deptName}>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-lg flex items-center gap-2">
@@ -1401,8 +1478,8 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                               <tr className="border-b">
                                 <th className="text-left p-3 font-medium">Nombre</th>
                                 <th className="text-left p-3 font-medium">Posición</th>
-                                <th className="text-center p-3 font-medium">Cuentas</th>
-                                <th className="text-center p-3 font-medium">Proyectos</th>
+                                <th className="text-center p-3 font-medium">Cuentas vs. óptimo</th>
+                                <th className="text-center p-3 font-medium">Proyectos vs. óptimo</th>
                                 <th className="text-center p-3 font-medium">Subordinados</th>
                                 <th className="text-center p-3 font-medium">Estado</th>
                               </tr>
@@ -1436,20 +1513,78 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                                     </td>
                                     <td className="p-3">{staff.position}</td>
                                     <td className="text-center p-3">
-                                      <div>
-                                        {totalAccounts}
-                                        <span className="text-muted-foreground text-sm">
-                                          {" "}/ {staff.max_accounts || "-"}
-                                        </span>
-                                      </div>
+                                      {staff.optimal_accounts > 0 ? (
+                                        <div>
+                                          <span className="font-medium">{totalAccounts}</span>
+                                          <span className="text-muted-foreground text-sm">
+                                            {" "}/ {staff.optimal_accounts} óptimo
+                                          </span>
+                                          {(() => {
+                                            const diff = totalAccounts - staff.optimal_accounts
+                                            return (
+                                              <div
+                                                className={`text-xs font-medium ${
+                                                  diff === 0
+                                                    ? "text-green-600"
+                                                    : diff > 0
+                                                      ? "text-red-600"
+                                                      : "text-amber-600"
+                                                }`}
+                                              >
+                                                {diff === 0
+                                                  ? "En el objetivo"
+                                                  : diff > 0
+                                                    ? `+${diff} sobre el ideal`
+                                                    : `${diff} bajo el ideal`}
+                                              </div>
+                                            )
+                                          })()}
+                                        </div>
+                                      ) : (
+                                        <div>
+                                          {totalAccounts}
+                                          <span className="text-muted-foreground text-sm">
+                                            {" "}/ {staff.max_accounts || "-"}
+                                          </span>
+                                        </div>
+                                      )}
                                     </td>
                                     <td className="text-center p-3">
-                                      <div>
-                                        {totalProjects}
-                                        <span className="text-muted-foreground text-sm">
-                                          {" "}/ {staff.max_projects || "-"}
-                                        </span>
-                                      </div>
+                                      {staff.optimal_projects > 0 ? (
+                                        <div>
+                                          <span className="font-medium">{totalProjects}</span>
+                                          <span className="text-muted-foreground text-sm">
+                                            {" "}/ {staff.optimal_projects} óptimo
+                                          </span>
+                                          {(() => {
+                                            const diff = totalProjects - staff.optimal_projects
+                                            return (
+                                              <div
+                                                className={`text-xs font-medium ${
+                                                  diff === 0
+                                                    ? "text-green-600"
+                                                    : diff > 0
+                                                      ? "text-red-600"
+                                                      : "text-amber-600"
+                                                }`}
+                                              >
+                                                {diff === 0
+                                                  ? "En el objetivo"
+                                                  : diff > 0
+                                                    ? `+${diff} sobre el ideal`
+                                                    : `${diff} bajo el ideal`}
+                                              </div>
+                                            )
+                                          })()}
+                                        </div>
+                                      ) : (
+                                        <div>
+                                          {totalProjects}
+                                          <span className="text-muted-foreground text-sm">
+                                            {" "}/ {staff.max_projects || "-"}
+                                          </span>
+                                        </div>
+                                      )}
                                     </td>
                                     <td className="text-center p-3">
                                       <div>
