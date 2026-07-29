@@ -1478,8 +1478,8 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                               <tr className="border-b">
                                 <th className="text-left p-3 font-medium">Nombre</th>
                                 <th className="text-left p-3 font-medium">Posición</th>
-                                <th className="text-center p-3 font-medium">Cuentas</th>
-                                <th className="text-center p-3 font-medium">Proyectos</th>
+                                <th className="text-center p-3 font-medium">Cuentas vs. óptimo</th>
+                                <th className="text-center p-3 font-medium">Proyectos vs. óptimo</th>
                                 <th className="text-center p-3 font-medium">Subordinados</th>
                                 <th className="text-center p-3 font-medium">Estado</th>
                               </tr>
@@ -1513,20 +1513,78 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                                     </td>
                                     <td className="p-3">{staff.position}</td>
                                     <td className="text-center p-3">
-                                      <div>
-                                        {totalAccounts}
-                                        <span className="text-muted-foreground text-sm">
-                                          {" "}/ {staff.max_accounts || "-"}
-                                        </span>
-                                      </div>
+                                      {staff.optimal_accounts > 0 ? (
+                                        <div>
+                                          <span className="font-medium">{totalAccounts}</span>
+                                          <span className="text-muted-foreground text-sm">
+                                            {" "}/ {staff.optimal_accounts} óptimo
+                                          </span>
+                                          {(() => {
+                                            const diff = totalAccounts - staff.optimal_accounts
+                                            return (
+                                              <div
+                                                className={`text-xs font-medium ${
+                                                  diff === 0
+                                                    ? "text-green-600"
+                                                    : diff > 0
+                                                      ? "text-red-600"
+                                                      : "text-amber-600"
+                                                }`}
+                                              >
+                                                {diff === 0
+                                                  ? "En el objetivo"
+                                                  : diff > 0
+                                                    ? `+${diff} sobre el ideal`
+                                                    : `${diff} bajo el ideal`}
+                                              </div>
+                                            )
+                                          })()}
+                                        </div>
+                                      ) : (
+                                        <div>
+                                          {totalAccounts}
+                                          <span className="text-muted-foreground text-sm">
+                                            {" "}/ {staff.max_accounts || "-"}
+                                          </span>
+                                        </div>
+                                      )}
                                     </td>
                                     <td className="text-center p-3">
-                                      <div>
-                                        {totalProjects}
-                                        <span className="text-muted-foreground text-sm">
-                                          {" "}/ {staff.max_projects || "-"}
-                                        </span>
-                                      </div>
+                                      {staff.optimal_projects > 0 ? (
+                                        <div>
+                                          <span className="font-medium">{totalProjects}</span>
+                                          <span className="text-muted-foreground text-sm">
+                                            {" "}/ {staff.optimal_projects} óptimo
+                                          </span>
+                                          {(() => {
+                                            const diff = totalProjects - staff.optimal_projects
+                                            return (
+                                              <div
+                                                className={`text-xs font-medium ${
+                                                  diff === 0
+                                                    ? "text-green-600"
+                                                    : diff > 0
+                                                      ? "text-red-600"
+                                                      : "text-amber-600"
+                                                }`}
+                                              >
+                                                {diff === 0
+                                                  ? "En el objetivo"
+                                                  : diff > 0
+                                                    ? `+${diff} sobre el ideal`
+                                                    : `${diff} bajo el ideal`}
+                                              </div>
+                                            )
+                                          })()}
+                                        </div>
+                                      ) : (
+                                        <div>
+                                          {totalProjects}
+                                          <span className="text-muted-foreground text-sm">
+                                            {" "}/ {staff.max_projects || "-"}
+                                          </span>
+                                        </div>
+                                      )}
                                     </td>
                                     <td className="text-center p-3">
                                       <div>
