@@ -1550,8 +1550,10 @@ const [editTemplateForm, setEditTemplateForm] = useState({
       e => e.staff_id === staffId && e.evaluation_type === evalType
     )
 
-    if (existing && !allowsMultiple) {
-      alert("Esta evaluación ya ha sido iniciada")
+    // Si ya está completada no se reabre desde aquí (usar "Reiniciar").
+    // Si está "en proceso" sí se permite reabrir el diálogo para continuarla.
+    if (existing && !allowsMultiple && existing.status === "completed") {
+      alert("Esta evaluación ya está completada. Usa \"Reiniciar\" si deseas aplicarla de nuevo.")
       return
     }
 
@@ -2963,7 +2965,22 @@ const handleCreateTemplate = () => {
                               {ev?.status === "completed" ? (
                                 <Badge className="bg-green-100 text-green-700">{ev.score ?? 0}%</Badge>
                               ) : ev?.status === "in_progress" ? (
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700">En proceso</Badge>
+                                <button
+                                  type="button"
+                                  title="Continuar evaluación"
+                                  onClick={() =>
+                                    handleStartStaffEvaluation(staff.id, startTypeFor(template), template.id)
+                                  }
+                                  className="inline-flex cursor-pointer"
+                                >
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                                  >
+                                    <Play className="h-3 w-3 mr-1" />
+                                    En proceso
+                                  </Badge>
+                                </button>
                               ) : (
                                 <Badge variant="outline" className="text-muted-foreground">Sin evaluar</Badge>
                               )}
@@ -2998,7 +3015,9 @@ const handleCreateTemplate = () => {
                               <DropdownMenuContent align="end">
                                 {scopeTemplates.map((template) => {
                                   const ev = findTemplateEval(staff.id, template)
-                                  const disabled = !allowsMultiple && ev !== null && ev.status !== "pending"
+                                  // Solo se bloquea si ya está completada; "en proceso" se
+                                  // puede reabrir para continuar.
+                                  const disabled = !allowsMultiple && ev !== null && ev.status === "completed"
                                   return (
                                     <DropdownMenuItem
                                       key={template.id}
@@ -3008,9 +3027,11 @@ const handleCreateTemplate = () => {
                                       disabled={disabled}
                                     >
                                       <Play className="h-4 w-4 mr-2" />
-                                      {ev && !allowsMultiple && ev.status !== "pending"
-                                        ? `${template.name} (${ev.status === "completed" ? "completada" : "en proceso"})`
-                                        : `Iniciar: ${template.name}`}
+                                      {ev && !allowsMultiple && ev.status === "completed"
+                                        ? `${template.name} (completada)`
+                                        : ev && !allowsMultiple && ev.status === "in_progress"
+                                          ? `Continuar: ${template.name}`
+                                          : `Iniciar: ${template.name}`}
                                     </DropdownMenuItem>
                                   )
                                 })}
