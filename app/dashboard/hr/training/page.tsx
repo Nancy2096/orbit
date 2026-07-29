@@ -759,10 +759,11 @@ export default function TrainingPage() {
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
   }
 
-  // Inscripciones de cursos esenciales (no optativos), ordenadas por curso y luego
-  // por persona para que las asignaciones de cada curso se muestren agrupadas.
+  // Personas que fueron seleccionadas/asignadas dentro de un curso: para ellas el
+  // curso es obligatorio (tienen assigned_at). Para el resto del personal es opcional.
+  // Se ordena por curso y luego por persona para agrupar las asignaciones de cada curso.
   const mandatoryEnrollments = enrollments
-    .filter((e) => e.course?.is_mandatory)
+    .filter((e) => e.assigned_at != null)
     .sort((a, b) => {
       const courseCmp = (a.course?.title || "").localeCompare(b.course?.title || "")
       if (courseCmp !== 0) return courseCmp
