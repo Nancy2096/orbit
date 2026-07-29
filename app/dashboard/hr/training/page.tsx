@@ -166,6 +166,8 @@ export default function TrainingPage() {
     is_mandatory: false,
     is_active: true
   })
+  // Personas asignadas a la capacitación al darla de alta / editarla
+  const [courseAssignStaffIds, setCourseAssignStaffIds] = useState<string[]>([])
 
   // Course Content
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null)
@@ -404,6 +406,7 @@ export default function TrainingPage() {
 
   // Course handlers
   const handleSaveCourse = async () => {
+    let courseId = editingCourse?.id || null
     if (editingCourse) {
       await supabase
         .from("training_courses")
@@ -414,16 +417,33 @@ export default function TrainingPage() {
         })
         .eq("id", editingCourse.id)
     } else {
-      await supabase
+      const { data: inserted } = await supabase
         .from("training_courses")
         .insert({ 
           ...newCourse, 
           category_id: newCourse.category_id || null,
           agency_id: selectedAgency 
         })
+        .select("id")
+        .single()
+      courseId = inserted?.id ?? null
     }
+
+    // Inscribir a las personas asignadas (quiénes deben tomar la capacitación)
+    if (courseId && courseAssignStaffIds.length > 0) {
+      const enrollments = courseAssignStaffIds.map((staffId) => ({
+        course_id: courseId,
+        staff_id: staffId,
+        status: "enrolled",
+      }))
+      await supabase
+        .from("training_enrollments")
+        .upsert(enrollments, { onConflict: "course_id,staff_id" })
+    }
+
     setShowCourseDialog(false)
     setEditingCourse(null)
+    setCourseAssignStaffIds([])
     setNewCourse({
       category_id: "",
       title: "",
@@ -434,6 +454,7 @@ export default function TrainingPage() {
       is_active: true
     })
     fetchCourses()
+    fetchEnrollments()
   }
 
   const handleDeleteCourse = async (id: string) => {
@@ -738,7 +759,7 @@ export default function TrainingPage() {
                 className="pl-10"
               />
             </div>
-            <Button onClick={() => { setEditingCourse(null); setNewCourse({ category_id: "", title: "", description: "", duration_minutes: 0, passing_score: 70, is_mandatory: false, is_active: true }); setShowCourseDialog(true) }}>
+              <Button onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setNewCourse({ category_id: "", title: "", description: "", duration_minutes: 0, passing_score: 70, is_mandatory: false, is_active: true }); setShowCourseDialog(true) }}>
               <Plus className="mr-2 h-4 w-4" />
               Nuevo Curso
             </Button>
@@ -782,6 +803,9 @@ export default function TrainingPage() {
                     <div className="flex gap-1 opacity-60 transition-opacity group-hover:opacity-100">
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
                         setEditingCourse(course)
+                        setCourseAssignStaffIds(
+                          enrollments.filter((e) => e.course_id === course.id).map((e) => e.staff_id),
+                        )
                         setNewCourse({
                           category_id: course.category_id || "",
                           title: course.title,
@@ -850,7 +874,7 @@ export default function TrainingPage() {
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">No hay cursos creados</p>
-                <Button className="mt-4" onClick={() => setShowCourseDialog(true)}>
+                <Button className="mt-4" onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setShowCourseDialog(true) }}>
                   <Plus className="mr-2 h-4 w-4" />
                   Crear Primer Curso
                 </Button>
@@ -1394,7 +1418,7 @@ export default function TrainingPage() {
 
       {/* Course Dialog */}
       <Dialog open={showCourseDialog} onOpenChange={setShowCourseDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingCourse ? "Editar Curso" : "Nuevo Curso"}</DialogTitle>
           </DialogHeader>
@@ -1449,20 +1473,87 @@ export default function TrainingPage() {
                 />
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={newCourse.is_mandatory}
-                  onCheckedChange={(checked) => setNewCourse({ ...newCourse, is_mandatory: checked })}
-                />
-                <Label>Curso obligatorio</Label>
-              </div>
+            <div className="flex items-center justify-end">
               <div className="flex items-center gap-2">
                 <Switch
                   checked={newCourse.is_active}
                   onCheckedChange={(checked) => setNewCourse({ ...newCourse, is_active: checked })}
                 />
                 <Label>Activo</Label>
+              </div>
+            </div>
+
+            {/* Asignación: quiénes deben tomar la capacitación y modalidad */}
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="space-y-1">
+                <Label className="text-sm font-semibold">Asignar capacitación</Label>
+                <p className="text-xs text-muted-foreground">
+                  Indica quién debe tomar esta capacitación y si es opcional u obligatoria.
+                </p>
+              </div>
+
+              {/* Modalidad: opcional / forzosa */}
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="course-mandatory"
+                  checked={newCourse.is_mandatory}
+                  onCheckedChange={(checked) => setNewCourse({ ...newCourse, is_mandatory: checked })}
+                />
+                <Label htmlFor="course-mandatory" className="text-sm">
+                  {newCourse.is_mandatory ? "Forzosa (obligatoria)" : "Opcional"}
+                </Label>
+              </div>
+
+              {/* Personas asignadas */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">Personas asignadas</Label>
+                  {staff.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() =>
+                        setCourseAssignStaffIds(
+                          courseAssignStaffIds.length === staff.length ? [] : staff.map((s) => s.id),
+                        )
+                      }
+                    >
+                      {courseAssignStaffIds.length === staff.length ? "Quitar todos" : "Seleccionar todos"}
+                    </Button>
+                  )}
+                </div>
+                <ScrollArea className="h-48 border rounded-md p-3">
+                  {staff.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No hay personal disponible en esta agencia.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {staff.map((member) => (
+                        <div key={member.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`assign-${member.id}`}
+                            checked={courseAssignStaffIds.includes(member.id)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setCourseAssignStaffIds([...courseAssignStaffIds, member.id])
+                              } else {
+                                setCourseAssignStaffIds(courseAssignStaffIds.filter((id) => id !== member.id))
+                              }
+                            }}
+                          />
+                          <Label htmlFor={`assign-${member.id}`} className="font-normal cursor-pointer">
+                            <span className="font-medium">{member.first_name} {member.last_name}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {member.position || member.email}
+                            </span>
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+                <p className="text-xs text-muted-foreground">{courseAssignStaffIds.length} asignados</p>
               </div>
             </div>
           </div>
