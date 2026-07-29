@@ -75,8 +75,8 @@ interface Course {
   thumbnail_url: string | null
   content_url: string | null
   provides_certificate: boolean
-  duration_minutes: number
-  passing_score: number
+  duration_weeks: number
+  hours_per_week: number
   is_mandatory: boolean
   is_active: boolean
   created_at: string
@@ -141,6 +141,7 @@ interface Enrollment {
   completed_at: string | null
   final_score: number | null
   created_at?: string | null
+  assigned_at?: string | null
   certificate_url?: string | null
   certificate_uploaded_at?: string | null
   staff?: Staff
@@ -175,8 +176,8 @@ export default function TrainingPage() {
     title: "",
     description: "",
     content_url: "",
-    duration_minutes: 0,
-    passing_score: 70,
+    duration_weeks: 0,
+    hours_per_week: 0,
     is_mandatory: false,
     provides_certificate: false,
     is_active: true
@@ -409,7 +410,7 @@ export default function TrainingPage() {
       .select(`
         *,
         staff:staff(id, first_name, last_name, email, position),
-        course:training_courses!inner(id, title, passing_score, agency_id)
+        course:training_courses!inner(id, title, is_mandatory, agency_id)
       `)
       .eq("course.agency_id", selectedAgency)
       .order("created_at", { ascending: false })
@@ -474,12 +475,15 @@ export default function TrainingPage() {
       courseId = inserted?.id ?? null
     }
 
-    // Inscribir a las personas asignadas (quiénes deben tomar la capacitación)
+    // Inscribir a las personas asignadas (quiénes deben tomar la capacitación).
+    // assigned_at guarda la fecha en que se asignó el curso, para poder medir
+    // cuánto tardan en inscribirse y luego en terminarlo.
     if (courseId && courseAssignStaffIds.length > 0) {
       const enrollments = courseAssignStaffIds.map((staffId) => ({
         course_id: courseId,
         staff_id: staffId,
         status: "enrolled",
+        assigned_at: new Date().toISOString(),
       }))
       await supabase
         .from("training_enrollments")
@@ -494,8 +498,8 @@ export default function TrainingPage() {
       title: "",
       description: "",
       content_url: "",
-      duration_minutes: 0,
-      passing_score: 70,
+      duration_weeks: 0,
+      hours_per_week: 0,
       is_mandatory: false,
       provides_certificate: false,
       is_active: true
@@ -745,6 +749,21 @@ export default function TrainingPage() {
     }
   }
 
+  // Formatea una fecha como día/mes/año (es-MX).
+  const formatDate = (value: string | null | undefined) =>
+    value ? new Date(value).toLocaleDateString("es-MX", { day: "2-digit", month: "2-digit", year: "numeric" }) : "-"
+
+  // Días transcurridos entre dos fechas (redondeado hacia arriba). Devuelve null si falta alguna.
+  const daysBetween = (from: string | null | undefined, to: string | null | undefined) => {
+    if (!from || !to) return null
+    const diff = new Date(to).getTime() - new Date(from).getTime()
+    if (Number.isNaN(diff)) return null
+    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
+  }
+
+  // Inscripciones de cursos obligatorios (no optativos), para el seguimiento de asignaciones.
+  const mandatoryEnrollments = enrollments.filter((e) => e.course?.is_mandatory)
+
   const filteredCourses = courses.filter(c => 
     (categoryFilter === "all" || c.category_id === categoryFilter) &&
     (
@@ -860,7 +879,7 @@ export default function TrainingPage() {
                 className="pl-10"
               />
             </div>
-              <Button onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setNewCourse({ category_id: "", title: "", description: "", content_url: "", duration_minutes: 0, passing_score: 70, is_mandatory: false, provides_certificate: false, is_active: true }); setShowCourseDialog(true) }}>
+              <Button onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setNewCourse({ category_id: "", title: "", description: "", content_url: "", duration_weeks: 0, hours_per_week: 0, is_mandatory: false, provides_certificate: false, is_active: true }); setShowCourseDialog(true) }}>
               <Plus className="mr-2 h-4 w-4" />
               Nuevo Curso
             </Button>
@@ -933,8 +952,8 @@ export default function TrainingPage() {
                           title: course.title,
                           description: course.description || "",
                           content_url: course.content_url || "",
-                          duration_minutes: course.duration_minutes,
-                          passing_score: course.passing_score,
+                          duration_weeks: course.duration_weeks ?? 0,
+                          hours_per_week: course.hours_per_week ?? 0,
                           is_mandatory: course.is_mandatory,
                           provides_certificate: course.provides_certificate ?? false,
                           is_active: course.is_active
@@ -952,11 +971,16 @@ export default function TrainingPage() {
                 <CardContent className="flex flex-1 flex-col space-y-3">
                   <p className="text-sm text-muted-foreground line-clamp-2">{course.description || "Sin descripción"}</p>
                   {/* Estadísticas en chips */}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
                       <Clock className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-semibold">{course.duration_minutes}</span>
-                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">min</span>
+                      <span className="text-sm font-semibold">{course.duration_weeks || 0}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">semanas</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold">{course.hours_per_week || 0}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">hrs/sem</span>
                     </div>
                     <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
                       <FileText className="h-4 w-4 text-primary" />
@@ -1594,6 +1618,65 @@ export default function TrainingPage() {
             </CardContent>
           </Card>
 
+          {/* Seguimiento de cursos obligatorios (no optativos) asignados */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Cursos Obligatorios Asignados</CardTitle>
+              <CardDescription>
+                Cursos no optativos asignados a cada persona, con la fecha de asignación y el tiempo que
+                tardaron en inscribirse y luego en terminarlos.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {mandatoryEnrollments.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No hay cursos obligatorios asignados en esta agencia.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Empleado</TableHead>
+                      <TableHead>Curso</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead>Fecha Asignación</TableHead>
+                      <TableHead>Fecha Inscripción</TableHead>
+                      <TableHead>Días para Inscribirse</TableHead>
+                      <TableHead>Fecha Completado</TableHead>
+                      <TableHead>Días para Terminar</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {mandatoryEnrollments.map((enrollment) => {
+                      // Referencia de inicio: la inscripción efectiva (started_at) o, en su defecto, created_at.
+                      const enrolledAt = enrollment.started_at || enrollment.created_at
+                      const daysToEnroll = daysBetween(enrollment.assigned_at, enrolledAt)
+                      const daysToComplete = daysBetween(enrollment.assigned_at, enrollment.completed_at)
+                      return (
+                        <TableRow key={enrollment.id}>
+                          <TableCell>
+                            {enrollment.staff?.first_name} {enrollment.staff?.last_name}
+                          </TableCell>
+                          <TableCell>{enrollment.course?.title}</TableCell>
+                          <TableCell>{getStatusBadge(enrollment.status)}</TableCell>
+                          <TableCell>{formatDate(enrollment.assigned_at)}</TableCell>
+                          <TableCell>{formatDate(enrolledAt)}</TableCell>
+                          <TableCell>
+                            {daysToEnroll !== null ? `${daysToEnroll} día${daysToEnroll === 1 ? "" : "s"}` : "-"}
+                          </TableCell>
+                          <TableCell>{formatDate(enrollment.completed_at)}</TableCell>
+                          <TableCell>
+                            {daysToComplete !== null ? `${daysToComplete} día${daysToComplete === 1 ? "" : "s"}` : "-"}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Detailed Enrollments */}
           <Card>
             <CardHeader>
@@ -1607,7 +1690,6 @@ export default function TrainingPage() {
                     <TableHead>Curso</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Progreso</TableHead>
-                    <TableHead>Calificación</TableHead>
                     <TableHead>Fecha Inscripción</TableHead>
                     <TableHead>Fecha Completado</TableHead>
                     <TableHead>Certificado</TableHead>
@@ -1626,13 +1708,6 @@ export default function TrainingPage() {
                           <Progress value={enrollment.progress_percentage} className="w-20 h-2" />
                           <span className="text-sm text-muted-foreground">{enrollment.progress_percentage}%</span>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        {enrollment.final_score !== null ? (
-                          <span className={enrollment.final_score >= (enrollment.course?.passing_score || 70) ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
-                            {enrollment.final_score}%
-                          </span>
-                        ) : "-"}
                       </TableCell>
                       <TableCell>
                         {enrollment.created_at ? new Date(enrollment.created_at).toLocaleDateString() : "-"}
@@ -1760,24 +1835,27 @@ export default function TrainingPage() {
                 Enlace al material, video o presentación de la capacitación.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Duración (min)</Label>
-                <Input
-                  type="number"
-                  value={newCourse.duration_minutes}
-                  onChange={(e) => setNewCourse({ ...newCourse, duration_minutes: parseInt(e.target.value) || 0 })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Puntuación mínima (%)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={newCourse.passing_score}
-                  onChange={(e) => setNewCourse({ ...newCourse, passing_score: parseInt(e.target.value) || 70 })}
-                />
+            <div className="space-y-2">
+              <Label>Duración estimada</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={newCourse.duration_weeks}
+                    onChange={(e) => setNewCourse({ ...newCourse, duration_weeks: parseInt(e.target.value) || 0 })}
+                  />
+                  <p className="text-xs text-muted-foreground">Semanas para completar el curso</p>
+                </div>
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={newCourse.hours_per_week}
+                    onChange={(e) => setNewCourse({ ...newCourse, hours_per_week: parseInt(e.target.value) || 0 })}
+                  />
+                  <p className="text-xs text-muted-foreground">Horas por semana a dedicar</p>
+                </div>
               </div>
             </div>
             <div className="flex items-center justify-between">
