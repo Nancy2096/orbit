@@ -48,6 +48,7 @@ import {
 import { upload } from "@vercel/blob/client"
 import { DepartmentFilter } from "@/components/hr/department-filter"
 import { ProcessesModule } from "@/components/hr/processes-module"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 
 const supabase = createClient()
 
@@ -156,7 +157,9 @@ export default function TrainingPage() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [newCategory, setNewCategory] = useState({ name: "", description: "", color: "#6366f1" })
   // Solo RRHH, Dirección General y Super Admin pueden editar las categorías.
-  const [canEditCategories, setCanEditCategories] = useState(false)
+  const { roleName, fullAccess } = usePermissions()
+  const canEditCategories =
+    fullAccess || (roleName != null && ["superadmin", "direccion_general", "rrhh"].includes(roleName))
   // Filtro por categoría para dar acceso directo a sus cursos.
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
 
@@ -256,22 +259,7 @@ export default function TrainingPage() {
 
   useEffect(() => {
     fetchAgencies()
-    checkCategoryPermissions()
   }, [])
-
-  const checkCategoryPermissions = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    const { data: staffData } = await supabase
-      .from("staff")
-      .select("roles:role_id(name)")
-      .eq("user_id", user.id)
-      .single()
-    const roleName = (staffData?.roles as { name: string } | null)?.name
-    // Roles con permiso de edición de categorías.
-    const editorRoles = ["superadmin", "direccion_general", "rrhh"]
-    setCanEditCategories(roleName ? editorRoles.includes(roleName) : false)
-  }
 
   useEffect(() => {
     if (selectedAgency) {
