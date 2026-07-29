@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { usePathname } from "next/navigation"
 import type { User } from "@/lib/types"
+import { NotificationBell } from "@/components/dashboard/notification-bell"
 
 interface DashboardHeaderProps {
   user: User | null
@@ -73,7 +74,8 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
         </BreadcrumbList>
       </Breadcrumb>
       
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-2">
+        <NotificationBell />
         {user?.role && (
           <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md">
             {user.role.display_name}

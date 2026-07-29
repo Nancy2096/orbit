@@ -45,6 +45,7 @@ import {
   formatLongDate,
   staffFullName,
 } from "@/lib/one-to-one"
+import { OneToOneNotifications } from "@/components/hr/one-to-one-notifications"
 
 export default function OneToOneReportsPage() {
   const router = useRouter()
@@ -123,9 +124,9 @@ export default function OneToOneReportsPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Reportes One 2 One</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Reuniones One 2 One</h1>
           <p className="text-muted-foreground text-pretty">
-            Concentra los reportes de las reuniones de acompañamiento y las herramientas otorgadas al
+            Concentra las reuniones de acompañamiento y las herramientas otorgadas al
             personal. Sección confidencial.
           </p>
         </div>
@@ -144,10 +145,13 @@ export default function OneToOneReportsPage() {
           </Select>
           <Button onClick={() => router.push("/dashboard/hr/one-to-one/new")}>
             <Plus className="mr-2 h-4 w-4" />
-            Nuevo reporte
+            Nueva Reunión 1a1
           </Button>
         </div>
       </div>
+
+      {/* Recordatorios de reuniones por hito (1er, 2do, 3er mes) */}
+      <OneToOneNotifications />
 
       {/* Filtro por colaborador */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -180,8 +184,8 @@ export default function OneToOneReportsPage() {
             </EmptyMedia>
             <EmptyTitle>Sin reportes</EmptyTitle>
             <EmptyDescription>
-              Aún no hay reportes de reuniones de acompañamiento para esta selección. Crea el primero
-              con &quot;Nuevo reporte&quot;.
+              Aún no hay reuniones de acompañamiento para esta selección. Crea la primera
+              con &quot;Nueva Reunión 1a1&quot;.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

@@ -42,11 +42,13 @@ import {
   ChevronRight,
   Loader2,
   Upload,
-  Workflow
+  Workflow,
+  Lock
 } from "lucide-react"
 import { upload } from "@vercel/blob/client"
 import { DepartmentFilter } from "@/components/hr/department-filter"
 import { ProcessesModule } from "@/components/hr/processes-module"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 
 const supabase = createClient()
 
@@ -71,8 +73,10 @@ interface Course {
   title: string
   description: string | null
   thumbnail_url: string | null
-  duration_minutes: number
-  passing_score: number
+  content_url: string | null
+  provides_certificate: boolean
+  duration_weeks: number
+  hours_per_week: number
   is_mandatory: boolean
   is_active: boolean
   created_at: string
@@ -136,6 +140,10 @@ interface Enrollment {
   started_at: string | null
   completed_at: string | null
   final_score: number | null
+  created_at?: string | null
+  assigned_at?: string | null
+  certificate_url?: string | null
+  certificate_uploaded_at?: string | null
   staff?: Staff
   course?: Course
 }
@@ -152,6 +160,12 @@ export default function TrainingPage() {
   const [showCategoryDialog, setShowCategoryDialog] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [newCategory, setNewCategory] = useState({ name: "", description: "", color: "#6366f1" })
+  // Solo RRHH, Dirección General y Super Admin pueden editar las categorías.
+  const { roleName, fullAccess } = usePermissions()
+  const canEditCategories =
+    fullAccess || (roleName != null && ["superadmin", "direccion_general", "rrhh"].includes(roleName))
+  // Filtro por categoría para dar acceso directo a sus cursos.
+  const [categoryFilter, setCategoryFilter] = useState<string>("all")
 
   // Courses
   const [courses, setCourses] = useState<Course[]>([])
@@ -161,11 +175,15 @@ export default function TrainingPage() {
     category_id: "",
     title: "",
     description: "",
-    duration_minutes: 0,
-    passing_score: 70,
+    content_url: "",
+    duration_weeks: 0,
+    hours_per_week: 0,
     is_mandatory: false,
+    provides_certificate: false,
     is_active: true
   })
+  // Personas asignadas a la capacitación al darla de alta / editarla
+  const [courseAssignStaffIds, setCourseAssignStaffIds] = useState<string[]>([])
 
   // Course Content
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null)
@@ -222,6 +240,10 @@ export default function TrainingPage() {
   const [showEnrollDialog, setShowEnrollDialog] = useState(false)
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([])
   const [enrollCourseId, setEnrollCourseId] = useState("")
+  // Registro de personal del usuario autenticado (para auto-inscripción).
+  const [currentStaffId, setCurrentStaffId] = useState<string | null>(null)
+  // Inscripción cuyo certificado se está subiendo (para mostrar spinner).
+  const [uploadingCertFor, setUploadingCertFor] = useState<string | null>(null)
 
   // Departamentos disponibles a partir del personal cargado de la agencia.
   // Se deduplican por nombre (los departamentos son iguales en todas las agencias).
@@ -245,15 +267,32 @@ export default function TrainingPage() {
 
   useEffect(() => {
     fetchAgencies()
+    fetchCurrentStaff()
+    // El personal, los cursos y las inscripciones se muestran de todas las
+    // agencias (sin dividir), por lo que se cargan una sola vez al montar.
+    fetchCourses()
+    fetchStaff()
+    fetchEnrollments()
   }, [])
 
+  // Vincula el usuario autenticado con su registro en "staff" para permitir
+  // que se inscriba a sí mismo en los cursos.
+  const fetchCurrentStaff = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase
+      .from("staff")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle()
+    if (data) setCurrentStaffId(data.id)
+  }
+
+  // La agencia seleccionada solo determina el contexto para crear nuevas
+  // categorías/cursos; las vistas de datos no se filtran por agencia.
   useEffect(() => {
     if (selectedAgency) {
-      setTeamDepartmentFilter("all")
       fetchCategories()
-      fetchCourses()
-      fetchStaff()
-      fetchEnrollments()
     }
   }, [selectedAgency])
 
@@ -282,7 +321,6 @@ export default function TrainingPage() {
         *,
         category:training_categories(id, name, color)
       `)
-      .eq("agency_id", selectedAgency)
       .order("title")
     
     if (data) {
@@ -346,8 +384,7 @@ export default function TrainingPage() {
   }
 
   const fetchStaff = async () => {
-    // Mostrar todo el personal de la agencia: los asignados directamente
-    // (agency_id), los asignados a varias agencias (agency_ids) y los globales.
+    // Mostrar TODO el personal activo, sin dividir por agencia.
     const { data, error } = await supabase
       .from("staff")
       .select(`
@@ -355,7 +392,6 @@ export default function TrainingPage() {
         department:departments(name)
       `)
       .eq("is_active", true)
-      .or(`agency_id.eq.${selectedAgency},agency_ids.cs.{${selectedAgency}},is_global.eq.true`)
       .order("first_name")
     if (error) {
       console.log("[v0] Error cargando personal:", error.message)
@@ -365,20 +401,26 @@ export default function TrainingPage() {
   }
 
   const fetchEnrollments = async () => {
+    // Se cargan TODAS las inscripciones de todos los cursos, de todas las
+    // agencias, para que la vista de Equipo, las tarjetas de curso y el
+    // seguimiento de cursos esenciales reflejen el estado real completo.
     const { data } = await supabase
       .from("training_enrollments")
       .select(`
         *,
-        staff:staff(id, first_name, last_name, email, position),
-        course:training_courses(id, title, passing_score)
+        staff:staff!training_enrollments_staff_id_fkey(id, first_name, last_name, email, position),
+        course:training_courses!inner(id, title, is_mandatory, agency_id)
       `)
-      .eq("course_id", selectedCourse?.id || courses[0]?.id)
       .order("created_at", { ascending: false })
     if (data) setEnrollments(data)
   }
 
   // Category handlers
   const handleSaveCategory = async () => {
+    if (!canEditCategories) {
+      alert("No tienes permisos para editar las categorías.")
+      return
+    }
     if (editingCategory) {
       await supabase
         .from("training_categories")
@@ -396,14 +438,44 @@ export default function TrainingPage() {
   }
 
   const handleDeleteCategory = async (id: string) => {
+    if (!canEditCategories) {
+      alert("No tienes permisos para eliminar categorías.")
+      return
+    }
     if (confirm("¿Eliminar esta categoría?")) {
       await supabase.from("training_categories").delete().eq("id", id)
       fetchCategories()
     }
   }
 
+  // Abre el diálogo de edición y carga la selección de personas asignadas
+  // directamente desde la base de datos (no depende del estado global de
+  // enrollments), para que la selección nunca aparezca vacía al reabrir.
+  const openEditCourse = async (course: Course) => {
+    setEditingCourse(course)
+    setNewCourse({
+      category_id: course.category_id || "",
+      title: course.title,
+      description: course.description || "",
+      content_url: course.content_url || "",
+      duration_weeks: course.duration_weeks ?? 0,
+      hours_per_week: course.hours_per_week ?? 0,
+      is_mandatory: course.is_mandatory,
+      provides_certificate: course.provides_certificate ?? false,
+      is_active: course.is_active,
+    })
+    setCourseAssignStaffIds([])
+    setShowCourseDialog(true)
+    const { data } = await supabase
+      .from("training_enrollments")
+      .select("staff_id")
+      .eq("course_id", course.id)
+    if (data) setCourseAssignStaffIds(data.map((e) => e.staff_id))
+  }
+
   // Course handlers
   const handleSaveCourse = async () => {
+    let courseId = editingCourse?.id || null
     if (editingCourse) {
       await supabase
         .from("training_courses")
@@ -414,26 +486,72 @@ export default function TrainingPage() {
         })
         .eq("id", editingCourse.id)
     } else {
-      await supabase
+      const { data: inserted } = await supabase
         .from("training_courses")
         .insert({ 
           ...newCourse, 
           category_id: newCourse.category_id || null,
           agency_id: selectedAgency 
         })
+        .select("id")
+        .single()
+      courseId = inserted?.id ?? null
     }
+
+    // Sincronizar las personas asignadas (quiénes deben tomar la capacitación).
+    // - Se insertan las nuevas seleccionadas (con assigned_at = fecha de asignación).
+    // - Se eliminan las desmarcadas SOLO si aún no iniciaron el curso (status "enrolled"),
+    //   para no borrar el progreso de quien ya lo empezó o completó.
+    // - No se re-inserta a las existentes, así se conserva su assigned_at original.
+    if (courseId) {
+      const { data: existing } = await supabase
+        .from("training_enrollments")
+        .select("staff_id, status")
+        .eq("course_id", courseId)
+      const existingIds = new Set((existing ?? []).map((e) => e.staff_id))
+
+      const toAdd = courseAssignStaffIds.filter((id) => !existingIds.has(id))
+      if (toAdd.length > 0) {
+        const nowIso = new Date().toISOString()
+        await supabase.from("training_enrollments").insert(
+          toAdd.map((staffId) => ({
+            course_id: courseId,
+            staff_id: staffId,
+            status: "enrolled",
+            assigned_at: nowIso,
+          })),
+        )
+      }
+
+      const selectedSet = new Set(courseAssignStaffIds)
+      const toRemove = (existing ?? [])
+        .filter((e) => !selectedSet.has(e.staff_id) && e.status === "enrolled")
+        .map((e) => e.staff_id)
+      if (toRemove.length > 0) {
+        await supabase
+          .from("training_enrollments")
+          .delete()
+          .eq("course_id", courseId)
+          .in("staff_id", toRemove)
+      }
+    }
+
     setShowCourseDialog(false)
     setEditingCourse(null)
+    setCourseAssignStaffIds([])
     setNewCourse({
       category_id: "",
       title: "",
       description: "",
-      duration_minutes: 0,
-      passing_score: 70,
+      content_url: "",
+      duration_weeks: 0,
+      hours_per_week: 0,
       is_mandatory: false,
+      provides_certificate: false,
       is_active: true
     })
     fetchCourses()
+    fetchEnrollments()
   }
 
   const handleDeleteCourse = async (id: string) => {
@@ -606,6 +724,57 @@ export default function TrainingPage() {
     fetchEnrollments()
   }
 
+  // Auto-inscripción del usuario actual desde la tarjeta del curso. Queda
+  // registrado en Equipo con la fecha de inscripción y en estado "en progreso".
+  const handleSelfEnroll = async (course: Course) => {
+    if (!currentStaffId) {
+      alert("Tu usuario no está vinculado a un registro de personal, por lo que no puedes inscribirte.")
+      return
+    }
+    await supabase.from("training_enrollments").upsert(
+      {
+        course_id: course.id,
+        staff_id: currentStaffId,
+        status: "in_progress",
+        started_at: new Date().toISOString(),
+      },
+      { onConflict: "course_id,staff_id", ignoreDuplicates: true },
+    )
+    fetchEnrollments()
+  }
+
+  // Sube el certificado / evidencia de una inscripción. Al subirlo se da el
+  // curso por completado y se refleja en la sección de Equipo.
+  const handleUploadCertificate = async (enrollment: Enrollment, file: File) => {
+    setUploadingCertFor(enrollment.id)
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+      const blob = await upload(`training-certificates/${enrollment.id}-${Date.now()}-${safeName}`, file, {
+        access: "private",
+        handleUploadUrl: "/api/training/upload",
+        contentType: file.type || undefined,
+      })
+      const pathname = blob.url.split(".vercel-storage.com/")[1] ?? blob.pathname
+      const fileUrl = `/api/file?pathname=${encodeURIComponent(pathname)}`
+      await supabase
+        .from("training_enrollments")
+        .update({
+          certificate_url: fileUrl,
+          certificate_uploaded_at: new Date().toISOString(),
+          status: "completed",
+          progress_percentage: 100,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", enrollment.id)
+      fetchEnrollments()
+    } catch (error) {
+      console.log("[v0] Error al subir certificado:", (error as Error).message)
+      alert("No se pudo subir el certificado. Verifica el tipo y tamaño (máx. 200 MB).")
+    } finally {
+      setUploadingCertFor(null)
+    }
+  }
+
   const getContentIcon = (type: string) => {
     switch (type) {
       case "video": return <Video className="h-4 w-4" />
@@ -626,9 +795,37 @@ export default function TrainingPage() {
     }
   }
 
+  // Formatea una fecha como día/mes/año (es-MX).
+  const formatDate = (value: string | null | undefined) =>
+    value ? new Date(value).toLocaleDateString("es-MX", { day: "2-digit", month: "2-digit", year: "numeric" }) : "-"
+
+  // Días transcurridos entre dos fechas (redondeado hacia arriba). Devuelve null si falta alguna.
+  const daysBetween = (from: string | null | undefined, to: string | null | undefined) => {
+    if (!from || !to) return null
+    const diff = new Date(to).getTime() - new Date(from).getTime()
+    if (Number.isNaN(diff)) return null
+    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
+  }
+
+  // Personas que fueron seleccionadas/asignadas dentro de un curso: para ellas el
+  // curso es obligatorio (tienen assigned_at). Para el resto del personal es opcional.
+  // Se ordena por curso y luego por persona para agrupar las asignaciones de cada curso.
+  const mandatoryEnrollments = enrollments
+    .filter((e) => e.assigned_at != null)
+    .sort((a, b) => {
+      const courseCmp = (a.course?.title || "").localeCompare(b.course?.title || "")
+      if (courseCmp !== 0) return courseCmp
+      const aName = `${a.staff?.first_name || ""} ${a.staff?.last_name || ""}`
+      const bName = `${b.staff?.first_name || ""} ${b.staff?.last_name || ""}`
+      return aName.localeCompare(bName)
+    })
+
   const filteredCourses = courses.filter(c => 
-    c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.description?.toLowerCase().includes(searchTerm.toLowerCase())
+    (categoryFilter === "all" || c.category_id === categoryFilter) &&
+    (
+      c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.description?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
   )
 
   if (loading) {
@@ -646,16 +843,19 @@ export default function TrainingPage() {
           <h1 className="text-3xl font-bold tracking-tight">Capacitación</h1>
           <p className="text-muted-foreground">Gestiona cursos, contenido y evaluaciones del equipo</p>
         </div>
-        <Select value={selectedAgency} onValueChange={setSelectedAgency}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Seleccionar agencia" />
-          </SelectTrigger>
-          <SelectContent>
-            {agencies.map((agency) => (
-              <SelectItem key={agency.id} value={agency.id}>{agency.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col items-end gap-1">
+          <Select value={selectedAgency} onValueChange={setSelectedAgency}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Seleccionar agencia" />
+            </SelectTrigger>
+            <SelectContent>
+              {agencies.map((agency) => (
+                <SelectItem key={agency.id} value={agency.id}>{agency.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">Agencia para crear cursos y procesos</span>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -714,7 +914,7 @@ export default function TrainingPage() {
           </TabsTrigger>
           <TabsTrigger value="evaluations" className="flex items-center gap-2">
             <ClipboardList className="h-4 w-4" />
-            Evaluaciones
+            Evaluaciones / Certificados
           </TabsTrigger>
           <TabsTrigger value="processes" className="flex items-center gap-2">
             <Workflow className="h-4 w-4" />
@@ -738,14 +938,35 @@ export default function TrainingPage() {
                 className="pl-10"
               />
             </div>
-            <Button onClick={() => { setEditingCourse(null); setNewCourse({ category_id: "", title: "", description: "", duration_minutes: 0, passing_score: 70, is_mandatory: false, is_active: true }); setShowCourseDialog(true) }}>
+              <Button onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setNewCourse({ category_id: "", title: "", description: "", content_url: "", duration_weeks: 0, hours_per_week: 0, is_mandatory: false, provides_certificate: false, is_active: true }); setShowCourseDialog(true) }}>
               <Plus className="mr-2 h-4 w-4" />
               Nuevo Curso
             </Button>
           </div>
 
+          {categoryFilter !== "all" && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Categoría:</span>
+              <Badge variant="secondary" className="gap-1">
+                {categories.find(c => c.id === categoryFilter)?.name || "Categoría"}
+                <button
+                  type="button"
+                  onClick={() => setCategoryFilter("all")}
+                  className="ml-1 rounded-full hover:text-foreground"
+                  aria-label="Quitar filtro de categoría"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                </button>
+              </Badge>
+            </div>
+          )}
+
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {filteredCourses.map((course) => (
+            {filteredCourses.map((course) => {
+              const myEnrollment = currentStaffId
+                ? enrollments.find((e) => e.course_id === course.id && e.staff_id === currentStaffId)
+                : undefined
+              return (
               <Card
                 key={course.id}
                 className="group relative flex flex-col overflow-hidden rounded-xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
@@ -780,19 +1001,7 @@ export default function TrainingPage() {
                       </div>
                     </div>
                     <div className="flex gap-1 opacity-60 transition-opacity group-hover:opacity-100">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                        setEditingCourse(course)
-                        setNewCourse({
-                          category_id: course.category_id || "",
-                          title: course.title,
-                          description: course.description || "",
-                          duration_minutes: course.duration_minutes,
-                          passing_score: course.passing_score,
-                          is_mandatory: course.is_mandatory,
-                          is_active: course.is_active
-                        })
-                        setShowCourseDialog(true)
-                      }}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditCourse(course)}>
                         <Edit2 className="h-4 w-4" />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteCourse(course.id)}>
@@ -804,11 +1013,16 @@ export default function TrainingPage() {
                 <CardContent className="flex flex-1 flex-col space-y-3">
                   <p className="text-sm text-muted-foreground line-clamp-2">{course.description || "Sin descripción"}</p>
                   {/* Estadísticas en chips */}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
                       <Clock className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-semibold">{course.duration_minutes}</span>
-                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">min</span>
+                      <span className="text-sm font-semibold">{course.duration_weeks || 0}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">semanas</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
+                      <Clock className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold">{course.hours_per_week || 0}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">hrs/sem</span>
                     </div>
                     <div className="flex flex-col items-center gap-0.5 rounded-lg bg-muted/60 p-2 text-center">
                       <FileText className="h-4 w-4 text-primary" />
@@ -821,28 +1035,62 @@ export default function TrainingPage() {
                       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">inscritos</span>
                     </div>
                   </div>
+                  {/* Auto-inscripción del usuario actual */}
+                  {myEnrollment ? (
+                    <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed py-2 text-sm">
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      <span className="text-muted-foreground">Ya estás inscrito:</span>
+                      {getStatusBadge(myEnrollment.status)}
+                    </div>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      className="w-full"
+                      onClick={() => handleSelfEnroll(course)}
+                    >
+                      <GraduationCap className="mr-2 h-4 w-4" />
+                      Inscribirse
+                    </Button>
+                  )}
                   <div className="mt-auto flex items-center justify-between border-t pt-3">
                     <div className="flex items-center gap-2">
                       {course.is_mandatory && <Badge variant="destructive">Obligatorio</Badge>}
+                    {course.provides_certificate && (
+                      <Badge className="bg-amber-100 text-amber-800">
+                        <Award className="mr-1 h-3 w-3" />
+                        Certificado
+                      </Badge>
+                    )}
                       {course.is_active ? (
                         <Badge className="bg-green-100 text-green-800">Activo</Badge>
                       ) : (
                         <Badge variant="secondary">Inactivo</Badge>
                       )}
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => {
-                      setSelectedCourse(course)
-                      fetchCourseContent(course.id)
-                      fetchEvaluations(course.id)
-                      setActiveTab("content")
-                    }}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      Ver
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {course.content_url && (
+                        <Button variant="outline" size="sm" asChild>
+                          <a href={course.content_url} target="_blank" rel="noopener noreferrer">
+                            <LinkIcon className="mr-2 h-4 w-4" />
+                            Material
+                          </a>
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setSelectedCourse(course)
+                        fetchCourseContent(course.id)
+                        fetchEvaluations(course.id)
+                        setActiveTab("content")
+                      }}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        Ver
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              )
+            })}
           </div>
 
           {filteredCourses.length === 0 && (
@@ -850,7 +1098,7 @@ export default function TrainingPage() {
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">No hay cursos creados</p>
-                <Button className="mt-4" onClick={() => setShowCourseDialog(true)}>
+                <Button className="mt-4" onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setShowCourseDialog(true) }}>
                   <Plus className="mr-2 h-4 w-4" />
                   Crear Primer Curso
                 </Button>
@@ -861,44 +1109,78 @@ export default function TrainingPage() {
 
         {/* Categories Tab */}
         <TabsContent value="categories" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={() => { setEditingCategory(null); setNewCategory({ name: "", description: "", color: "#6366f1" }); setShowCategoryDialog(true) }}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nueva Categoría
-            </Button>
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              Selecciona una categoría para ver sus cursos y descripción.
+            </p>
+            {canEditCategories ? (
+              <Button onClick={() => { setEditingCategory(null); setNewCategory({ name: "", description: "", color: "#6366f1" }); setShowCategoryDialog(true) }}>
+                <Plus className="mr-2 h-4 w-4" />
+                Nueva Categoría
+              </Button>
+            ) : (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Lock className="h-3 w-3" />
+                Solo lectura
+              </span>
+            )}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {categories.map((category) => (
-              <Card key={category.id}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: category.color }} />
-                      <CardTitle className="text-lg">{category.name}</CardTitle>
+            {categories.map((category) => {
+              const courseCount = courses.filter(c => c.category_id === category.id).length
+              const openCategory = () => {
+                setCategoryFilter(category.id)
+                setActiveTab("courses")
+              }
+              return (
+                <Card
+                  key={category.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={openCategory}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openCategory() } }}
+                  className="cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/40"
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: category.color }} />
+                        <CardTitle className="text-lg">{category.name}</CardTitle>
+                      </div>
+                      {canEditCategories && (
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingCategory(category)
+                            setNewCategory({ name: category.name, description: category.description || "", color: category.color })
+                            setShowCategoryDialog(true)
+                          }}>
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteCategory(category.id)
+                          }}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => {
-                        setEditingCategory(category)
-                        setNewCategory({ name: category.name, description: category.description || "", color: category.color })
-                        setShowCategoryDialog(true)
-                      }}>
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDeleteCategory(category.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">{category.description || "Sin descripción"}</p>
+                    <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+                      <span>{courseCount} cursos</span>
+                      <span className="flex items-center gap-1 text-primary">
+                        Ver cursos
+                        <ChevronRight className="h-4 w-4" />
+                      </span>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">{category.description || "Sin descripción"}</p>
-                  <div className="mt-3 text-sm text-muted-foreground">
-                    {courses.filter(c => c.category_id === category.id).length} cursos
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
 
           {categories.length === 0 && (
@@ -1021,6 +1303,93 @@ export default function TrainingPage() {
 
         {/* Evaluations Tab */}
         <TabsContent value="evaluations" className="space-y-4">
+          {/* Mis certificados: el usuario sube su certificado o el resultado de
+              la evaluación para notificar que completó el curso. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Award className="h-5 w-5 text-primary" />
+                Mis Certificados
+              </CardTitle>
+              <CardDescription>
+                Sube tu certificado o el resultado de la evaluación. Al subirlo, el curso se marca como
+                completado y queda registrado en la sección de Equipo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!currentStaffId ? (
+                <p className="text-sm text-muted-foreground">
+                  Tu usuario no está vinculado a un registro de personal.
+                </p>
+              ) : enrollments.filter((e) => e.staff_id === currentStaffId).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Aún no estás inscrito en ningún curso. Inscr��bete desde la pestaña Cursos.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {enrollments
+                    .filter((e) => e.staff_id === currentStaffId)
+                    .map((enrollment) => (
+                      <div
+                        key={enrollment.id}
+                        className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">
+                            {enrollment.course?.title || "Curso"}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2">
+                            {getStatusBadge(enrollment.status)}
+                            {enrollment.certificate_uploaded_at && (
+                              <span className="text-xs text-muted-foreground">
+                                Subido el {new Date(enrollment.certificate_uploaded_at).toLocaleDateString("es-MX")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {enrollment.certificate_url && (
+                            <Button variant="outline" size="sm" asChild>
+                              <a href={enrollment.certificate_url} target="_blank" rel="noopener noreferrer">
+                                <FileText className="mr-2 h-4 w-4" />
+                                Ver
+                              </a>
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            disabled={uploadingCertFor === enrollment.id}
+                            onClick={() => {
+                              const input = document.createElement("input")
+                              input.type = "file"
+                              input.accept = "application/pdf,image/*"
+                              input.onchange = (ev) => {
+                                const file = (ev.target as HTMLInputElement).files?.[0]
+                                if (file) handleUploadCertificate(enrollment, file)
+                              }
+                              input.click()
+                            }}
+                          >
+                            {uploadingCertFor === enrollment.id ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Subiendo...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="mr-2 h-4 w-4" />
+                                {enrollment.certificate_url ? "Reemplazar" : "Subir certificado"}
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="flex items-center justify-between">
             <Select value={selectedCourse?.id || ""} onValueChange={(value) => {
               const course = courses.find(c => c.id === value)
@@ -1250,7 +1619,6 @@ export default function TrainingPage() {
                     <TableHead>Cursos Inscritos</TableHead>
                     <TableHead>Completados</TableHead>
                     <TableHead>En Progreso</TableHead>
-                    <TableHead>Promedio</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1258,8 +1626,7 @@ export default function TrainingPage() {
                     const memberEnrollments = enrollments.filter(e => e.staff_id === member.id)
                     const completed = memberEnrollments.filter(e => e.status === "completed").length
                     const inProgress = memberEnrollments.filter(e => e.status === "in_progress").length
-                    const avgScore = memberEnrollments.filter(e => e.final_score).reduce((acc, e) => acc + (e.final_score || 0), 0) / (memberEnrollments.filter(e => e.final_score).length || 1)
-                    
+
                     return (
                       <TableRow key={member.id}>
                         <TableCell>
@@ -1276,18 +1643,71 @@ export default function TrainingPage() {
                         <TableCell>
                           <Badge className="bg-blue-100 text-blue-800">{inProgress}</Badge>
                         </TableCell>
-                        <TableCell>
-                          {memberEnrollments.filter(e => e.final_score).length > 0 ? (
-                            <span className={avgScore >= 70 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
-                              {avgScore.toFixed(0)}%
-                            </span>
-                          ) : "-"}
-                        </TableCell>
                       </TableRow>
                     )
                   })}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+
+          {/* Seguimiento de cursos esenciales (no optativos) asignados por posición */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Cursos Esenciales Asignados para tu Posición.</CardTitle>
+              <CardDescription>
+                Cursos esenciales (no optativos) y las personas asignadas a cada uno, con la fecha de
+                asignación y el tiempo que tardaron en inscribirse y luego en terminarlos.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {mandatoryEnrollments.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  Aún no hay cursos esenciales asignados. Marca un curso como obligatorio y asigna
+                  personal al crearlo o editarlo para verlo aquí.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Empleado</TableHead>
+                      <TableHead>Curso</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead>Fecha Asignación</TableHead>
+                      <TableHead>Fecha Inscripción</TableHead>
+                      <TableHead>Días para Inscribirse</TableHead>
+                      <TableHead>Fecha Completado</TableHead>
+                      <TableHead>Días para Terminar</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {mandatoryEnrollments.map((enrollment) => {
+                      // Referencia de inicio: la inscripción efectiva (started_at) o, en su defecto, created_at.
+                      const enrolledAt = enrollment.started_at || enrollment.created_at
+                      const daysToEnroll = daysBetween(enrollment.assigned_at, enrolledAt)
+                      const daysToComplete = daysBetween(enrollment.assigned_at, enrollment.completed_at)
+                      return (
+                        <TableRow key={enrollment.id}>
+                          <TableCell>
+                            {enrollment.staff?.first_name} {enrollment.staff?.last_name}
+                          </TableCell>
+                          <TableCell>{enrollment.course?.title}</TableCell>
+                          <TableCell>{getStatusBadge(enrollment.status)}</TableCell>
+                          <TableCell>{formatDate(enrollment.assigned_at)}</TableCell>
+                          <TableCell>{formatDate(enrolledAt)}</TableCell>
+                          <TableCell>
+                            {daysToEnroll !== null ? `${daysToEnroll} día${daysToEnroll === 1 ? "" : "s"}` : "-"}
+                          </TableCell>
+                          <TableCell>{formatDate(enrollment.completed_at)}</TableCell>
+                          <TableCell>
+                            {daysToComplete !== null ? `${daysToComplete} día${daysToComplete === 1 ? "" : "s"}` : "-"}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
 
@@ -1304,9 +1724,9 @@ export default function TrainingPage() {
                     <TableHead>Curso</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Progreso</TableHead>
-                    <TableHead>Calificación</TableHead>
-                    <TableHead>Fecha Inicio</TableHead>
+                    <TableHead>Fecha Inscripción</TableHead>
                     <TableHead>Fecha Completado</TableHead>
+                    <TableHead>Certificado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1324,17 +1744,25 @@ export default function TrainingPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {enrollment.final_score !== null ? (
-                          <span className={enrollment.final_score >= (enrollment.course?.passing_score || 70) ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
-                            {enrollment.final_score}%
-                          </span>
-                        ) : "-"}
-                      </TableCell>
-                      <TableCell>
-                        {enrollment.started_at ? new Date(enrollment.started_at).toLocaleDateString() : "-"}
+                        {enrollment.created_at ? new Date(enrollment.created_at).toLocaleDateString() : "-"}
                       </TableCell>
                       <TableCell>
                         {enrollment.completed_at ? new Date(enrollment.completed_at).toLocaleDateString() : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {enrollment.certificate_url ? (
+                          <a
+                            href={enrollment.certificate_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                          >
+                            <FileText className="h-4 w-4" />
+                            Ver
+                          </a>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">Pendiente</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1394,7 +1822,7 @@ export default function TrainingPage() {
 
       {/* Course Dialog */}
       <Dialog open={showCourseDialog} onOpenChange={setShowCourseDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingCourse ? "Editar Curso" : "Nuevo Curso"}</DialogTitle>
           </DialogHeader>
@@ -1429,33 +1857,51 @@ export default function TrainingPage() {
                 placeholder="Descripción del curso"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Duración (min)</Label>
-                <Input
-                  type="number"
-                  value={newCourse.duration_minutes}
-                  onChange={(e) => setNewCourse({ ...newCourse, duration_minutes: parseInt(e.target.value) || 0 })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Puntuación mínima (%)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={newCourse.passing_score}
-                  onChange={(e) => setNewCourse({ ...newCourse, passing_score: parseInt(e.target.value) || 70 })}
-                />
+            <div className="space-y-2">
+              <Label>Link del curso / presentación</Label>
+              <Input
+                type="url"
+                value={newCourse.content_url}
+                onChange={(e) => setNewCourse({ ...newCourse, content_url: e.target.value })}
+                placeholder="https://..."
+              />
+              <p className="text-xs text-muted-foreground">
+                Enlace al material, video o presentación de la capacitación.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Duración estimada</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={newCourse.duration_weeks}
+                    onChange={(e) => setNewCourse({ ...newCourse, duration_weeks: parseInt(e.target.value) || 0 })}
+                  />
+                  <p className="text-xs text-muted-foreground">Semanas para completar el curso</p>
+                </div>
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={newCourse.hours_per_week}
+                    onChange={(e) => setNewCourse({ ...newCourse, hours_per_week: parseInt(e.target.value) || 0 })}
+                  />
+                  <p className="text-xs text-muted-foreground">Horas por semana a dedicar</p>
+                </div>
               </div>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Switch
-                  checked={newCourse.is_mandatory}
-                  onCheckedChange={(checked) => setNewCourse({ ...newCourse, is_mandatory: checked })}
+                  id="course-certificate"
+                  checked={newCourse.provides_certificate}
+                  onCheckedChange={(checked) => setNewCourse({ ...newCourse, provides_certificate: checked })}
                 />
-                <Label>Curso obligatorio</Label>
+                <Label htmlFor="course-certificate">
+                  Entrega Certificado {newCourse.provides_certificate ? "(Sí)" : "(No)"}
+                </Label>
               </div>
               <div className="flex items-center gap-2">
                 <Switch
@@ -1463,6 +1909,80 @@ export default function TrainingPage() {
                   onCheckedChange={(checked) => setNewCourse({ ...newCourse, is_active: checked })}
                 />
                 <Label>Activo</Label>
+              </div>
+            </div>
+
+            {/* Asignación: quiénes deben tomar la capacitación y modalidad */}
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="space-y-1">
+                <Label className="text-sm font-semibold">Asignar capacitación</Label>
+                <p className="text-xs text-muted-foreground">
+                  Indica quién debe tomar esta capacitación y si es opcional u obligatoria.
+                </p>
+              </div>
+
+              {/* Modalidad: opcional / forzosa */}
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="course-mandatory"
+                  checked={newCourse.is_mandatory}
+                  onCheckedChange={(checked) => setNewCourse({ ...newCourse, is_mandatory: checked })}
+                />
+                <Label htmlFor="course-mandatory" className="text-sm">
+                  {newCourse.is_mandatory ? "Forzosa (obligatoria)" : "Opcional"}
+                </Label>
+              </div>
+
+              {/* Personas asignadas */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">Personas asignadas</Label>
+                  {staff.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() =>
+                        setCourseAssignStaffIds(
+                          courseAssignStaffIds.length === staff.length ? [] : staff.map((s) => s.id),
+                        )
+                      }
+                    >
+                      {courseAssignStaffIds.length === staff.length ? "Quitar todos" : "Seleccionar todos"}
+                    </Button>
+                  )}
+                </div>
+                <ScrollArea className="h-48 border rounded-md p-3">
+                  {staff.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No hay personal disponible en esta agencia.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {staff.map((member) => (
+                        <div key={member.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`assign-${member.id}`}
+                            checked={courseAssignStaffIds.includes(member.id)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setCourseAssignStaffIds([...courseAssignStaffIds, member.id])
+                              } else {
+                                setCourseAssignStaffIds(courseAssignStaffIds.filter((id) => id !== member.id))
+                              }
+                            }}
+                          />
+                          <Label htmlFor={`assign-${member.id}`} className="font-normal cursor-pointer">
+                            <span className="font-medium">{member.first_name} {member.last_name}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {member.position || member.email}
+                            </span>
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+                <p className="text-xs text-muted-foreground">{courseAssignStaffIds.length} asignados</p>
               </div>
             </div>
           </div>

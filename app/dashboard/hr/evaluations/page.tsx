@@ -1550,8 +1550,10 @@ const [editTemplateForm, setEditTemplateForm] = useState({
       e => e.staff_id === staffId && e.evaluation_type === evalType
     )
 
-    if (existing && !allowsMultiple) {
-      alert("Esta evaluación ya ha sido iniciada")
+    // Si ya está completada no se reabre desde aquí (usar "Reiniciar").
+    // Si está "en proceso" sí se permite reabrir el diálogo para continuarla.
+    if (existing && !allowsMultiple && existing.status === "completed") {
+      alert("Esta evaluación ya está completada. Usa \"Reiniciar\" si deseas aplicarla de nuevo.")
       return
     }
 
@@ -2963,7 +2965,22 @@ const handleCreateTemplate = () => {
                               {ev?.status === "completed" ? (
                                 <Badge className="bg-green-100 text-green-700">{ev.score ?? 0}%</Badge>
                               ) : ev?.status === "in_progress" ? (
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700">En proceso</Badge>
+                                <button
+                                  type="button"
+                                  title="Continuar evaluación"
+                                  onClick={() =>
+                                    handleStartStaffEvaluation(staff.id, startTypeFor(template), template.id)
+                                  }
+                                  className="inline-flex cursor-pointer"
+                                >
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                                  >
+                                    <Play className="h-3 w-3 mr-1" />
+                                    En proceso
+                                  </Badge>
+                                </button>
                               ) : (
                                 <Badge variant="outline" className="text-muted-foreground">Sin evaluar</Badge>
                               )}
@@ -2998,7 +3015,9 @@ const handleCreateTemplate = () => {
                               <DropdownMenuContent align="end">
                                 {scopeTemplates.map((template) => {
                                   const ev = findTemplateEval(staff.id, template)
-                                  const disabled = !allowsMultiple && ev !== null && ev.status !== "pending"
+                                  // Solo se bloquea si ya está completada; "en proceso" se
+                                  // puede reabrir para continuar.
+                                  const disabled = !allowsMultiple && ev !== null && ev.status === "completed"
                                   return (
                                     <DropdownMenuItem
                                       key={template.id}
@@ -3008,9 +3027,11 @@ const handleCreateTemplate = () => {
                                       disabled={disabled}
                                     >
                                       <Play className="h-4 w-4 mr-2" />
-                                      {ev && !allowsMultiple && ev.status !== "pending"
-                                        ? `${template.name} (${ev.status === "completed" ? "completada" : "en proceso"})`
-                                        : `Iniciar: ${template.name}`}
+                                      {ev && !allowsMultiple && ev.status === "completed"
+                                        ? `${template.name} (completada)`
+                                        : ev && !allowsMultiple && ev.status === "in_progress"
+                                          ? `Continuar: ${template.name}`
+                                          : `Iniciar: ${template.name}`}
                                     </DropdownMenuItem>
                                   )
                                 })}
@@ -3138,36 +3159,56 @@ const handleCreateTemplate = () => {
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4 sm:grid-cols-7 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="dashboard" className="gap-2">
-            <BarChart3 className="h-4 w-4" />
-            <span className="hidden sm:inline">Dashboard</span>
-          </TabsTrigger>
-          <TabsTrigger value="selection" className="gap-2">
-            <UserPlus className="h-4 w-4" />
-            <span className="hidden sm:inline">Selección</span>
-          </TabsTrigger>
-          <TabsTrigger value="permanence" className="gap-2">
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">Permanencia</span>
-          </TabsTrigger>
-          <TabsTrigger value="objectives" className="gap-2">
-            <Target className="h-4 w-4" />
-            <span className="hidden sm:inline">Objetivos</span>
-          </TabsTrigger>
-          <TabsTrigger value="onboarding" className="gap-2">
-            <ClipboardList className="h-4 w-4" />
-            <span className="hidden sm:inline">Onboarding</span>
-          </TabsTrigger>
-          <TabsTrigger value="ninebox" className="gap-2">
-            <Grid3X3 className="h-4 w-4" />
-            <span className="hidden sm:inline">Nine Box</span>
-          </TabsTrigger>
-          <TabsTrigger value="climate" className="gap-2">
-            <ThermometerSun className="h-4 w-4" />
-            <span className="hidden sm:inline">Clima</span>
-          </TabsTrigger>
-        </TabsList>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:gap-8">
+          {/* Grupo: Evaluaciones (procesos que se aplican al personal) */}
+          <div className="flex flex-col gap-1.5">
+            <span className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Evaluaciones
+            </span>
+            <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+              <TabsTrigger value="selection" className="gap-2">
+                <UserPlus className="h-4 w-4" />
+                <span className="hidden sm:inline">Selección</span>
+              </TabsTrigger>
+              <TabsTrigger value="permanence" className="gap-2">
+                <Users className="h-4 w-4" />
+                <span className="hidden sm:inline">Permanencia</span>
+              </TabsTrigger>
+              <TabsTrigger value="objectives" className="gap-2">
+                <Target className="h-4 w-4" />
+                <span className="hidden sm:inline">Objetivos</span>
+              </TabsTrigger>
+              <TabsTrigger value="onboarding" className="gap-2">
+                <ClipboardList className="h-4 w-4" />
+                <span className="hidden sm:inline">Onboarding</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          {/* Separador visual entre los dos grupos */}
+          <div className="hidden self-stretch border-l lg:block" aria-hidden="true" />
+
+          {/* Grupo: Resultados (análisis y reportes) */}
+          <div className="flex flex-col gap-1.5">
+            <span className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Resultados
+            </span>
+            <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
+              <TabsTrigger value="dashboard" className="gap-2">
+                <BarChart3 className="h-4 w-4" />
+                <span className="hidden sm:inline">Dashboard</span>
+              </TabsTrigger>
+              <TabsTrigger value="ninebox" className="gap-2">
+                <Grid3X3 className="h-4 w-4" />
+                <span className="hidden sm:inline">Nine Box</span>
+              </TabsTrigger>
+              <TabsTrigger value="climate" className="gap-2">
+                <ThermometerSun className="h-4 w-4" />
+                <span className="hidden sm:inline">Clima</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+        </div>
 
         {/* Dashboard Tab */}
         <TabsContent value="dashboard" className="space-y-4">
@@ -6638,14 +6679,14 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Iniciar Evaluación de Candidato */}
       <Dialog open={showStartCandidateEvalDialog} onOpenChange={setShowStartCandidateEvalDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>Iniciar Evaluación de Selección</DialogTitle>
             <DialogDescription>
               Selecciona el candidato y la plantilla de evaluación a aplicar
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6 space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Candidato</label>
               <Select
@@ -6683,7 +6724,7 @@ const handleCreateTemplate = () => {
               </Select>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto">
             <Button variant="outline" onClick={() => setShowStartCandidateEvalDialog(false)}>
               Cancelar
             </Button>
@@ -6716,8 +6757,8 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Seleccionar Método de Evaluación */}
       <Dialog open={showEvalMethodDialog} onOpenChange={setShowEvalMethodDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>Iniciar Evaluación</DialogTitle>
             <DialogDescription>
               {evalMethodData && (
@@ -6734,7 +6775,7 @@ const handleCreateTemplate = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6 space-y-4">
             {!generatedLink ? (
               <div className="grid gap-4">
                 <Button 
@@ -6812,7 +6853,7 @@ const handleCreateTemplate = () => {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto">
             <Button variant="outline" onClick={() => {
               setShowEvalMethodDialog(false)
               setEvalMethodData(null)
@@ -6826,8 +6867,8 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Aplicar Evaluación Presencial */}
       <Dialog open={showApplyEvalDialog} onOpenChange={setShowApplyEvalDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>
               Aplicar Evaluación - {evalMethodData?.candidateName}
             </DialogTitle>
@@ -6843,7 +6884,7 @@ const handleCreateTemplate = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6">
             {applyEvalQuestions.length > 0 && (
               <>
                 <Progress 
@@ -6899,7 +6940,7 @@ const handleCreateTemplate = () => {
               </>
             )}
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto flex-col sm:flex-row gap-2">
             <Button 
               variant="outline" 
               onClick={() => setApplyEvalCurrentQuestion(prev => Math.max(0, prev - 1))}
@@ -6929,8 +6970,8 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Configurar Evaluación de Permanencia */}
       <Dialog open={showStaffEvalMethodDialog} onOpenChange={setShowStaffEvalMethodDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>Configurar Evaluación</DialogTitle>
             <DialogDescription>
               {staffEvalMethodData && (
@@ -6949,7 +6990,7 @@ const handleCreateTemplate = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-6 py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6 space-y-6">
             {staffEvalGeneratedLinks.length === 0 ? (
               <>
                 {/* Template Selection */}
@@ -7150,7 +7191,7 @@ const handleCreateTemplate = () => {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto">
             <Button variant="outline" onClick={() => {
               setShowStaffEvalMethodDialog(false)
               setStaffEvalMethodData(null)
@@ -7164,8 +7205,8 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Aplicar Evaluación de Permanencia Presencial */}
       <Dialog open={showStaffApplyEvalDialog} onOpenChange={setShowStaffApplyEvalDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>
               Aplicar Evaluación - {staffEvalMethodData?.staffName}
             </DialogTitle>
@@ -7178,7 +7219,7 @@ const handleCreateTemplate = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6">
             {staffApplyEvalData && (
               <>
                 <Progress 
@@ -7237,7 +7278,7 @@ const handleCreateTemplate = () => {
               </>
             )}
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto flex-col sm:flex-row gap-2">
             <Button 
               variant="outline" 
               onClick={() => setStaffApplyEvalCurrentQuestion(prev => Math.max(0, prev - 1))}
@@ -7267,14 +7308,14 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Iniciar Evaluación de Permanencia */}
       <Dialog open={showStartPermanenceEvalDialog} onOpenChange={setShowStartPermanenceEvalDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>Iniciar Evaluación de Permanencia</DialogTitle>
             <DialogDescription>
               Selecciona el colaborador y tipo de evaluación a realizar
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6 space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Colaborador</label>
               <Select
@@ -7311,7 +7352,7 @@ const handleCreateTemplate = () => {
               </Select>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto">
             <Button variant="outline" onClick={() => setShowStartPermanenceEvalDialog(false)}>
               Cancelar
             </Button>

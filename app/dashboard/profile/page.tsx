@@ -7,12 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Save, User, Lock, Shield, Building2, Camera, Briefcase, Mail, Phone, MapPin, Info, Calendar, FileText } from "lucide-react"
+import { Save, User, Lock, Shield, Building2, Camera, Briefcase, Mail, Phone, MapPin, Info, Calendar, FileText, Bell } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
 import { StaffAvatar } from "@/components/staff-avatar"
 import { StaffEditForm } from "@/components/hr/staff-edit-form"
+import { ProfileNotifications } from "@/components/dashboard/profile-notifications"
+import { useNotifications } from "@/hooks/use-notifications"
 import { toast } from "sonner"
 
 interface StaffProfile {
@@ -91,6 +93,7 @@ export default function ProfilePage() {
     confirm_password: "",
   })
   const supabase = createClient()
+  const { unreadCount } = useNotifications()
 
   useEffect(() => {
     fetchProfile()
@@ -379,6 +382,15 @@ export default function ProfilePage() {
           <TabsTrigger value="info" className="gap-2">
             <Info className="h-4 w-4" />
             Información
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="gap-2">
+            <Bell className="h-4 w-4" />
+            Notificaciones
+            {unreadCount > 0 && (
+              <span className="ml-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-none text-destructive-foreground">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -826,6 +838,10 @@ export default function ProfilePage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="notifications">
+          <ProfileNotifications />
         </TabsContent>
       </Tabs>
     </div>
