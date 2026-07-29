@@ -6826,8 +6826,8 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Aplicar Evaluación Presencial */}
       <Dialog open={showApplyEvalDialog} onOpenChange={setShowApplyEvalDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>
               Aplicar Evaluación - {evalMethodData?.candidateName}
             </DialogTitle>
@@ -6843,7 +6843,7 @@ const handleCreateTemplate = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6">
             {applyEvalQuestions.length > 0 && (
               <>
                 <Progress 
@@ -6899,7 +6899,7 @@ const handleCreateTemplate = () => {
               </>
             )}
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto flex-col sm:flex-row gap-2">
             <Button 
               variant="outline" 
               onClick={() => setApplyEvalCurrentQuestion(prev => Math.max(0, prev - 1))}
@@ -7164,8 +7164,8 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Aplicar Evaluación de Permanencia Presencial */}
       <Dialog open={showStaffApplyEvalDialog} onOpenChange={setShowStaffApplyEvalDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>
               Aplicar Evaluación - {staffEvalMethodData?.staffName}
             </DialogTitle>
@@ -7178,7 +7178,7 @@ const handleCreateTemplate = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6">
             {staffApplyEvalData && (
               <>
                 <Progress 
@@ -7237,7 +7237,7 @@ const handleCreateTemplate = () => {
               </>
             )}
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto flex-col sm:flex-row gap-2">
             <Button 
               variant="outline" 
               onClick={() => setStaffApplyEvalCurrentQuestion(prev => Math.max(0, prev - 1))}
