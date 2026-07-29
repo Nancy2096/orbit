@@ -6638,14 +6638,14 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Iniciar Evaluación de Candidato */}
       <Dialog open={showStartCandidateEvalDialog} onOpenChange={setShowStartCandidateEvalDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>Iniciar Evaluación de Selección</DialogTitle>
             <DialogDescription>
               Selecciona el candidato y la plantilla de evaluación a aplicar
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6 space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Candidato</label>
               <Select
@@ -6683,7 +6683,7 @@ const handleCreateTemplate = () => {
               </Select>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto">
             <Button variant="outline" onClick={() => setShowStartCandidateEvalDialog(false)}>
               Cancelar
             </Button>
@@ -6716,8 +6716,8 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Seleccionar Método de Evaluación */}
       <Dialog open={showEvalMethodDialog} onOpenChange={setShowEvalMethodDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>Iniciar Evaluación</DialogTitle>
             <DialogDescription>
               {evalMethodData && (
@@ -6734,7 +6734,7 @@ const handleCreateTemplate = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6 space-y-4">
             {!generatedLink ? (
               <div className="grid gap-4">
                 <Button 
@@ -6812,7 +6812,7 @@ const handleCreateTemplate = () => {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto">
             <Button variant="outline" onClick={() => {
               setShowEvalMethodDialog(false)
               setEvalMethodData(null)
@@ -6929,8 +6929,8 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Configurar Evaluación de Permanencia */}
       <Dialog open={showStaffEvalMethodDialog} onOpenChange={setShowStaffEvalMethodDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>Configurar Evaluación</DialogTitle>
             <DialogDescription>
               {staffEvalMethodData && (
@@ -6949,7 +6949,7 @@ const handleCreateTemplate = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-6 py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6 space-y-6">
             {staffEvalGeneratedLinks.length === 0 ? (
               <>
                 {/* Template Selection */}
@@ -7150,7 +7150,7 @@ const handleCreateTemplate = () => {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto">
             <Button variant="outline" onClick={() => {
               setShowStaffEvalMethodDialog(false)
               setStaffEvalMethodData(null)
@@ -7267,14 +7267,14 @@ const handleCreateTemplate = () => {
 
       {/* Dialog: Iniciar Evaluación de Permanencia */}
       <Dialog open={showStartPermanenceEvalDialog} onOpenChange={setShowStartPermanenceEvalDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-none w-screen h-[100dvh] sm:max-w-none rounded-none border-0 p-0 gap-0 flex flex-col">
+          <DialogHeader className="shrink-0 border-b px-6 py-4 w-full max-w-2xl mx-auto">
             <DialogTitle>Iniciar Evaluación de Permanencia</DialogTitle>
             <DialogDescription>
               Selecciona el colaborador y tipo de evaluación a realizar
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 w-full max-w-2xl mx-auto overflow-y-auto px-6 py-6 space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Colaborador</label>
               <Select
@@ -7311,7 +7311,7 @@ const handleCreateTemplate = () => {
               </Select>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-6 py-4 w-full max-w-2xl mx-auto">
             <Button variant="outline" onClick={() => setShowStartPermanenceEvalDialog(false)}>
               Cancelar
             </Button>
