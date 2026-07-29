@@ -72,6 +72,7 @@ interface Course {
   description: string | null
   thumbnail_url: string | null
   content_url: string | null
+  provides_certificate: boolean
   duration_minutes: number
   passing_score: number
   is_mandatory: boolean
@@ -166,6 +167,7 @@ export default function TrainingPage() {
     duration_minutes: 0,
     passing_score: 70,
     is_mandatory: false,
+    provides_certificate: false,
     is_active: true
   })
   // Personas asignadas a la capacitación al darla de alta / editarla
@@ -454,6 +456,7 @@ export default function TrainingPage() {
       duration_minutes: 0,
       passing_score: 70,
       is_mandatory: false,
+      provides_certificate: false,
       is_active: true
     })
     fetchCourses()
@@ -762,7 +765,7 @@ export default function TrainingPage() {
                 className="pl-10"
               />
             </div>
-              <Button onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setNewCourse({ category_id: "", title: "", description: "", content_url: "", duration_minutes: 0, passing_score: 70, is_mandatory: false, is_active: true }); setShowCourseDialog(true) }}>
+              <Button onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setNewCourse({ category_id: "", title: "", description: "", content_url: "", duration_minutes: 0, passing_score: 70, is_mandatory: false, provides_certificate: false, is_active: true }); setShowCourseDialog(true) }}>
               <Plus className="mr-2 h-4 w-4" />
               Nuevo Curso
             </Button>
@@ -817,6 +820,7 @@ export default function TrainingPage() {
                           duration_minutes: course.duration_minutes,
                           passing_score: course.passing_score,
                           is_mandatory: course.is_mandatory,
+                          provides_certificate: course.provides_certificate ?? false,
                           is_active: course.is_active
                         })
                         setShowCourseDialog(true)
@@ -852,6 +856,12 @@ export default function TrainingPage() {
                   <div className="mt-auto flex items-center justify-between border-t pt-3">
                     <div className="flex items-center gap-2">
                       {course.is_mandatory && <Badge variant="destructive">Obligatorio</Badge>}
+                    {course.provides_certificate && (
+                      <Badge className="bg-amber-100 text-amber-800">
+                        <Award className="mr-1 h-3 w-3" />
+                        Certificado
+                      </Badge>
+                    )}
                       {course.is_active ? (
                         <Badge className="bg-green-100 text-green-800">Activo</Badge>
                       ) : (
@@ -1499,7 +1509,17 @@ export default function TrainingPage() {
                 />
               </div>
             </div>
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="course-certificate"
+                  checked={newCourse.provides_certificate}
+                  onCheckedChange={(checked) => setNewCourse({ ...newCourse, provides_certificate: checked })}
+                />
+                <Label htmlFor="course-certificate">
+                  Entrega Certificado {newCourse.provides_certificate ? "(Sí)" : "(No)"}
+                </Label>
+              </div>
               <div className="flex items-center gap-2">
                 <Switch
                   checked={newCourse.is_active}
