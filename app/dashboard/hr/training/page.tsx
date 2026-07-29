@@ -1237,6 +1237,93 @@ export default function TrainingPage() {
 
         {/* Evaluations Tab */}
         <TabsContent value="evaluations" className="space-y-4">
+          {/* Mis certificados: el usuario sube su certificado o el resultado de
+              la evaluación para notificar que completó el curso. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Award className="h-5 w-5 text-primary" />
+                Mis Certificados
+              </CardTitle>
+              <CardDescription>
+                Sube tu certificado o el resultado de la evaluación. Al subirlo, el curso se marca como
+                completado y queda registrado en la sección de Equipo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!currentStaffId ? (
+                <p className="text-sm text-muted-foreground">
+                  Tu usuario no está vinculado a un registro de personal.
+                </p>
+              ) : enrollments.filter((e) => e.staff_id === currentStaffId).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Aún no estás inscrito en ningún curso. Inscríbete desde la pestaña Cursos.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {enrollments
+                    .filter((e) => e.staff_id === currentStaffId)
+                    .map((enrollment) => (
+                      <div
+                        key={enrollment.id}
+                        className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">
+                            {enrollment.course?.title || "Curso"}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2">
+                            {getStatusBadge(enrollment.status)}
+                            {enrollment.certificate_uploaded_at && (
+                              <span className="text-xs text-muted-foreground">
+                                Subido el {new Date(enrollment.certificate_uploaded_at).toLocaleDateString("es-MX")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {enrollment.certificate_url && (
+                            <Button variant="outline" size="sm" asChild>
+                              <a href={enrollment.certificate_url} target="_blank" rel="noopener noreferrer">
+                                <FileText className="mr-2 h-4 w-4" />
+                                Ver
+                              </a>
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            disabled={uploadingCertFor === enrollment.id}
+                            onClick={() => {
+                              const input = document.createElement("input")
+                              input.type = "file"
+                              input.accept = "application/pdf,image/*"
+                              input.onchange = (ev) => {
+                                const file = (ev.target as HTMLInputElement).files?.[0]
+                                if (file) handleUploadCertificate(enrollment, file)
+                              }
+                              input.click()
+                            }}
+                          >
+                            {uploadingCertFor === enrollment.id ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Subiendo...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="mr-2 h-4 w-4" />
+                                {enrollment.certificate_url ? "Reemplazar" : "Subir certificado"}
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="flex items-center justify-between">
             <Select value={selectedCourse?.id || ""} onValueChange={(value) => {
               const course = courses.find(c => c.id === value)
@@ -1521,8 +1608,9 @@ export default function TrainingPage() {
                     <TableHead>Estado</TableHead>
                     <TableHead>Progreso</TableHead>
                     <TableHead>Calificación</TableHead>
-                    <TableHead>Fecha Inicio</TableHead>
+                    <TableHead>Fecha Inscripción</TableHead>
                     <TableHead>Fecha Completado</TableHead>
+                    <TableHead>Certificado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1547,10 +1635,25 @@ export default function TrainingPage() {
                         ) : "-"}
                       </TableCell>
                       <TableCell>
-                        {enrollment.started_at ? new Date(enrollment.started_at).toLocaleDateString() : "-"}
+                        {enrollment.created_at ? new Date(enrollment.created_at).toLocaleDateString() : "-"}
                       </TableCell>
                       <TableCell>
                         {enrollment.completed_at ? new Date(enrollment.completed_at).toLocaleDateString() : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {enrollment.certificate_url ? (
+                          <a
+                            href={enrollment.certificate_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                          >
+                            <FileText className="h-4 w-4" />
+                            Ver
+                          </a>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">Pendiente</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
