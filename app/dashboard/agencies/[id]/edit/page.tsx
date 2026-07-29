@@ -2801,8 +2801,8 @@ const [positions, setPositions] = useState<Position[]>([])
                         <TableHead>Nombre</TableHead>
                         <TableHead>Departamento</TableHead>
                         <TableHead>Nivel</TableHead>
-                        <TableHead className="text-center">Cuentas (min-max)</TableHead>
-                        <TableHead className="text-center">Proyectos (min-max)</TableHead>
+                      <TableHead className="text-center">Cuentas (mín-ópt-máx)</TableHead>
+                      <TableHead className="text-center">Proyectos (mín-ópt-máx)</TableHead>
                         <TableHead className="text-center">Subordinados (min-max)</TableHead>
                         <TableHead>Costo/Hora</TableHead>
                         <TableHead>Estado</TableHead>
@@ -2823,12 +2823,12 @@ const [positions, setPositions] = useState<Position[]>([])
                           </TableCell>
                           <TableCell className="text-center">
                             <span className="text-sm font-medium">
-                              {pos.min_accounts ?? 0} - {pos.max_accounts ?? 10}
+                              {pos.min_accounts ?? 0} - <span className="text-green-600">{pos.optimal_accounts ? pos.optimal_accounts : "—"}</span> - {pos.max_accounts ?? 10}
                             </span>
                           </TableCell>
                           <TableCell className="text-center">
                             <span className="text-sm font-medium">
-                              {pos.min_projects ?? 0} - {pos.max_projects ?? 10}
+                              {pos.min_projects ?? 0} - <span className="text-green-600">{pos.optimal_projects ? pos.optimal_projects : "—"}</span> - {pos.max_projects ?? 10}
                             </span>
                           </TableCell>
                           <TableCell className="text-center">
