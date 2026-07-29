@@ -448,6 +448,31 @@ export default function TrainingPage() {
     }
   }
 
+  // Abre el diálogo de edición y carga la selección de personas asignadas
+  // directamente desde la base de datos (no depende del estado global de
+  // enrollments), para que la selección nunca aparezca vacía al reabrir.
+  const openEditCourse = async (course: Course) => {
+    setEditingCourse(course)
+    setNewCourse({
+      category_id: course.category_id || "",
+      title: course.title,
+      description: course.description || "",
+      content_url: course.content_url || "",
+      duration_weeks: course.duration_weeks ?? 0,
+      hours_per_week: course.hours_per_week ?? 0,
+      is_mandatory: course.is_mandatory,
+      provides_certificate: course.provides_certificate ?? false,
+      is_active: course.is_active,
+    })
+    setCourseAssignStaffIds([])
+    setShowCourseDialog(true)
+    const { data } = await supabase
+      .from("training_enrollments")
+      .select("staff_id")
+      .eq("course_id", course.id)
+    if (data) setCourseAssignStaffIds(data.map((e) => e.staff_id))
+  }
+
   // Course handlers
   const handleSaveCourse = async () => {
     let courseId = editingCourse?.id || null
@@ -473,19 +498,42 @@ export default function TrainingPage() {
       courseId = inserted?.id ?? null
     }
 
-    // Inscribir a las personas asignadas (quiénes deben tomar la capacitación).
-    // assigned_at guarda la fecha en que se asignó el curso, para poder medir
-    // cuánto tardan en inscribirse y luego en terminarlo.
-    if (courseId && courseAssignStaffIds.length > 0) {
-      const enrollments = courseAssignStaffIds.map((staffId) => ({
-        course_id: courseId,
-        staff_id: staffId,
-        status: "enrolled",
-        assigned_at: new Date().toISOString(),
-      }))
-      await supabase
+    // Sincronizar las personas asignadas (quiénes deben tomar la capacitación).
+    // - Se insertan las nuevas seleccionadas (con assigned_at = fecha de asignación).
+    // - Se eliminan las desmarcadas SOLO si aún no iniciaron el curso (status "enrolled"),
+    //   para no borrar el progreso de quien ya lo empezó o completó.
+    // - No se re-inserta a las existentes, así se conserva su assigned_at original.
+    if (courseId) {
+      const { data: existing } = await supabase
         .from("training_enrollments")
-        .upsert(enrollments, { onConflict: "course_id,staff_id" })
+        .select("staff_id, status")
+        .eq("course_id", courseId)
+      const existingIds = new Set((existing ?? []).map((e) => e.staff_id))
+
+      const toAdd = courseAssignStaffIds.filter((id) => !existingIds.has(id))
+      if (toAdd.length > 0) {
+        const nowIso = new Date().toISOString()
+        await supabase.from("training_enrollments").insert(
+          toAdd.map((staffId) => ({
+            course_id: courseId,
+            staff_id: staffId,
+            status: "enrolled",
+            assigned_at: nowIso,
+          })),
+        )
+      }
+
+      const selectedSet = new Set(courseAssignStaffIds)
+      const toRemove = (existing ?? [])
+        .filter((e) => !selectedSet.has(e.staff_id) && e.status === "enrolled")
+        .map((e) => e.staff_id)
+      if (toRemove.length > 0) {
+        await supabase
+          .from("training_enrollments")
+          .delete()
+          .eq("course_id", courseId)
+          .in("staff_id", toRemove)
+      }
     }
 
     setShowCourseDialog(false)
@@ -953,24 +1001,7 @@ export default function TrainingPage() {
                       </div>
                     </div>
                     <div className="flex gap-1 opacity-60 transition-opacity group-hover:opacity-100">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
-                        setEditingCourse(course)
-                        setCourseAssignStaffIds(
-                          enrollments.filter((e) => e.course_id === course.id).map((e) => e.staff_id),
-                        )
-                        setNewCourse({
-                          category_id: course.category_id || "",
-                          title: course.title,
-                          description: course.description || "",
-                          content_url: course.content_url || "",
-                          duration_weeks: course.duration_weeks ?? 0,
-                          hours_per_week: course.hours_per_week ?? 0,
-                          is_mandatory: course.is_mandatory,
-                          provides_certificate: course.provides_certificate ?? false,
-                          is_active: course.is_active
-                        })
-                        setShowCourseDialog(true)
-                      }}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditCourse(course)}>
                         <Edit2 className="h-4 w-4" />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteCourse(course.id)}>
@@ -1292,7 +1323,7 @@ export default function TrainingPage() {
                 </p>
               ) : enrollments.filter((e) => e.staff_id === currentStaffId).length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Aún no estás inscrito en ningún curso. Inscríbete desde la pestaña Cursos.
+                  Aún no estás inscrito en ningún curso. Inscr��bete desde la pestaña Cursos.
                 </p>
               ) : (
                 <div className="space-y-3">
