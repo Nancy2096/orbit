@@ -61,8 +61,10 @@ interface Position {
   is_active: boolean
   sort_order: number
   min_accounts: number
+  optimal_accounts: number
   max_accounts: number
   min_projects: number
+  optimal_projects: number
   max_projects: number
   min_subordinates: number
   max_subordinates: number
@@ -738,8 +740,10 @@ const [positions, setPositions] = useState<Position[]>([])
         is_active: true,
         sort_order: positions.length,
         min_accounts: 0,
+        optimal_accounts: 5,
         max_accounts: 10,
         min_projects: 0,
+        optimal_projects: 5,
         max_projects: 10,
         min_subordinates: 0,
         max_subordinates: 5,
@@ -1331,8 +1335,10 @@ const [positions, setPositions] = useState<Position[]>([])
             is_active: pos.is_active,
             sort_order: pos.sort_order,
             min_accounts: pos.min_accounts ?? 0,
+            optimal_accounts: pos.optimal_accounts ?? null,
             max_accounts: pos.max_accounts ?? 10,
             min_projects: pos.min_projects ?? 0,
+            optimal_projects: pos.optimal_projects ?? null,
             max_projects: pos.max_projects ?? 10,
             min_subordinates: pos.min_subordinates ?? 0,
             max_subordinates: pos.max_subordinates ?? 5,
@@ -1348,8 +1354,10 @@ const [positions, setPositions] = useState<Position[]>([])
             is_active: pos.is_active,
             sort_order: pos.sort_order,
             min_accounts: pos.min_accounts ?? 0,
+            optimal_accounts: pos.optimal_accounts ?? null,
             max_accounts: pos.max_accounts ?? 10,
             min_projects: pos.min_projects ?? 0,
+            optimal_projects: pos.optimal_projects ?? null,
             max_projects: pos.max_projects ?? 10,
             min_subordinates: pos.min_subordinates ?? 0,
             max_subordinates: pos.max_subordinates ?? 5,
@@ -3777,7 +3785,8 @@ const [positions, setPositions] = useState<Position[]>([])
               <div className="pt-4 border-t">
                 <p className="text-sm font-medium mb-3">Capacidad de Carga de Trabajo</p>
                 <p className="text-xs text-muted-foreground mb-4">Define los limites de cuentas y subordinados que puede manejar este puesto</p>
-                <div className="grid gap-4 grid-cols-2">
+                {/* Cuentas: min -> óptimas -> max */}
+                <div className="grid gap-4 grid-cols-3 mb-4">
                   <Field>
                     <FieldLabel>Cuentas min.</FieldLabel>
                     <Input
@@ -3787,6 +3796,18 @@ const [positions, setPositions] = useState<Position[]>([])
                       onChange={(e) => setEditingPosition({ 
                         ...editingPosition, 
                         min_accounts: parseInt(e.target.value) || 0 
+                      })}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Cuentas óptimas</FieldLabel>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={editingPosition.optimal_accounts ?? ""}
+                      onChange={(e) => setEditingPosition({
+                        ...editingPosition,
+                        optimal_accounts: e.target.value === "" ? (null as unknown as number) : (parseInt(e.target.value) || 0),
                       })}
                     />
                   </Field>
@@ -3802,6 +3823,9 @@ const [positions, setPositions] = useState<Position[]>([])
                       })}
                     />
                   </Field>
+                </div>
+                {/* Proyectos: min -> óptimos -> max */}
+                <div className="grid gap-4 grid-cols-3 mb-4">
                   <Field>
                     <FieldLabel>Proyectos min.</FieldLabel>
                     <Input
@@ -3811,6 +3835,18 @@ const [positions, setPositions] = useState<Position[]>([])
                       onChange={(e) => setEditingPosition({ 
                         ...editingPosition, 
                         min_projects: parseInt(e.target.value) || 0 
+                      })}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Proyectos óptimos</FieldLabel>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={editingPosition.optimal_projects ?? ""}
+                      onChange={(e) => setEditingPosition({
+                        ...editingPosition,
+                        optimal_projects: e.target.value === "" ? (null as unknown as number) : (parseInt(e.target.value) || 0),
                       })}
                     />
                   </Field>
@@ -3826,6 +3862,8 @@ const [positions, setPositions] = useState<Position[]>([])
                       })}
                     />
                   </Field>
+                </div>
+                <div className="grid gap-4 grid-cols-2">
                   <Field>
                     <FieldLabel>Subordinados min.</FieldLabel>
                     <Input
