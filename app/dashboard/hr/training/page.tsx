@@ -71,6 +71,7 @@ interface Course {
   title: string
   description: string | null
   thumbnail_url: string | null
+  content_url: string | null
   duration_minutes: number
   passing_score: number
   is_mandatory: boolean
@@ -161,6 +162,7 @@ export default function TrainingPage() {
     category_id: "",
     title: "",
     description: "",
+    content_url: "",
     duration_minutes: 0,
     passing_score: 70,
     is_mandatory: false,
@@ -448,6 +450,7 @@ export default function TrainingPage() {
       category_id: "",
       title: "",
       description: "",
+      content_url: "",
       duration_minutes: 0,
       passing_score: 70,
       is_mandatory: false,
@@ -759,7 +762,7 @@ export default function TrainingPage() {
                 className="pl-10"
               />
             </div>
-              <Button onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setNewCourse({ category_id: "", title: "", description: "", duration_minutes: 0, passing_score: 70, is_mandatory: false, is_active: true }); setShowCourseDialog(true) }}>
+              <Button onClick={() => { setEditingCourse(null); setCourseAssignStaffIds([]); setNewCourse({ category_id: "", title: "", description: "", content_url: "", duration_minutes: 0, passing_score: 70, is_mandatory: false, is_active: true }); setShowCourseDialog(true) }}>
               <Plus className="mr-2 h-4 w-4" />
               Nuevo Curso
             </Button>
@@ -810,6 +813,7 @@ export default function TrainingPage() {
                           category_id: course.category_id || "",
                           title: course.title,
                           description: course.description || "",
+                          content_url: course.content_url || "",
                           duration_minutes: course.duration_minutes,
                           passing_score: course.passing_score,
                           is_mandatory: course.is_mandatory,
@@ -854,15 +858,25 @@ export default function TrainingPage() {
                         <Badge variant="secondary">Inactivo</Badge>
                       )}
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => {
-                      setSelectedCourse(course)
-                      fetchCourseContent(course.id)
-                      fetchEvaluations(course.id)
-                      setActiveTab("content")
-                    }}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      Ver
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {course.content_url && (
+                        <Button variant="outline" size="sm" asChild>
+                          <a href={course.content_url} target="_blank" rel="noopener noreferrer">
+                            <LinkIcon className="mr-2 h-4 w-4" />
+                            Material
+                          </a>
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setSelectedCourse(course)
+                        fetchCourseContent(course.id)
+                        fetchEvaluations(course.id)
+                        setActiveTab("content")
+                      }}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        Ver
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -1452,6 +1466,18 @@ export default function TrainingPage() {
                 onChange={(e) => setNewCourse({ ...newCourse, description: e.target.value })}
                 placeholder="Descripción del curso"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Link del curso / presentación</Label>
+              <Input
+                type="url"
+                value={newCourse.content_url}
+                onChange={(e) => setNewCourse({ ...newCourse, content_url: e.target.value })}
+                placeholder="https://..."
+              />
+              <p className="text-xs text-muted-foreground">
+                Enlace al material, video o presentación de la capacitación.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
