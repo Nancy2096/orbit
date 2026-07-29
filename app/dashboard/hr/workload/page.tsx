@@ -1356,6 +1356,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                   const deptGroups = new Map<string, StaffWorkload[]>()
                   filteredWorkload.forEach((staff) => {
                     const deptName = staff.departments?.name || staff.department || "Sin área"
+                    // Ocultar el área de Recursos Humanos en Cargas de Trabajo;
+                    // así "Creatividad y Diseño" sube a esa posición.
+                    if (deptName.toLowerCase().includes("recursos humanos")) return
                     if (!deptGroups.has(deptName)) {
                       deptGroups.set(deptName, [])
                     }
@@ -1412,6 +1415,9 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
                   const deptGroups = new Map<string, StaffWorkload[]>()
                   filteredWorkload.forEach((staff) => {
                     const deptName = staff.departments?.name || staff.department || "Sin área"
+                    // Ocultar el área de Recursos Humanos en Cargas de Trabajo;
+                    // así "Creatividad y Diseño" sube a esa posición.
+                    if (deptName.toLowerCase().includes("recursos humanos")) return
                     if (!deptGroups.has(deptName)) {
                       deptGroups.set(deptName, [])
                     }
