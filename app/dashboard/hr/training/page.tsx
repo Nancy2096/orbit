@@ -268,6 +268,11 @@ export default function TrainingPage() {
   useEffect(() => {
     fetchAgencies()
     fetchCurrentStaff()
+    // El personal, los cursos y las inscripciones se muestran de todas las
+    // agencias (sin dividir), por lo que se cargan una sola vez al montar.
+    fetchCourses()
+    fetchStaff()
+    fetchEnrollments()
   }, [])
 
   // Vincula el usuario autenticado con su registro en "staff" para permitir
@@ -283,13 +288,11 @@ export default function TrainingPage() {
     if (data) setCurrentStaffId(data.id)
   }
 
+  // La agencia seleccionada solo determina el contexto para crear nuevas
+  // categorías/cursos; las vistas de datos no se filtran por agencia.
   useEffect(() => {
     if (selectedAgency) {
-      setTeamDepartmentFilter("all")
       fetchCategories()
-      fetchCourses()
-      fetchStaff()
-      fetchEnrollments()
     }
   }, [selectedAgency])
 
@@ -318,7 +321,6 @@ export default function TrainingPage() {
         *,
         category:training_categories(id, name, color)
       `)
-      .eq("agency_id", selectedAgency)
       .order("title")
     
     if (data) {
@@ -382,8 +384,7 @@ export default function TrainingPage() {
   }
 
   const fetchStaff = async () => {
-    // Mostrar todo el personal de la agencia: los asignados directamente
-    // (agency_id), los asignados a varias agencias (agency_ids) y los globales.
+    // Mostrar TODO el personal activo, sin dividir por agencia.
     const { data, error } = await supabase
       .from("staff")
       .select(`
@@ -391,7 +392,6 @@ export default function TrainingPage() {
         department:departments(name)
       `)
       .eq("is_active", true)
-      .or(`agency_id.eq.${selectedAgency},agency_ids.cs.{${selectedAgency}},is_global.eq.true`)
       .order("first_name")
     if (error) {
       console.log("[v0] Error cargando personal:", error.message)
@@ -401,10 +401,9 @@ export default function TrainingPage() {
   }
 
   const fetchEnrollments = async () => {
-    if (!selectedAgency) return
-    // Se cargan TODAS las inscripciones de los cursos de la agencia para que
-    // la vista de Equipo, las tarjetas de curso y los certificados reflejen
-    // el estado real en todos los cursos, no solo en uno.
+    // Se cargan TODAS las inscripciones de todos los cursos, de todas las
+    // agencias, para que la vista de Equipo, las tarjetas de curso y el
+    // seguimiento de cursos esenciales reflejen el estado real completo.
     const { data } = await supabase
       .from("training_enrollments")
       .select(`
@@ -412,7 +411,6 @@ export default function TrainingPage() {
         staff:staff(id, first_name, last_name, email, position),
         course:training_courses!inner(id, title, is_mandatory, agency_id)
       `)
-      .eq("course.agency_id", selectedAgency)
       .order("created_at", { ascending: false })
     if (data) setEnrollments(data)
   }
@@ -761,8 +759,17 @@ export default function TrainingPage() {
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
   }
 
-  // Inscripciones de cursos obligatorios (no optativos), para el seguimiento de asignaciones.
-  const mandatoryEnrollments = enrollments.filter((e) => e.course?.is_mandatory)
+  // Inscripciones de cursos esenciales (no optativos), ordenadas por curso y luego
+  // por persona para que las asignaciones de cada curso se muestren agrupadas.
+  const mandatoryEnrollments = enrollments
+    .filter((e) => e.course?.is_mandatory)
+    .sort((a, b) => {
+      const courseCmp = (a.course?.title || "").localeCompare(b.course?.title || "")
+      if (courseCmp !== 0) return courseCmp
+      const aName = `${a.staff?.first_name || ""} ${a.staff?.last_name || ""}`
+      const bName = `${b.staff?.first_name || ""} ${b.staff?.last_name || ""}`
+      return aName.localeCompare(bName)
+    })
 
   const filteredCourses = courses.filter(c => 
     (categoryFilter === "all" || c.category_id === categoryFilter) &&
@@ -787,16 +794,19 @@ export default function TrainingPage() {
           <h1 className="text-3xl font-bold tracking-tight">Capacitación</h1>
           <p className="text-muted-foreground">Gestiona cursos, contenido y evaluaciones del equipo</p>
         </div>
-        <Select value={selectedAgency} onValueChange={setSelectedAgency}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Seleccionar agencia" />
-          </SelectTrigger>
-          <SelectContent>
-            {agencies.map((agency) => (
-              <SelectItem key={agency.id} value={agency.id}>{agency.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col items-end gap-1">
+          <Select value={selectedAgency} onValueChange={setSelectedAgency}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Seleccionar agencia" />
+            </SelectTrigger>
+            <SelectContent>
+              {agencies.map((agency) => (
+                <SelectItem key={agency.id} value={agency.id}>{agency.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">Agencia para crear cursos y procesos</span>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -1577,7 +1587,6 @@ export default function TrainingPage() {
                     <TableHead>Cursos Inscritos</TableHead>
                     <TableHead>Completados</TableHead>
                     <TableHead>En Progreso</TableHead>
-                    <TableHead>Promedio</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1585,8 +1594,7 @@ export default function TrainingPage() {
                     const memberEnrollments = enrollments.filter(e => e.staff_id === member.id)
                     const completed = memberEnrollments.filter(e => e.status === "completed").length
                     const inProgress = memberEnrollments.filter(e => e.status === "in_progress").length
-                    const avgScore = memberEnrollments.filter(e => e.final_score).reduce((acc, e) => acc + (e.final_score || 0), 0) / (memberEnrollments.filter(e => e.final_score).length || 1)
-                    
+
                     return (
                       <TableRow key={member.id}>
                         <TableCell>
@@ -1603,13 +1611,6 @@ export default function TrainingPage() {
                         <TableCell>
                           <Badge className="bg-blue-100 text-blue-800">{inProgress}</Badge>
                         </TableCell>
-                        <TableCell>
-                          {memberEnrollments.filter(e => e.final_score).length > 0 ? (
-                            <span className={avgScore >= 70 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
-                              {avgScore.toFixed(0)}%
-                            </span>
-                          ) : "-"}
-                        </TableCell>
                       </TableRow>
                     )
                   })}
@@ -1618,19 +1619,20 @@ export default function TrainingPage() {
             </CardContent>
           </Card>
 
-          {/* Seguimiento de cursos obligatorios (no optativos) asignados */}
+          {/* Seguimiento de cursos esenciales (no optativos) asignados por posición */}
           <Card>
             <CardHeader>
-              <CardTitle>Cursos Obligatorios Asignados</CardTitle>
+              <CardTitle>Cursos Esenciales Asignados para tu Posición.</CardTitle>
               <CardDescription>
-                Cursos no optativos asignados a cada persona, con la fecha de asignación y el tiempo que
-                tardaron en inscribirse y luego en terminarlos.
+                Cursos esenciales (no optativos) y las personas asignadas a cada uno, con la fecha de
+                asignación y el tiempo que tardaron en inscribirse y luego en terminarlos.
               </CardDescription>
             </CardHeader>
             <CardContent>
               {mandatoryEnrollments.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">
-                  No hay cursos obligatorios asignados en esta agencia.
+                  Aún no hay cursos esenciales asignados. Marca un curso como obligatorio y asigna
+                  personal al crearlo o editarlo para verlo aquí.
                 </p>
               ) : (
                 <Table>
