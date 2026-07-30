@@ -30,6 +30,9 @@ export const sectionCategories: Record<string, SectionCategory> = {
       "crm_metrics",
       "crm_lead_sources",
       "crm_reassign",
+      "commercial_team",
+      "crm_calendar",
+      "crm_integrations",
       "services",
       "commissions",
     ],
@@ -56,6 +59,10 @@ export const sectionCategories: Record<string, SectionCategory> = {
       "recognitions",
       "training",
       "vacations",
+      "onboarding",
+      "evaluations",
+      "one_to_one",
+      "hr_calendar",
     ],
   },
   finanzas: {
@@ -63,6 +70,7 @@ export const sectionCategories: Record<string, SectionCategory> = {
     icon: "dollar",
     modules: [
       "invoices",
+      "pre_invoices",
       "invoices_workflow",
       "invoices_third_party",
       "payments",
@@ -101,6 +109,9 @@ export const moduleLabels: Record<string, string> = {
   crm_metrics: "Metricas CRM",
   crm_lead_sources: "Fuentes de Leads",
   crm_reassign: "Reasignacion de Prospectos",
+  commercial_team: "Equipo Comercial",
+  crm_calendar: "Calendario CRM",
+  crm_integrations: "Integraciones CRM",
   services: "Servicios",
   commissions: "Comisiones de Ventas",
 
@@ -127,9 +138,14 @@ export const moduleLabels: Record<string, string> = {
   recognitions: "Reconocimientos",
   training: "Capacitacion",
   vacations: "Solicitud de Permisos",
+  onboarding: "Onboarding",
+  evaluations: "Evaluaciones",
+  one_to_one: "Reuniones One 2 One",
+  hr_calendar: "Calendario RH",
 
   // Finanzas
   invoices: "Facturas y Pagos",
+  pre_invoices: "Pre-Facturas",
   invoices_workflow: "Flujo de Facturas",
   invoices_third_party: "Facturas de Terceros",
   payments: "Bancos e Ingresos",
