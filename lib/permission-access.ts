@@ -20,10 +20,12 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
 
   // Recursos Humanos (las rutas más específicas van primero por claridad)
   ["/dashboard/hr/staff", ["staff", "staff_all", "staff_own", "staff_subordinates"]],
-  ["/dashboard/hr/onboarding", ["staff", "staff_all", "staff_own", "staff_subordinates"]],
+  ["/dashboard/hr/onboarding", ["onboarding", "staff", "staff_all", "staff_own", "staff_subordinates"]],
   ["/dashboard/hr/organigrama", ["organigrama"]],
   ["/dashboard/hr/workload", ["workload"]],
-  ["/dashboard/hr/evaluations", ["staff", "staff_all", "staff_own", "staff_subordinates"]],
+  ["/dashboard/hr/evaluations", ["evaluations", "staff", "staff_all", "staff_own", "staff_subordinates"]],
+  ["/dashboard/hr/one-to-one", ["one_to_one"]],
+  ["/dashboard/hr/calendar", ["hr_calendar"]],
   ["/dashboard/hr/salaries", ["salaries"]],
   ["/dashboard/hr/payroll", ["payroll", "payroll_all", "payroll_own", "payroll_subordinates"]],
   ["/dashboard/hr/bonuses", ["bonuses", "bonuses_all", "bonuses_own", "bonuses_subordinates"]],
@@ -39,7 +41,7 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   ["/dashboard/finance/reports", ["finance_reports"]],
   ["/dashboard/finance/client-reports", ["client_reports"]],
   ["/dashboard/finance", ["finance"]],
-  ["/dashboard/pre-invoices", ["invoices", "invoices_third_party", "invoices_workflow"]],
+  ["/dashboard/pre-invoices", ["pre_invoices", "invoices", "invoices_third_party", "invoices_workflow"]],
   ["/dashboard/invoices", ["invoices", "invoices_third_party", "invoices_workflow"]],
   ["/dashboard/payments", ["payments"]],
   ["/dashboard/expenses", ["expenses"]],
@@ -49,11 +51,11 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   // CRM
   ["/dashboard/crm/pipeline", ["crm_pipeline"]],
   ["/dashboard/crm/prospects", ["crm_prospects"]],
-  ["/dashboard/crm/team", ["crm_prospects"]],
+  ["/dashboard/crm/team", ["commercial_team", "crm_prospects"]],
   ["/dashboard/crm/tasks", ["crm_tasks"]],
-  ["/dashboard/crm/calendar", ["crm_tasks"]],
+  ["/dashboard/crm/calendar", ["crm_calendar", "crm_tasks"]],
   ["/dashboard/crm/metrics", ["crm_metrics"]],
-  ["/dashboard/crm/integrations", ["settings"]],
+  ["/dashboard/crm/integrations", ["crm_integrations", "settings"]],
   ["/dashboard/crm", ["crm_dashboard"]],
 
   // Configuración
