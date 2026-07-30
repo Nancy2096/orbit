@@ -122,6 +122,7 @@ export function StaffEditForm({
     is_billable: true,
     is_active: true,
     employment_status: "active",
+    status_change_date: "",
     utilization_target: "75",
     skills: "",
     notes: "",
@@ -271,6 +272,7 @@ reports_to_id: s.reports_to_id || "",
         is_billable: s.is_billable ?? true,
         is_active: s.is_active ?? true,
         employment_status: s.employment_status || (s.is_active === false ? "inactive" : "active"),
+        status_change_date: s.status_change_date || "",
         utilization_target: s.utilization_target?.toString() || "75",
         skills: Array.isArray(s.skills) ? s.skills.join(", ") : "",
         notes: s.notes || "",
@@ -519,6 +521,12 @@ hire_date: formData.hire_date || null,
   is_billable: formData.is_billable,
   is_active: formData.employment_status === "active",
   employment_status: formData.employment_status,
+  // La fecha de cambio de estado solo aplica a Baja/Inactivo/Suspendido.
+  // Si vuelve a "Activo" se limpia. Si falta, se usa la fecha de hoy.
+  status_change_date:
+    formData.employment_status === "active"
+      ? null
+      : formData.status_change_date || new Date().toISOString().split("T")[0],
         skills: formData.skills ? formData.skills.split(",").map((s) => s.trim()) : [],
         notes: formData.notes || null,
         // Foto
@@ -1076,7 +1084,17 @@ hire_date: formData.hire_date || null,
                   <Select
                     value={formData.employment_status}
                     onValueChange={(value) =>
-                      setFormData({ ...formData, employment_status: value, is_active: value === "active" })
+                      setFormData({
+                        ...formData,
+                        employment_status: value,
+                        is_active: value === "active",
+                        // Al pasar a Baja/Inactivo/Suspendido se registra la fecha de hoy
+                        // (si no había una previa). Al volver a Activo se limpia.
+                        status_change_date:
+                          value === "active"
+                            ? ""
+                            : formData.status_change_date || new Date().toISOString().split("T")[0],
+                      })
                     }
                   >
                     <SelectTrigger id="employment_status">
@@ -1096,6 +1114,27 @@ hire_date: formData.hire_date || null,
                     </SelectContent>
                   </Select>
                 </Field>
+
+                {formData.employment_status !== "active" && (
+                  <Field>
+                    <FieldLabel htmlFor="status_change_date">
+                      {formData.employment_status === "terminated"
+                        ? "Fecha de Baja"
+                        : formData.employment_status === "suspended"
+                          ? "Fecha de Suspensión"
+                          : "Fecha de Inactividad"}
+                    </FieldLabel>
+                    <Input
+                      id="status_change_date"
+                      type="date"
+                      value={formData.status_change_date}
+                      onChange={(e) => setFormData({ ...formData, status_change_date: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Se registra automáticamente al cambiar el estado. Puedes ajustarla si es necesario.
+                    </p>
+                  </Field>
+                )}
               </FieldGroup>
               </fieldset>
             </CardContent>
