@@ -73,6 +73,8 @@ interface Staff {
   is_active: boolean
   agency_id: string | null
   employment_status: string | null
+  hire_date: string | null
+  status_change_date: string | null
   finiquito: number | null
   finiquito_paid_at: string | null
 }
@@ -193,15 +195,17 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       // Regla de inclusión:
       //  - Personal activo: siempre se incluye.
-      //  - Personal en baja: solo si tiene finiquito pendiente (> 0 y no pagado),
-      //    para liquidarlo en esta nómina. El resto de bajas se omite.
+      //  - Personal dado de baja/inactivo/suspendido DURANTE el periodo: se incluye
+      //    para pagarle la parte proporcional de los días trabajados en el mes.
+      //  - Personal en baja con finiquito pendiente (> 0 y no pagado): se incluye
+      //    para liquidarlo. El resto de bajas anteriores al periodo se omite.
       const staffData = (staffRaw || []).filter((s) => {
         if (s.is_active) return true
-        return (
-          s.employment_status === "terminated" &&
-          Number(s.finiquito) > 0 &&
-          !s.finiquito_paid_at
-        )
+        const hasFiniquito = Number(s.finiquito) > 0 && !s.finiquito_paid_at
+        const changed = s.status_change_date
+        const leftDuringPeriod =
+          !!changed && changed >= periodData.start_date && changed <= periodData.end_date
+        return hasFiniquito || leftDuringPeriod
       })
 
       // Obtener bonos y comisiones (del apartado Comercial) aplicables al periodo.
@@ -261,7 +265,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       // Create entries from staff data
       const payrollEntries: PayrollEntry[] = (staffData || []).map(staff => {
-        const baseSalary = calculateBaseSalary(staff, periodData.period_type, periodData.start_date)
+        const baseSalary = calculateBaseSalary(staff, periodData.period_type, periodData.start_date, periodData.end_date)
         const bonuses = bonusesByStaff[staff.id] || 0
         const commissions = commissionsByStaff[staff.id] || 0
         // Finiquito pendiente de la baja (último pago). Se liquida una sola vez.
@@ -313,30 +317,78 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
-  const calculateBaseSalary = (staff: Staff, periodType: string, startDate?: string | null): number => {
+  const calculateBaseSalary = (
+    staff: Staff,
+    periodType: string,
+    startDate?: string | null,
+    endDate?: string | null,
+  ): number => {
     const monthlySalary = staff.monthly_salary || 0
     // Frecuencia de pago del colaborador (por defecto quincenal).
     const frequency = staff.payment_frequency || "biweekly"
+    // Tarifa diaria según la regla del negocio: sueldo mensual / 30.5.
+    const dailyRate = monthlySalary / 30.5
 
-    switch (periodType) {
-      case "semanal":
-        return monthlySalary / 4
-      case "quincenal": {
-        // ¿Es la primera o la segunda quincena? Se infiere del día de inicio.
-        const startDay = startDate ? new Date(startDate).getUTCDate() : 1
-        const isFirstHalf = startDay <= 15
-        if (frequency === "monthly") {
-          // A los mensuales se les paga solo en la segunda quincena (fin de mes).
-          return isFirstHalf ? 0 : monthlySalary
+    const parseDate = (s?: string | null) => (s ? new Date(s + "T00:00:00Z") : null)
+    const daysInclusive = (a: Date, b: Date) =>
+      Math.floor((b.getTime() - a.getTime()) / 86400000) + 1
+
+    const periodStart = parseDate(startDate)
+    const periodEnd = parseDate(endDate)
+    const hire = parseDate(staff.hire_date)
+    // Fecha de salida: solo si la persona ya no está activa y tiene fecha de cambio de estado.
+    const exit = !staff.is_active && staff.status_change_date ? parseDate(staff.status_change_date) : null
+
+    // Sueldo estándar de periodo completo (comportamiento original).
+    const standardSalary = (): number => {
+      switch (periodType) {
+        case "semanal":
+          return monthlySalary / 4
+        case "quincenal": {
+          const startDay = periodStart ? periodStart.getUTCDate() : 1
+          const isFirstHalf = startDay <= 15
+          if (frequency === "monthly") return isFirstHalf ? 0 : monthlySalary
+          return monthlySalary / 2
         }
-        // A los quincenales se les paga el 50% en cada quincena.
-        return monthlySalary / 2
+        case "mensual":
+          return monthlySalary
+        default:
+          return monthlySalary
       }
-      case "mensual":
-        return monthlySalary
-      default:
-        return monthlySalary
     }
+
+    // A los mensuales se les paga el mes completo en una sola exhibición (fin de mes).
+    // Su prorrateo se calcula sobre los días trabajados en TODO el mes.
+    if (frequency === "monthly") {
+      if (periodType === "quincenal" && periodStart && periodStart.getUTCDate() <= 15) {
+        // Primera quincena: el pago del mensual va en la segunda quincena.
+        return 0
+      }
+      const ref = periodEnd || periodStart
+      if (!ref) return monthlySalary
+      const monthStart = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1))
+      const monthEnd = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0))
+      const isPartial = (hire && hire > monthStart) || (exit && exit < monthEnd)
+      if (!isPartial) return monthlySalary
+      const activeStart = hire && hire > monthStart ? hire : monthStart
+      const activeEnd = exit && exit < monthEnd ? exit : monthEnd
+      if (activeEnd < activeStart) return 0
+      return Math.round(dailyRate * daysInclusive(activeStart, activeEnd) * 100) / 100
+    }
+
+    // Semanal / quincenal: se prorratea por los días trabajados DENTRO del periodo
+    // cuando la persona entró o salió a mitad del periodo.
+    if (periodStart && periodEnd) {
+      const isPartial = (hire && hire > periodStart) || (exit && exit < periodEnd)
+      if (isPartial) {
+        const activeStart = hire && hire > periodStart ? hire : periodStart
+        const activeEnd = exit && exit < periodEnd ? exit : periodEnd
+        if (activeEnd < activeStart) return 0
+        return Math.round(dailyRate * daysInclusive(activeStart, activeEnd) * 100) / 100
+      }
+    }
+
+    return standardSalary()
   }
 
   const handleCalculatePayroll = async () => {
@@ -348,7 +400,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       const totalTaxRate = (payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100
       
       const updatedEntries = entries.map(entry => {
-        const baseSalary = calculateBaseSalary(entry.staff, period.period_type, period.start_date)
+        const baseSalary = calculateBaseSalary(entry.staff, period.period_type, period.start_date, period.end_date)
         const grossPay = baseSalary + entry.bonuses + entry.commissions + entry.finiquito
         const taxes = grossPay * totalTaxRate
         const totalDeductions = entry.deductions + payrollConfig.otherDeductions

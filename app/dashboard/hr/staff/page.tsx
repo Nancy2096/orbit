@@ -52,6 +52,7 @@ interface Staff {
   is_billable: boolean
   is_active: boolean
   employment_status: string
+  status_change_date: string | null
   role_id: string | null
   photo_url: string | null
   reports_to_id: string | null
@@ -348,15 +349,22 @@ export default function StaffPage() {
   }
 
   async function handleStatusChange(id: string, newStatus: string) {
+    // Al pasar a Baja/Inactivo/Suspendido se registra la fecha de hoy; al volver
+    // a Activo se limpia la fecha de cambio de estado.
+    const statusChangeDate = newStatus === "active" ? null : new Date().toISOString().split("T")[0]
     const { error } = await supabase
       .from("staff")
-      .update({ employment_status: newStatus, is_active: newStatus === "active" })
+      .update({
+        employment_status: newStatus,
+        is_active: newStatus === "active",
+        status_change_date: statusChangeDate,
+      })
       .eq("id", id)
     if (!error) {
       setStaff((prev) =>
         prev.map((s) =>
           s.id === id
-            ? { ...s, employment_status: newStatus, is_active: newStatus === "active" }
+            ? { ...s, employment_status: newStatus, is_active: newStatus === "active", status_change_date: statusChangeDate }
             : s,
         ),
       )
