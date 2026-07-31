@@ -4,6 +4,7 @@ import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -172,6 +173,9 @@ export default function EditProjectPage({ params }: { params: Promise<{ id: stri
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
+  // Solo Super Administrador y Director General pueden editar las comisiones.
+  const { roleName } = usePermissions()
+  const canEditCommissions = roleName === "superadmin" || roleName === "direccion_general"
 
   useEffect(() => {
     setMounted(true)
@@ -1637,10 +1641,12 @@ async function fetchAgencyServices(agencyId: string) {
                     Comisiones
                   </CardTitle>
                   <CardDescription>
-                    Define los porcentajes de comisión para el equipo comercial
+                    {canEditCommissions
+                      ? "Define los porcentajes de comisión para el equipo comercial"
+                      : "Solo el Super Administrador o el Director General pueden editar las comisiones"}
                   </CardDescription>
                 </div>
-                {getAvailableStaffForCommission().length > 0 && (
+                {canEditCommissions && getAvailableStaffForCommission().length > 0 && (
                   <Select onValueChange={addCommissionMember}>
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="Agregar persona" />
@@ -1682,18 +1688,22 @@ async function fetchAgencyServices(agencyId: string) {
                             <Badge variant="outline">{getProjectRoleLabel(commission.role)}</Badge>
                           </TableCell>
                           <TableCell>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max="100"
-                              value={commission.commission_percentage}
-                              onChange={(e) => updateCommissionPercentage(commission.staff_id, parseFloat(e.target.value) || 0)}
-                              className="w-24"
-                            />
+                            {canEditCommissions ? (
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                value={commission.commission_percentage}
+                                onChange={(e) => updateCommissionPercentage(commission.staff_id, parseFloat(e.target.value) || 0)}
+                                className="w-24"
+                              />
+                            ) : (
+                              <span className="font-medium">{commission.commission_percentage}%</span>
+                            )}
                           </TableCell>
                           <TableCell>
-                            {commission.role === "additional" && (
+                            {canEditCommissions && commission.role === "additional" && (
                               <Button
                                 type="button"
                                 variant="ghost"
