@@ -19,11 +19,14 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   ["/dashboard/services", ["services"]],
 
   // Recursos Humanos (las rutas más específicas van primero por claridad)
-  ["/dashboard/hr/staff", ["staff", "staff_all", "staff_own", "staff_subordinates"]],
-  ["/dashboard/hr/onboarding", ["onboarding", "staff", "staff_all", "staff_own", "staff_subordinates"]],
+  // El directorio de Personal requiere alcance sobre OTROS (all/subordinates) o el
+  // permiso base "staff". El alcance "staff_own" es solo el perfil propio
+  // (/dashboard/profile), por lo que NO debe abrir el directorio completo.
+  ["/dashboard/hr/staff", ["staff", "staff_all", "staff_subordinates"]],
+  ["/dashboard/hr/onboarding", ["onboarding", "staff", "staff_all", "staff_subordinates"]],
   ["/dashboard/hr/organigrama", ["organigrama"]],
   ["/dashboard/hr/workload", ["workload"]],
-  ["/dashboard/hr/evaluations", ["evaluations", "staff", "staff_all", "staff_own", "staff_subordinates"]],
+  ["/dashboard/hr/evaluations", ["evaluations", "staff", "staff_all", "staff_subordinates"]],
   ["/dashboard/hr/one-to-one", ["one_to_one"]],
   ["/dashboard/hr/calendar", ["hr_calendar"]],
   ["/dashboard/hr/salaries", ["salaries"]],
@@ -35,7 +38,7 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   ["/dashboard/hr/leave-requests", ["vacations"]],
   ["/dashboard/hr/vacations", ["vacations"]],
   ["/dashboard/hr/commissions", ["commissions"]],
-  ["/dashboard/hr", ["staff", "staff_all", "staff_own", "staff_subordinates"]],
+  ["/dashboard/hr", ["staff", "staff_all", "staff_subordinates"]],
 
   // Finanzas
   ["/dashboard/finance/reports", ["finance_reports"]],
@@ -68,11 +71,12 @@ const ALWAYS_ALLOWED = ["/dashboard", "/dashboard/profile"]
 
 // Rutas restringidas EXCLUSIVAMENTE por nombre de rol (además del acceso total).
 // A diferencia de los módulos, estas rutas no se conceden por permisos granulares:
-// solo los roles listados pueden entrar. Se usa para secciones sensibles como los
-// Reportes one 2 one, visibles únicamente para Dirección General, RRHH y Super Admin.
-const ROLE_RESTRICTED_ENTRIES: [string, string[]][] = [
-  ["/dashboard/hr/one-to-one", ["superadmin", "direccion_general", "rrhh"]],
-]
+// solo los roles listados pueden entrar.
+//
+// IMPORTANTE: mantener esta lista vacía salvo casos excepcionales. El acceso debe
+// controlarse SIEMPRE por módulos de permiso para que "cada quien vea solo lo que
+// tiene permiso". One 2 One se movió a control por permiso (módulo one_to_one).
+const ROLE_RESTRICTED_ENTRIES: [string, string[]][] = []
 
 // Devuelve los roles autorizados para una ruta restringida por rol, o null si la
 // ruta no tiene restricción de rol específica.
