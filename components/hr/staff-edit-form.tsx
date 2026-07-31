@@ -9,6 +9,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Checkbox } from "@/components/ui/checkbox"
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
@@ -86,6 +96,11 @@ export function StaffEditForm({
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(true)
   const [agencies, setAgencies] = useState<Agency[]>([])
+  // Bancos dados de alta en las agencias (mismos para todas). Se ofrecen como
+  // opciones para "¿De qué banco se paga el sueldo?".
+  const [bankOptions, setBankOptions] = useState<string[]>([])
+  // Banco pendiente de confirmar para evitar cambios accidentales.
+  const [pendingBank, setPendingBank] = useState<string | null>(null)
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [positions, setPositions] = useState<Position[]>([])
@@ -223,14 +238,26 @@ export function StaffEditForm({
     // la sección de Sueldos y Salarios (con confirmación y bitácora de cambios).
     setCanEditBilling(false)
     
-    const [agenciesRes, currenciesRes, staffRes] = await Promise.all([
+    const [agenciesRes, currenciesRes, banksRes, staffRes] = await Promise.all([
       supabase.from("agencies").select("id, name, settings").eq("is_active", true).order("name"),
       supabase.from("currencies").select("id, code, name, symbol").eq("is_active", true).order("code"),
+      supabase.from("bank_accounts").select("bank_name").eq("is_active", true),
       supabase.from("staff").select("*").eq("id", id).single(),
     ])
 
     if (agenciesRes.data) setAgencies(agenciesRes.data)
     if (currenciesRes.data) setCurrencies(currenciesRes.data)
+    if (banksRes.data) {
+      // Bancos únicos con los que se trabaja (mismos para todas las agencias).
+      const uniqueBanks = Array.from(
+        new Set(
+          banksRes.data
+            .map((b: { bank_name: string | null }) => (b.bank_name || "").trim())
+            .filter((name: string) => name.length > 0),
+        ),
+      ).sort((a, b) => a.localeCompare(b))
+      setBankOptions(uniqueBanks)
+    }
 
     if (staffRes.data) {
       const s = staffRes.data
@@ -1018,30 +1045,72 @@ hire_date: formData.hire_date || null,
                   <FieldLabel htmlFor="payroll_bank_name_labor">¿De qué banco se paga el sueldo?</FieldLabel>
                   <Select
                     value={formData.payroll_bank_name}
-                    onValueChange={(value) => setFormData({ ...formData, payroll_bank_name: value })}
+                    onValueChange={(value) => {
+                      // Confirmar el cambio para evitar modificaciones accidentales.
+                      if (value !== formData.payroll_bank_name) {
+                        setPendingBank(value)
+                      }
+                    }}
                   >
                     <SelectTrigger id="payroll_bank_name_labor">
                       <SelectValue placeholder="Selecciona el banco desde el que se paga" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="BBVA">BBVA</SelectItem>
-                      <SelectItem value="Santander">Santander</SelectItem>
-                      <SelectItem value="Banamex">Banamex (Citibanamex)</SelectItem>
-                      <SelectItem value="Banorte">Banorte</SelectItem>
-                      <SelectItem value="HSBC">HSBC</SelectItem>
-                      <SelectItem value="Scotiabank">Scotiabank</SelectItem>
-                      <SelectItem value="Inbursa">Inbursa</SelectItem>
-                      <SelectItem value="Azteca">Banco Azteca</SelectItem>
-                      <SelectItem value="BanCoppel">BanCoppel</SelectItem>
-                      <SelectItem value="Nu">Nu</SelectItem>
-                      <SelectItem value="Hey Banco">Hey Banco</SelectItem>
-                      <SelectItem value="Otro">Otro</SelectItem>
+                      {bankOptions.length === 0 && !formData.payroll_bank_name ? (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                          No hay bancos dados de alta en las agencias
+                        </div>
+                      ) : (
+                        <>
+                          {/* Mostrar el banco guardado aunque ya no esté en el catálogo. */}
+                          {formData.payroll_bank_name &&
+                            !bankOptions.includes(formData.payroll_bank_name) && (
+                              <SelectItem value={formData.payroll_bank_name}>
+                                {formData.payroll_bank_name}
+                              </SelectItem>
+                            )}
+                          {bankOptions.map((bank) => (
+                            <SelectItem key={bank} value={bank}>
+                              {bank}
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Banco desde el cual se realiza el pago del sueldo de este colaborador
+                    Banco (de los registrados en las agencias) desde el cual se paga el sueldo de este colaborador
                   </p>
                 </Field>
+
+                <AlertDialog
+                  open={pendingBank !== null}
+                  onOpenChange={(open) => {
+                    if (!open) setPendingBank(null)
+                  }}
+                >
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Confirmar cambio de banco</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {`¿Confirmas que el sueldo de este colaborador se paga desde ${pendingBank}? Este es el banco con el que se realiza el pago; cámbialo solo si estás seguro.`}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel onClick={() => setPendingBank(null)}>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => {
+                          if (pendingBank !== null) {
+                            setFormData({ ...formData, payroll_bank_name: pendingBank })
+                          }
+                          setPendingBank(null)
+                        }}
+                      >
+                        Confirmar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
 
 <div className="grid grid-cols-2 gap-4">
                   <Field>
@@ -1103,16 +1172,6 @@ hire_date: formData.hire_date || null,
                     />
                   </Field>
                 </div>
-
-                <Field>
-                  <FieldLabel htmlFor="skills">Habilidades</FieldLabel>
-                  <Input
-                    id="skills"
-                    value={formData.skills || ""}
-                    onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
-                    placeholder="Ej: Diseño gráfico, Illustrator, Photoshop (separadas por coma)"
-                  />
-                </Field>
 
                 <Field>
                   <FieldLabel htmlFor="employment_status">Estado laboral</FieldLabel>
