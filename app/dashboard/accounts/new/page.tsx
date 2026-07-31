@@ -64,6 +64,8 @@ interface ContractedService {
   final_price: number
   frequency: string
   notes: string
+  // Fecha a partir de la cual se cobra el servicio (algunos van desfasados).
+  billing_date?: string | null
   currency_code?: string
   currency_symbol?: string
 }
@@ -500,6 +502,7 @@ function handleServiceSelect(serviceId: string) {
         final_price: s.final_price,
         frequency: s.frequency,
         notes: s.notes || null,
+        billing_date: s.billing_date || null,
         currency_code: s.currency_code === "USD" ? "USD" : "MXN",
         is_active: true,
       }))
@@ -972,7 +975,7 @@ function handleServiceSelect(serviceId: string) {
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
-                      <div className="grid grid-cols-6 gap-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <Field>
                           <FieldLabel>Moneda</FieldLabel>
                           <Select
@@ -1036,6 +1039,14 @@ function handleServiceSelect(serviceId: string) {
                               <SelectItem value="annual">Anual</SelectItem>
                             </SelectContent>
                           </Select>
+                        </Field>
+                        <Field>
+                          <FieldLabel>Fecha de facturación</FieldLabel>
+                          <Input
+                            type="date"
+                            value={service.billing_date || ""}
+                            onChange={(e) => updateServiceField(service.service_id, "billing_date", e.target.value)}
+                          />
                         </Field>
                         <Field>
                           <FieldLabel>Total</FieldLabel>

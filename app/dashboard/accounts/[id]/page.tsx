@@ -68,6 +68,8 @@ interface ContractedService {
   final_price: number
   frequency: string
   notes: string
+  // Fecha a partir de la cual se cobra el servicio (algunos van desfasados).
+  billing_date?: string | null
   is_new?: boolean
   is_deleted?: boolean
   currency_code?: string
@@ -466,6 +468,7 @@ async function fetchAgencyDepartments(agencyId: string) {
         final_price,
         frequency,
         notes,
+        billing_date,
         currency_code,
         services (
           name,
@@ -488,6 +491,7 @@ async function fetchAgencyDepartments(agencyId: string) {
         final_price: parseFloat(item.final_price) || 0,
         frequency: item.frequency || "one_time",
         notes: item.notes || "",
+        billing_date: item.billing_date || null,
         // Moneda persistida del servicio (MXN por defecto para datos antiguos).
         currency_code: item.currency_code === "USD" ? "USD" : "MXN",
         is_new: false,
@@ -528,6 +532,7 @@ async function fetchAgencyDepartments(agencyId: string) {
       final_price: unitPrice,
       frequency: "one_time",
       notes: "",
+      billing_date: null,
       is_new: true,
     }])
   }
@@ -727,6 +732,7 @@ async function fetchAgencyDepartments(agencyId: string) {
         final_price: s.final_price,
         frequency: s.frequency,
         notes: s.notes || null,
+        billing_date: s.billing_date || null,
         currency_code: s.currency_code === "USD" ? "USD" : "MXN",
         is_active: true,
       }))
@@ -762,6 +768,7 @@ async function fetchAgencyDepartments(agencyId: string) {
           final_price: service.final_price,
           frequency: service.frequency,
           notes: service.notes || null,
+          billing_date: service.billing_date || null,
           currency_code: service.currency_code === "USD" ? "USD" : "MXN",
           updated_at: new Date().toISOString(),
         })
@@ -1232,7 +1239,7 @@ setClients([])
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
-                      <div className="grid grid-cols-6 gap-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <Field>
                           <FieldLabel>Moneda</FieldLabel>
                           <Select
@@ -1296,6 +1303,14 @@ setClients([])
                               <SelectItem value="annual">Anual</SelectItem>
                             </SelectContent>
                           </Select>
+                        </Field>
+                        <Field>
+                          <FieldLabel>Fecha de facturación</FieldLabel>
+                          <Input
+                            type="date"
+                            value={service.billing_date || ""}
+                            onChange={(e) => updateServiceField(service.service_id, "billing_date", e.target.value)}
+                          />
                         </Field>
                         <Field>
                           <FieldLabel>Total</FieldLabel>

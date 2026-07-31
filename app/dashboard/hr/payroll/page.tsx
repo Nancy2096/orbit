@@ -333,7 +333,14 @@ export default function PayrollPage() {
                 <TableBody>
                   {filteredPeriods.map((period) => (
                     <TableRow key={period.id}>
-                      <TableCell className="font-medium">{period.period_name}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/dashboard/hr/payroll/${period.id}`}
+                          className="text-primary hover:underline"
+                        >
+                          {period.period_name}
+                        </Link>
+                      </TableCell>
                       <TableCell>{period.agency?.name || "Global"}</TableCell>
                       <TableCell>{periodTypeLabels[period.period_type] || period.period_type}</TableCell>
                       <TableCell>

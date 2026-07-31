@@ -79,6 +79,8 @@ interface ContractedService {
   final_price: number
   frequency: string
   notes: string
+  billing_date: string | null
+  billing_percentage: number | null
 }
 
 interface ProjectTeamMember {
@@ -257,6 +259,8 @@ if (deptRes.data) setDepartments(deptRes.data)
       final_price: unitPrice,
       frequency: "one_time",
       notes: "",
+      billing_date: null,
+      billing_percentage: null,
     }])
   }
 
@@ -463,6 +467,8 @@ if (deptRes.data) setDepartments(deptRes.data)
         final_price: s.final_price,
         frequency: s.frequency,
         notes: s.notes || null,
+        billing_date: s.billing_date || null,
+        billing_percentage: s.billing_percentage,
       }))
       await supabase.from("project_services").insert(servicesToInsert)
     }
@@ -930,7 +936,7 @@ if (deptRes.data) setDepartments(deptRes.data)
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
-                      <div className="grid grid-cols-6 gap-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <Field>
                           <FieldLabel>Moneda</FieldLabel>
                           <Select
@@ -994,6 +1000,32 @@ if (deptRes.data) setDepartments(deptRes.data)
                               <SelectItem value="annual">Anual</SelectItem>
                             </SelectContent>
                           </Select>
+                        </Field>
+                        <Field>
+                          <FieldLabel>Fecha de facturación</FieldLabel>
+                          <Input
+                            type="date"
+                            value={service.billing_date || ""}
+                            onChange={(e) => updateServiceField(service.service_id, "billing_date", e.target.value || null)}
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>% a Facturar</FieldLabel>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            placeholder="100"
+                            value={service.billing_percentage ?? ""}
+                            onChange={(e) =>
+                              updateServiceField(
+                                service.service_id,
+                                "billing_percentage",
+                                e.target.value === "" ? null : parseFloat(e.target.value),
+                              )
+                            }
+                          />
                         </Field>
                         <Field>
                           <FieldLabel>Total</FieldLabel>

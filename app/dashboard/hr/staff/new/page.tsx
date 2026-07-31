@@ -114,6 +114,8 @@ export default function NewStaffPage() {
     bank_account_holder: "",
     // Agencia que paga la nómina
     payroll_agency_id: "",
+    // Banco desde el que se paga el sueldo
+    payroll_bank_name: "",
   })
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [pendingDocuments, setPendingDocuments] = useState<Map<string, File>>(new Map())
@@ -432,7 +434,8 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
   bank_clabe: formData.bank_clabe || null,
   bank_account_holder: formData.bank_account_holder || null,
   // Agencia que paga la nómina
-  payroll_agency_id: formData.payroll_agency_id || null,
+        payroll_agency_id: formData.payroll_agency_id || null,
+        payroll_bank_name: formData.payroll_bank_name || null,
   }).select().single()
   
   if (insertError) {
@@ -1030,6 +1033,40 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">
                     Define qué agencia será responsable del pago de nómina de este colaborador
+                  </p>
+                </Field>
+
+                {/* Banco desde el que se paga el sueldo */}
+                <Field>
+                  <FieldLabel htmlFor="payroll_bank_name">¿De qué banco se paga el sueldo?</FieldLabel>
+                  <Select
+                    value={formData.payroll_bank_name}
+                    onValueChange={(value) => setFormData({ ...formData, payroll_bank_name: value })}
+                    disabled={!canEditBilling}
+                  >
+                    <SelectTrigger
+                      id="payroll_bank_name"
+                      className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}
+                    >
+                      <SelectValue placeholder="Selecciona el banco desde el que se paga" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BBVA">BBVA</SelectItem>
+                      <SelectItem value="Santander">Santander</SelectItem>
+                      <SelectItem value="Banamex">Banamex (Citibanamex)</SelectItem>
+                      <SelectItem value="Banorte">Banorte</SelectItem>
+                      <SelectItem value="HSBC">HSBC</SelectItem>
+                      <SelectItem value="Scotiabank">Scotiabank</SelectItem>
+                      <SelectItem value="Inbursa">Inbursa</SelectItem>
+                      <SelectItem value="Azteca">Banco Azteca</SelectItem>
+                      <SelectItem value="BanCoppel">BanCoppel</SelectItem>
+                      <SelectItem value="Nu">Nu</SelectItem>
+                      <SelectItem value="Hey Banco">Hey Banco</SelectItem>
+                      <SelectItem value="Otro">Otro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Banco desde el cual se realiza el pago del sueldo de este colaborador
                   </p>
                 </Field>
 

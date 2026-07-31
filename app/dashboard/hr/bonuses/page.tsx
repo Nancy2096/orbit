@@ -23,10 +23,20 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins, GraduationCap } from "lucide-react"
+import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins, GraduationCap, Trash2 } from "lucide-react"
 import { DepartmentFilter } from "@/components/hr/department-filter"
 import { BonusTypePanel } from "@/components/hr/bonus-type-sections"
 import { useAgency } from "@/contexts/agency-context"
@@ -100,6 +110,8 @@ interface StaffRecord {
   pending: number
   lastDate: string | null
   latestBonusId: string
+  // Todos los bonos del empleado (para eliminar el registro completo).
+  bonusIds: string[]
 }
 
 export default function BonusesPage() {
@@ -219,6 +231,28 @@ export default function BonusesPage() {
     }
   }
 
+  // Eliminación del registro completo de un empleado (todos sus bonos).
+  const [recordToDelete, setRecordToDelete] = useState<StaffRecord | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDeleteRecord = async () => {
+    if (!recordToDelete) return
+    setDeleting(true)
+    try {
+      const { error } = await supabase
+        .from("bonuses")
+        .delete()
+        .in("id", recordToDelete.bonusIds)
+      if (error) throw error
+      setRecordToDelete(null)
+      await fetchData()
+    } catch (error) {
+      console.error("Error deleting bonus record:", error)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const filteredBonuses = bonuses.filter((bonus) => {
     const staffName = `${bonus.staff?.first_name || ""} ${bonus.staff?.last_name || ""}`.toLowerCase()
     const matchesSearch = staffName.includes(searchTerm.toLowerCase()) ||
@@ -265,10 +299,12 @@ export default function BonusesPage() {
           pending: 0,
           lastDate: null,
           latestBonusId: bonus.id,
+          bonusIds: [],
         }
       }
 
       const record = acc[staff.id]
+      record.bonusIds.push(bonus.id)
       record.count += 1
       record.total += amount
       if (bonus.status === "paid") record.paid += amount
@@ -523,7 +559,7 @@ export default function BonusesPage() {
                           <TableHead className="text-right">Pagado</TableHead>
                           <TableHead className="text-right">Pendiente</TableHead>
                           <TableHead>Último bono</TableHead>
-                          <TableHead className="w-[100px]">Acciones</TableHead>
+                          <TableHead className="w-[180px]">Acciones</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -549,12 +585,23 @@ export default function BonusesPage() {
                               {record.lastDate ? formatDate(record.lastDate) : "-"}
                             </TableCell>
                             <TableCell>
-                              <Button variant="ghost" size="sm" asChild>
-                                <Link href={`/dashboard/hr/bonuses/${record.latestBonusId}`}>
-                                  <Eye className="mr-1 h-4 w-4" />
-                                  Ver
-                                </Link>
-                              </Button>
+                              <div className="flex items-center gap-1">
+                                <Button variant="ghost" size="sm" asChild>
+                                  <Link href={`/dashboard/hr/bonuses/${record.latestBonusId}`}>
+                                    <Eye className="mr-1 h-4 w-4" />
+                                    Ver
+                                  </Link>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => setRecordToDelete(record)}
+                                >
+                                  <Trash2 className="mr-1 h-4 w-4" />
+                                  Eliminar
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -658,6 +705,33 @@ export default function BonusesPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!recordToDelete} onOpenChange={(open) => !open && setRecordToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar registro completo</AlertDialogTitle>
+            <AlertDialogDescription>
+              {recordToDelete
+                ? `Se eliminarán permanentemente los ${recordToDelete.count} bono(s) de ${recordToDelete.name} por un total de ${formatCurrency(recordToDelete.total)}. Esta acción no se puede deshacer.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDeleteRecord()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <Spinner className="mr-2 h-4 w-4" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
