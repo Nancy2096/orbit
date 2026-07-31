@@ -90,6 +90,10 @@ interface ContractedService {
   final_price: number
   frequency: string
   notes: string
+  // Fecha a partir de la cual se cobra el servicio (algunos van desfasados).
+  billing_date: string | null
+  // Porcentaje a facturar del servicio (p. ej. 50% al inicio, 50% al final).
+  billing_percentage: number | null
   is_new?: boolean
   is_deleted?: boolean
 }
@@ -327,6 +331,8 @@ async function fetchAgencyServices(agencyId: string) {
         final_price,
         frequency,
         notes,
+        billing_date,
+        billing_percentage,
         services (name, category)
       `)
       .eq("project_id", id)
@@ -345,6 +351,8 @@ async function fetchAgencyServices(agencyId: string) {
         final_price: Number(item.final_price),
         frequency: item.frequency || "one_time",
         notes: item.notes || "",
+        billing_date: item.billing_date || null,
+        billing_percentage: item.billing_percentage != null ? Number(item.billing_percentage) : null,
         is_new: false,
         is_deleted: false,
       }))
@@ -565,6 +573,8 @@ async function fetchAgencyServices(agencyId: string) {
       final_price: unitPrice,
       frequency: "one_time",
       notes: "",
+      billing_date: null,
+      billing_percentage: null,
       is_new: true,
     }
     setContractedServices([...contractedServices, newService])
@@ -757,6 +767,8 @@ async function fetchAgencyServices(agencyId: string) {
         final_price: s.final_price,
         frequency: s.frequency,
         notes: s.notes || null,
+        billing_date: s.billing_date || null,
+        billing_percentage: s.billing_percentage,
       }))
       await supabase.from("project_services").insert(servicesToInsert)
     }
@@ -774,6 +786,8 @@ async function fetchAgencyServices(agencyId: string) {
           final_price: service.final_price,
           frequency: service.frequency,
           notes: service.notes || null,
+          billing_date: service.billing_date || null,
+          billing_percentage: service.billing_percentage,
           updated_at: new Date().toISOString(),
         })
         .eq("id", service.id)
@@ -1300,7 +1314,7 @@ async function fetchAgencyServices(agencyId: string) {
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
-                      <div className="grid grid-cols-6 gap-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <Field>
                           <FieldLabel>Moneda</FieldLabel>
                           <Select
@@ -1364,6 +1378,32 @@ async function fetchAgencyServices(agencyId: string) {
                               <SelectItem value="annual">Anual</SelectItem>
                             </SelectContent>
                           </Select>
+                        </Field>
+                        <Field>
+                          <FieldLabel>Fecha de facturación</FieldLabel>
+                          <Input
+                            type="date"
+                            value={service.billing_date || ""}
+                            onChange={(e) => updateServiceField(service.service_id, "billing_date", e.target.value || null)}
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>% a Facturar</FieldLabel>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            placeholder="100"
+                            value={service.billing_percentage ?? ""}
+                            onChange={(e) =>
+                              updateServiceField(
+                                service.service_id,
+                                "billing_percentage",
+                                e.target.value === "" ? null : parseFloat(e.target.value),
+                              )
+                            }
+                          />
                         </Field>
                         <Field>
                           <FieldLabel>Total</FieldLabel>
