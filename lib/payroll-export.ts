@@ -34,6 +34,13 @@ export interface PayrollExportPeriod {
   status: string
   payment_concept: string | null
   agency_id: string | null
+  // Ajuste de impuestos/deducciones guardado y aprobado para el periodo.
+  tax_config: {
+    taxRate: number
+    imssRate: number
+    isrRate: number
+    otherDeductions: number
+  } | null
 }
 
 export interface PayrollExportEntry {
@@ -196,6 +203,17 @@ export async function computePayrollEntries(
     }
   }
 
+  // Usar la configuración de impuestos/deducciones guardada y aprobada para el
+  // periodo. Si no existe (periodos antiguos), se usan los valores por defecto
+  // que muestra el detalle.
+  const config = {
+    taxRate: period.tax_config?.taxRate ?? 10,
+    imssRate: period.tax_config?.imssRate ?? 3,
+    isrRate: period.tax_config?.isrRate ?? 0,
+    otherDeductions: period.tax_config?.otherDeductions ?? 0,
+  }
+  const taxRate = (config.taxRate + config.imssRate + config.isrRate) / 100
+
   return staffData.map((staff) => {
     const baseSalary = calculateBaseSalary(staff, period.period_type, period.start_date, period.end_date)
     const bonuses = bonusesByStaff[staff.id] || 0
@@ -204,10 +222,10 @@ export async function computePayrollEntries(
       staff.employment_status === "terminated" && !staff.finiquito_paid_at
         ? Number(staff.finiquito || 0)
         : 0
-    const deductions = 0
+    const deductions = config.otherDeductions
     const loanDeductions = loanDeductionsByStaff[staff.id] || 0
     const grossPay = baseSalary + bonuses + commissions + finiquito
-    const taxes = grossPay * 0.1
+    const taxes = grossPay * taxRate
     const netPay = grossPay - deductions - loanDeductions - taxes
 
     return {
