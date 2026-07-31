@@ -54,6 +54,8 @@ interface PayrollPeriod {
   total_deductions: number
   total_net: number
   notes: string | null
+  // Concepto de pago (mismo para toda la nómina), editable al crear la nómina.
+  payment_concept: string | null
   agency_id: string | null
   agency: {
     id: string
@@ -77,6 +79,10 @@ interface Staff {
   status_change_date: string | null
   finiquito: number | null
   finiquito_paid_at: string | null
+  // Información de pagos (de RRHH > Personal > Información de pagos)
+  bank_name: string | null
+  bank_clabe: string | null
+  bank_account_number: string | null
 }
 
 interface CommissionItem {
@@ -933,6 +939,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   <TableHead className="text-right">Impuestos</TableHead>
                   <TableHead className="text-right">Bruto</TableHead>
                   <TableHead className="text-right">Neto</TableHead>
+                  <TableHead>Banco</TableHead>
+                  <TableHead>CLABE Interbancaria</TableHead>
+                  <TableHead>Concepto</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -946,9 +955,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                       )}
                       {entry.staff.employment_status === "terminated" ? (
                         <Badge variant="destructive" className="ml-2 text-xs">Baja</Badge>
+                      ) : entry.staff.payment_frequency === "monthly" ? (
+                        <Badge
+                          variant="secondary"
+                          className="ml-2 text-xs bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-300"
+                        >
+                          Mensual
+                        </Badge>
                       ) : (
                         <Badge variant="secondary" className="ml-2 text-xs">
-                          {entry.staff.payment_frequency === "monthly" ? "Mensual" : "Quincenal"}
+                          Quincenal
                         </Badge>
                       )}
                     </TableCell>
@@ -1000,6 +1016,15 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     <TableCell className="text-right text-red-600">-{formatCurrency(entry.taxes)}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(entry.gross_pay)}</TableCell>
                     <TableCell className="text-right font-bold text-green-600">{formatCurrency(entry.net_pay)}</TableCell>
+                    <TableCell>
+                      {entry.staff.bank_name || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {entry.staff.bank_clabe || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {period.payment_concept || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
                     <TableCell>
                       {(period.status === "draft" || period.status === "calculating") && (
                         <Button 
