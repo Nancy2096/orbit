@@ -30,6 +30,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { StaffAvatar } from "@/components/staff-avatar"
 import { ProfileCompletionBar } from "@/components/hr/profile-completion"
+import { getApplicableDocumentTypes } from "@/components/hr/staff-documents"
 import { Plus, Search, MoreHorizontal, Pencil, Trash2, Users, Shield, CircleDot, ChevronDown, ChevronRight } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
@@ -74,6 +75,11 @@ interface Staff {
   department_info: {
     name: string
   } | null
+  // Avance de documentos (aplicables al país) para el "Perfil completado".
+  document_info?: {
+    uploaded: number
+    total: number
+  }
   // Campos usados para calcular el avance de llenado del perfil
   hire_date: string | null
   personal_email: string | null
@@ -324,13 +330,41 @@ export default function StaffPage() {
         }
       }
 
+      // Documentos subidos por cada empleado, para que la columna "Perfil"
+      // refleje el MISMO "Perfil completado" del detalle (incluye documentos).
+      const staffIds = data.map((s) => s.id)
+      const docCountByStaff: Record<string, Set<string>> = {}
+      if (staffIds.length > 0) {
+        const { data: docs } = await supabase
+          .from("staff_documents")
+          .select("staff_id, document_type")
+          .in("staff_id", staffIds)
+        if (docs) {
+          for (const d of docs) {
+            if (!docCountByStaff[d.staff_id]) docCountByStaff[d.staff_id] = new Set()
+            docCountByStaff[d.staff_id].add(d.document_type)
+          }
+        }
+      }
+
       // Map data with related info
-      const mappedData = data.map(s => ({
-        ...s,
-        manager: s.reports_to_id ? managersMap[s.reports_to_id] || null : null,
-        position_info: s.position_id ? positionsMap[s.position_id] || null : null,
-        department_info: s.department_id ? departmentsMap[s.department_id] || null : null,
-      }))
+      const mappedData = data.map(s => {
+        // Solo cuentan los documentos aplicables al país del colaborador.
+        const applicable = getApplicableDocumentTypes(s.address_country)
+        const applicableIds = new Set(applicable.map((t) => t.id))
+        const uploadedTypes = docCountByStaff[s.id] || new Set<string>()
+        let uploaded = 0
+        uploadedTypes.forEach((t) => {
+          if (applicableIds.has(t)) uploaded++
+        })
+        return {
+          ...s,
+          manager: s.reports_to_id ? managersMap[s.reports_to_id] || null : null,
+          position_info: s.position_id ? positionsMap[s.position_id] || null : null,
+          department_info: s.department_id ? departmentsMap[s.department_id] || null : null,
+          document_info: { uploaded, total: applicable.length },
+        }
+      })
 
       setStaff(mappedData as Staff[])
     } else {
@@ -495,7 +529,7 @@ export default function StaffPage() {
                 )}
               </TableCell>
               <TableCell>
-                <ProfileCompletionBar staff={member} />
+                <ProfileCompletionBar staff={member} documentInfo={member.document_info} />
               </TableCell>
               <TableCell>
                 {(() => {
