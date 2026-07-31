@@ -41,6 +41,10 @@ interface DraftLine {
   discount: number
   amount: number
   is_included: boolean
+  // Fecha desde la que se cobra el servicio (algunos van desfasados).
+  billing_date: string | null
+  // Porcentaje a facturar (solo proyectos): 100 si no se especifica.
+  billing_percentage: number | null
 }
 
 interface DraftGroup {
@@ -85,6 +89,14 @@ export default function GeneratePreInvoicesPage() {
     setLoaded(false)
     const periodStart = periodStartFromMonth(month)
 
+    // Un servicio solo se prefactura cuando su fecha de facturación ya llegó.
+    // Si la fecha es posterior al mes seleccionado, el servicio está desfasado
+    // y todavía no debe cobrarse. Sin fecha => se cobra siempre.
+    const isBillable = (billingDate: string | null | undefined) => {
+      if (!billingDate) return true
+      return billingDate.slice(0, 7) <= month
+    }
+
     // Prefacturas ya existentes en el periodo para no duplicar.
     const { data: existing } = await supabase
       .from("pre_invoices")
@@ -106,7 +118,7 @@ export default function GeneratePreInvoicesPage() {
         `id, account_name, account_code, client_id, agency_id,
          agency:agencies(id, name),
          client:clients(id, company_name),
-         account_services(id, service_id, custom_name, quantity, unit_price, final_price, frequency, is_active, service:services(name))`,
+         account_services(id, service_id, custom_name, quantity, unit_price, final_price, frequency, is_active, billing_date, service:services(name))`,
       )
       .eq("status", "active")
 
@@ -118,7 +130,7 @@ export default function GeneratePreInvoicesPage() {
       .select(
         `id, name, project_code, account_id, status, is_billable,
          account:accounts(id, account_name, client_id, agency_id, agency:agencies(id, name), client:clients(id, company_name)),
-         project_services(id, service_id, quantity, unit_price, discount_percentage, total_price, currency, notes, service:services(name))`,
+         project_services(id, service_id, quantity, unit_price, discount_percentage, total_price, currency, notes, billing_date, billing_percentage, service:services(name))`,
       )
       .eq("status", "active")
 
@@ -129,7 +141,10 @@ export default function GeneratePreInvoicesPage() {
     for (const acc of accountsRes.data || []) {
       const agency = (acc.agency as { id: string; name: string } | null) ?? null
       if (agencyFilter !== "all" && acc.agency_id !== agencyFilter) continue
-      const services = (acc.account_services || []).filter((s: { is_active: boolean }) => s.is_active)
+      const services = (acc.account_services || [])
+        .filter((s: { is_active: boolean }) => s.is_active)
+        // Excluir servicios cuya fecha de facturación aún no llega en este mes.
+        .filter((s: { billing_date: string | null }) => isBillable(s.billing_date))
       if (services.length === 0) continue
       const lines: DraftLine[] = services.map((s: {
         id: string
@@ -137,6 +152,7 @@ export default function GeneratePreInvoicesPage() {
         custom_name: string | null
         quantity: number
         unit_price: number
+        billing_date: string | null
         service: { name: string } | null
       }) => {
         const quantity = Number(s.quantity) || 1
@@ -152,6 +168,8 @@ export default function GeneratePreInvoicesPage() {
           discount: 0,
           amount: lineAmount(quantity, unit_price, 0),
           is_included: true,
+          billing_date: s.billing_date || null,
+          billing_percentage: null,
         }
       })
       draftGroups.push({
@@ -176,7 +194,9 @@ export default function GeneratePreInvoicesPage() {
         agency: { id: string; name: string } | null
       } | null) ?? null
       if (agencyFilter !== "all" && account?.agency_id !== agencyFilter) continue
-      const services = proj.project_services || []
+      const services = (proj.project_services || [])
+        // Excluir servicios cuya fecha de facturación aún no llega en este mes.
+        .filter((s: { billing_date: string | null }) => isBillable(s.billing_date))
       if (services.length === 0) continue
       const lines: DraftLine[] = services.map((s: {
         id: string
@@ -184,23 +204,37 @@ export default function GeneratePreInvoicesPage() {
         quantity: number
         unit_price: number
         discount_percentage: number
+        billing_date: string | null
+        billing_percentage: number | null
         service: { name: string } | null
         notes: string | null
       }) => {
         const quantity = Number(s.quantity) || 1
         const unit_price = Number(s.unit_price) || 0
         const discount = Number(s.discount_percentage) || 0
+        // Porcentaje a facturar (p. ej. 50% al inicio, 50% al final). 100 por defecto.
+        const billingPct = s.billing_percentage != null ? Number(s.billing_percentage) : null
+        const baseAmount = lineAmount(quantity, unit_price, discount)
+        const amount =
+          billingPct != null && billingPct !== 100
+            ? Math.round(baseAmount * (billingPct / 100) * 100) / 100
+            : baseAmount
+        const baseName = s.service?.name || s.notes || "Servicio"
+        const description =
+          billingPct != null && billingPct !== 100 ? `${baseName} (${billingPct}% a facturar)` : baseName
         return {
           key: `ps-${s.id}`,
           source_service_type: "project_service" as const,
           source_service_id: s.id,
           service_id: s.service_id,
-          description: s.service?.name || s.notes || "Servicio",
+          description,
           quantity,
           unit_price,
           discount,
-          amount: lineAmount(quantity, unit_price, discount),
+          amount,
           is_included: true,
+          billing_date: s.billing_date || null,
+          billing_percentage: billingPct,
         }
       })
       draftGroups.push({
@@ -453,6 +487,7 @@ export default function GeneratePreInvoicesPage() {
                         <TableRow>
                           <TableHead className="w-12">Incluir</TableHead>
                           <TableHead>Servicio</TableHead>
+                          <TableHead>Fecha fact.</TableHead>
                           <TableHead className="text-right">Cantidad</TableHead>
                           <TableHead className="text-right">P. Unitario</TableHead>
                           <TableHead className="text-right">Desc.</TableHead>
@@ -470,6 +505,15 @@ export default function GeneratePreInvoicesPage() {
                               />
                             </TableCell>
                             <TableCell className="font-medium">{line.description}</TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {line.billing_date
+                                ? new Date(`${line.billing_date}T00:00:00`).toLocaleDateString("es-MX", {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                  })
+                                : "—"}
+                            </TableCell>
                             <TableCell className="text-right">{line.quantity}</TableCell>
                             <TableCell className="text-right">{formatCurrency(line.unit_price, group.currency)}</TableCell>
                             <TableCell className="text-right">{line.discount ? `${line.discount}%` : "-"}</TableCell>
