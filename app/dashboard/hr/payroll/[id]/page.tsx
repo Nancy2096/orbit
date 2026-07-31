@@ -89,6 +89,20 @@ interface CommissionItem {
   status: string
 }
 
+interface LoanDeductionItem {
+  loan_id: string
+  loan_number: string | null
+  loan_type: string | null
+  // Monto a descontar en este periodo (normalmente la parcialidad del préstamo).
+  amount: number
+  // Número de la siguiente parcialidad a registrar.
+  payment_number: number
+  remaining_balance: number
+  amount_paid: number
+  number_of_payments: number
+  payments_made: number
+}
+
 interface PayrollEntry {
   staff_id: string
   staff: Staff
@@ -97,6 +111,9 @@ interface PayrollEntry {
   commissions: number
   commissionItems: CommissionItem[]
   finiquito: number
+  // Descuento de préstamos (del apartado Préstamos) aplicable a este periodo.
+  loanDeductions: number
+  loanItems: LoanDeductionItem[]
   deductions: number
   taxes: number
   gross_pay: number
@@ -140,6 +157,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const [editingEntry, setEditingEntry] = useState<PayrollEntry | null>(null)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [commissionDetailEntry, setCommissionDetailEntry] = useState<PayrollEntry | null>(null)
+  const [loanDetailEntry, setLoanDetailEntry] = useState<PayrollEntry | null>(null)
   const [includeGlobalStaff, setIncludeGlobalStaff] = useState(false)
   const [showConfigDialog, setShowConfigDialog] = useState(false)
   const [payrollConfig, setPayrollConfig] = useState({
@@ -216,6 +234,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       const bonusesByStaff: Record<string, number> = {}
       const commissionsByStaff: Record<string, number> = {}
       const commissionItemsByStaff: Record<string, CommissionItem[]> = {}
+      // Descuentos de préstamos activos (del apartado Préstamos) por colaborador.
+      const loanDeductionsByStaff: Record<string, number> = {}
+      const loanItemsByStaff: Record<string, LoanDeductionItem[]> = {}
 
       const start = periodData.start_date // YYYY-MM-DD
       const end = periodData.end_date // YYYY-MM-DD
@@ -227,7 +248,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       }
 
       if (staffIds.length > 0) {
-        const [bonusesRes, commissionsRes] = await Promise.all([
+        const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
           supabase
             .from("bonuses")
             .select("staff_id, amount, benefit_type, status, effective_date, created_at")
@@ -238,6 +259,14 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             .select("id, staff_id, commission_type, description, commission_amount, status, period_date, created_at")
             .in("staff_id", staffIds)
             .in("status", ["approved", "paid"]),
+          // Préstamos vigentes (activos/aprobados) con saldo pendiente.
+          supabase
+            .from("loans")
+            .select(
+              "id, staff_id, loan_number, loan_type, payment_amount, number_of_payments, payments_made, amount_paid, remaining_balance, status",
+            )
+            .in("staff_id", staffIds)
+            .in("status", ["active", "approved"]),
         ])
 
         for (const b of bonusesRes.data || []) {
@@ -261,6 +290,27 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             status: c.status,
           })
         }
+
+        for (const l of loansRes.data || []) {
+          const remaining = Number(l.remaining_balance ?? 0)
+          if (remaining <= 0) continue
+          // La parcialidad a descontar; nunca más que el saldo restante.
+          const amount = Math.min(Number(l.payment_amount || 0), remaining)
+          if (amount <= 0) continue
+          loanDeductionsByStaff[l.staff_id] = (loanDeductionsByStaff[l.staff_id] || 0) + amount
+          if (!loanItemsByStaff[l.staff_id]) loanItemsByStaff[l.staff_id] = []
+          loanItemsByStaff[l.staff_id].push({
+            loan_id: l.id,
+            loan_number: l.loan_number,
+            loan_type: l.loan_type,
+            amount,
+            payment_number: Number(l.payments_made || 0) + 1,
+            remaining_balance: remaining,
+            amount_paid: Number(l.amount_paid || 0),
+            number_of_payments: Number(l.number_of_payments || 0),
+            payments_made: Number(l.payments_made || 0),
+          })
+        }
       }
 
       // Create entries from staff data
@@ -274,9 +324,10 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             ? Number(staff.finiquito || 0)
             : 0
         const deductions = 0
+        const loanDeductions = loanDeductionsByStaff[staff.id] || 0
         const grossPay = baseSalary + bonuses + commissions + finiquito
         const taxes = grossPay * 0.10 // 10% tax estimate
-        const netPay = grossPay - deductions - taxes
+        const netPay = grossPay - deductions - loanDeductions - taxes
 
         return {
           staff_id: staff.id,
@@ -286,6 +337,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           commissions: commissions,
           commissionItems: commissionItemsByStaff[staff.id] || [],
           finiquito: finiquito,
+          loanDeductions: loanDeductions,
+          loanItems: loanItemsByStaff[staff.id] || [],
           deductions: deductions,
           taxes: taxes,
           gross_pay: grossPay,
@@ -298,7 +351,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // If there are entries, calculate and display totals from the entries
       if (payrollEntries.length > 0) {
         const totalGross = payrollEntries.reduce((sum, e) => sum + e.gross_pay, 0)
-        const totalDeductions = payrollEntries.reduce((sum, e) => sum + e.deductions + e.taxes, 0)
+        const totalDeductions = payrollEntries.reduce((sum, e) => sum + e.deductions + e.loanDeductions + e.taxes, 0)
         const totalNet = payrollEntries.reduce((sum, e) => sum + e.net_pay, 0)
         
         // Update the period state with calculated totals for display
@@ -404,7 +457,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const grossPay = baseSalary + entry.bonuses + entry.commissions + entry.finiquito
         const taxes = grossPay * totalTaxRate
         const totalDeductions = entry.deductions + payrollConfig.otherDeductions
-        const netPay = grossPay - totalDeductions - taxes
+        // El descuento de préstamos se resta además de deducciones e impuestos.
+        const netPay = grossPay - totalDeductions - entry.loanDeductions - taxes
 
         return {
           ...entry,
@@ -420,7 +474,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       // Calculate totals
       const totalGross = updatedEntries.reduce((sum, e) => sum + e.gross_pay, 0)
-      const totalDeductions = updatedEntries.reduce((sum, e) => sum + e.deductions + e.taxes, 0)
+      const totalDeductions = updatedEntries.reduce((sum, e) => sum + e.deductions + e.loanDeductions + e.taxes, 0)
       const totalNet = updatedEntries.reduce((sum, e) => sum + e.net_pay, 0)
 
       // Update period totals
@@ -527,6 +581,51 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         }
       }
 
+      // Registrar en "Préstamos" los pagos descontados en esta nómina: se crea
+      // un registro en loan_payments por cada parcialidad y se actualiza el
+      // saldo del préstamo (parcialidades hechas, monto pagado y saldo restante).
+      const loanItemsToPay = entries.flatMap((e) => e.loanItems).filter((l) => l.amount > 0)
+      let paidLoansCount = 0
+      if (loanItemsToPay.length > 0) {
+        const today = new Date().toISOString().split("T")[0]
+        for (const l of loanItemsToPay) {
+          const newPaymentsMade = l.payments_made + 1
+          const newRemaining = Math.max(0, l.remaining_balance - l.amount)
+          const isSettled = newRemaining <= 0 || newPaymentsMade >= l.number_of_payments
+
+          const { error: payError } = await supabase.from("loan_payments").insert({
+            loan_id: l.loan_id,
+            payment_number: l.payment_number,
+            payment_date: today,
+            scheduled_date: today,
+            amount: l.amount,
+            principal_amount: l.amount,
+            status: "paid",
+            notes: `Descontado en nómina ${period.period_name}`,
+          })
+          if (payError) {
+            console.error("Error inserting loan_payment:", payError)
+            continue
+          }
+
+          const { error: loanError } = await supabase
+            .from("loans")
+            .update({
+              payments_made: newPaymentsMade,
+              amount_paid: l.amount_paid + l.amount,
+              remaining_balance: newRemaining,
+              status: isSettled ? "paid" : "active",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", l.loan_id)
+          if (loanError) {
+            console.error("Error updating loan:", loanError)
+            continue
+          }
+          paidLoansCount++
+        }
+      }
+
       setPeriod({ ...period, status: "paid" })
       // Reflejar el nuevo estado de las comisiones y finiquitos en la vista.
       const paidAt = new Date().toISOString()
@@ -545,6 +644,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       const extras = [
         paidCommissionsCount > 0 ? `${paidCommissionsCount} comisión(es)` : null,
         paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
+        paidLoansCount > 0 ? `${paidLoansCount} pago(s) de préstamo` : null,
       ].filter(Boolean)
       toast.success(
         extras.length > 0
@@ -569,7 +669,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     const totalTaxRate = (payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100
     const grossPay = editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions + editingEntry.finiquito
     const taxes = grossPay * totalTaxRate
-    const netPay = grossPay - editingEntry.deductions - taxes
+    const netPay = grossPay - editingEntry.deductions - editingEntry.loanDeductions - taxes
 
     const updatedEntry = {
       ...editingEntry,
@@ -627,7 +727,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   // Calculate totals from entries
   const calculatedTotals = {
     gross: entries.reduce((sum, e) => sum + e.gross_pay, 0),
-    deductions: entries.reduce((sum, e) => sum + e.deductions + e.taxes, 0),
+    deductions: entries.reduce((sum, e) => sum + e.deductions + e.loanDeductions + e.taxes, 0),
     net: entries.reduce((sum, e) => sum + e.net_pay, 0),
   }
   const employeesWithoutSalary = entries.filter(e => !e.staff.monthly_salary || e.staff.monthly_salary === 0)
@@ -792,10 +892,24 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                 <span className="font-semibold">
                   {formatCurrency(entries.reduce((sum, e) => sum + e.commissions, 0))}
                 </span>{" "}
-                en comisiones del apartado <span className="font-medium">Comercial</span> (aprobadas o pagadas) que
+                en <span className="font-medium">Comisiones Citas</span> (aprobadas o pagadas) que
                 caen dentro de este periodo. Las comisiones se pagan{" "}
                 <span className="font-medium">quincenalmente</span>. Haz clic en el monto de un colaborador para ver el
                 desglose.
+              </p>
+            </div>
+          )}
+          {entries.some((e) => e.loanItems.length > 0) && (
+            <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/20">
+              <DollarSign className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+              <p className="text-sm text-red-800 dark:text-red-200">
+                Se descuentan{" "}
+                <span className="font-semibold">
+                  {formatCurrency(entries.reduce((sum, e) => sum + e.loanDeductions, 0))}
+                </span>{" "}
+                en parcialidades de <span className="font-medium">Préstamos</span> vigentes. Al marcar la
+                nómina como pagada, estos pagos se registran automáticamente en el apartado de{" "}
+                <span className="font-medium">Préstamos</span>.
               </p>
             </div>
           )}
@@ -812,8 +926,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   <TableHead>Puesto</TableHead>
                   <TableHead className="text-right">Salario Base</TableHead>
                   <TableHead className="text-right">Bonos</TableHead>
-                  <TableHead className="text-right">Comisiones</TableHead>
+                  <TableHead className="text-right">Comisiones Citas</TableHead>
                   <TableHead className="text-right">Finiquito</TableHead>
+                  <TableHead className="text-right">Préstamos</TableHead>
                   <TableHead className="text-right">Deducciones</TableHead>
                   <TableHead className="text-right">Impuestos</TableHead>
                   <TableHead className="text-right">Bruto</TableHead>
@@ -860,6 +975,23 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     <TableCell className="text-right">
                       {entry.finiquito > 0 ? (
                         <span className="font-medium text-amber-600">{formatCurrency(entry.finiquito)}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-red-600">
+                      {entry.loanItems.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setLoanDetailEntry(entry)}
+                          className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-red-800"
+                          title="Ver detalle de préstamos"
+                        >
+                          -{formatCurrency(entry.loanDeductions)}
+                          <Badge variant="secondary" className="text-[10px]">
+                            {entry.loanItems.length}
+                          </Badge>
+                        </button>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
@@ -973,6 +1105,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     -{formatCurrency((editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions + editingEntry.finiquito) * ((payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100))}
                   </span>
                 </div>
+                {editingEntry.loanDeductions > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span>Préstamos:</span>
+                    <span className="text-red-600">-{formatCurrency(editingEntry.loanDeductions)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span>Deducciones:</span>
                   <span className="text-red-600">-{formatCurrency(editingEntry.deductions)}</span>
@@ -983,6 +1121,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     {formatCurrency(
                       (editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions + editingEntry.finiquito) * (1 - (payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100) 
                       - editingEntry.deductions
+                      - editingEntry.loanDeductions
                     )}
                   </span>
                 </div>
@@ -1052,6 +1191,55 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCommissionDetailEntry(null)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Loan Detail Dialog */}
+      <Dialog open={!!loanDetailEntry} onOpenChange={(open) => !open && setLoanDetailEntry(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Detalle de préstamos</DialogTitle>
+            <DialogDescription>
+              {loanDetailEntry?.staff.first_name} {loanDetailEntry?.staff.last_name} · Parcialidades de préstamos a
+              descontar en este periodo
+            </DialogDescription>
+          </DialogHeader>
+          {loanDetailEntry && (
+            <div className="space-y-3">
+              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                {loanDetailEntry.loanItems.map((item) => (
+                  <div
+                    key={item.loan_id}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-border p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          {item.loan_number || "Préstamo"}
+                        </Badge>
+                        <Badge variant="secondary" className="text-[10px]">
+                          Pago {item.payment_number}/{item.number_of_payments}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Saldo restante: {formatCurrency(item.remaining_balance)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 font-medium text-red-600">-{formatCurrency(item.amount)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between border-t pt-3 font-bold">
+                <span>Total a descontar</span>
+                <span className="text-red-600">-{formatCurrency(loanDetailEntry.loanDeductions)}</span>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLoanDetailEntry(null)}>
               Cerrar
             </Button>
           </DialogFooter>
