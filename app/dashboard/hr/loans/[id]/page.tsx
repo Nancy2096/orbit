@@ -10,6 +10,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -32,6 +40,7 @@ import {
   ShieldCheck,
   Pencil,
   Trash2,
+  ListChecks,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -53,6 +62,7 @@ interface Loan {
   request_date: string | null
   approval_date: string | null
   start_date: string | null
+  approved_by: string | null
   notes: string | null
   created_at: string
   staff: {
@@ -111,6 +121,8 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   const canAuthorize = fullAccess || roleName === "superadmin" || roleName === "direccion_general"
 
   const [loan, setLoan] = useState<Loan | null>(null)
+  // Nombre de la persona que autorizó (resuelto desde la tabla users).
+  const [approverName, setApproverName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -139,6 +151,24 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
       return
     }
     setLoan(data as Loan)
+
+    // Resolver el nombre de quien autorizó (approved_by -> users.id).
+    if (data.approved_by) {
+      const { data: approver } = await supabase
+        .from("users")
+        .select("first_name, last_name")
+        .eq("id", data.approved_by)
+        .maybeSingle()
+      if (approver) {
+        const name = `${approver.first_name ?? ""} ${approver.last_name ?? ""}`.trim()
+        setApproverName(name || null)
+      } else {
+        setApproverName(null)
+      }
+    } else {
+      setApproverName(null)
+    }
+
     setLoading(false)
   }
 
@@ -220,6 +250,45 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount)
 
+  // Suma un número de periodos a la fecha inicial según la frecuencia de pago.
+  const addInterval = (base: Date, frequency: string | null, periods: number) => {
+    const d = new Date(base)
+    if (frequency === "weekly") {
+      d.setUTCDate(d.getUTCDate() + 7 * periods)
+    } else if (frequency === "biweekly") {
+      d.setUTCDate(d.getUTCDate() + 15 * periods)
+    } else {
+      // mensual por defecto
+      d.setUTCMonth(d.getUTCMonth() + periods)
+    }
+    return d
+  }
+
+  // Genera el desglose de pagos a partir de la fecha inicial de pago (start_date).
+  const buildSchedule = (l: Loan) => {
+    if (!l.start_date || !l.number_of_payments) return []
+    const start = new Date(`${l.start_date}T00:00:00Z`)
+    const perPayment = Number(l.payment_amount || 0)
+    const total = Number(l.total_amount || 0)
+    const paidCount = Number(l.payments_made || 0)
+    const rows = []
+    let accumulated = 0
+    for (let i = 0; i < l.number_of_payments; i++) {
+      const isLast = i === l.number_of_payments - 1
+      // El último pago ajusta el redondeo para cuadrar con el total.
+      const amount = isLast ? Math.round((total - accumulated) * 100) / 100 : perPayment
+      accumulated += perPayment
+      const date = addInterval(start, l.payment_frequency, i)
+      rows.push({
+        number: i + 1,
+        date,
+        amount,
+        paid: i < paidCount,
+      })
+    }
+    return rows
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -243,6 +312,13 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   const isPending = loan.status === "pending"
+  const schedule = buildSchedule(loan)
+  const formatScheduleDate = (d: Date) => {
+    const day = d.getUTCDate()
+    const month = d.toLocaleString("es-MX", { month: "short", timeZone: "UTC" })
+    const year = d.getUTCFullYear()
+    return `${day} ${month} ${year}`
+  }
 
   return (
     <div className="space-y-6">
@@ -360,8 +436,11 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
               <div className="flex items-start gap-3">
                 <ShieldCheck className="h-4 w-4 mt-1 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Fecha de autorización</p>
+                  <p className="text-sm text-muted-foreground">Autorización</p>
                   <p className="font-medium">{formatDate(loan.approval_date)}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {approverName ? `Autorizó: ${approverName}` : "Sin registro de autorizador"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -420,20 +499,81 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
                 </div>
               )
             ) : (
-              <div className="flex items-center gap-2 text-sm">
-                <Badge variant={statusColors[loan.status]}>
-                  {statusLabels[loan.status] || loan.status}
-                </Badge>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <Badge variant={statusColors[loan.status]}>
+                    {statusLabels[loan.status] || loan.status}
+                  </Badge>
+                  {loan.status !== "cancelled" && (
+                    <span className="text-muted-foreground">
+                      Autorizado el {formatDate(loan.approval_date)}
+                    </span>
+                  )}
+                </div>
                 {loan.status !== "cancelled" && (
-                  <span className="text-muted-foreground">
-                    Autorizado el {formatDate(loan.approval_date)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">
+                      {approverName ? `Autorizado por ${approverName}` : "Autorizador no registrado"}
+                    </span>
+                  </div>
                 )}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Desglose de pagos calculado desde la fecha inicial de pago */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ListChecks className="h-5 w-5 text-primary" />
+            <CardTitle>Desglose de Pagos</CardTitle>
+          </div>
+          <CardDescription>
+            {loan.start_date
+              ? `Calendario a partir de la fecha inicial de pago (${formatDate(loan.start_date)}). ${loan.payments_made} de ${loan.number_of_payments} pagos realizados.`
+              : "Define una fecha inicial de pago en el préstamo para generar el desglose."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {schedule.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No hay información suficiente para generar el desglose de pagos.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16">#</TableHead>
+                  <TableHead>Fecha programada</TableHead>
+                  <TableHead className="text-right">Monto</TableHead>
+                  <TableHead>Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {schedule.map((row) => (
+                  <TableRow key={row.number}>
+                    <TableCell className="font-medium">{row.number}</TableCell>
+                    <TableCell>{formatScheduleDate(row.date)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(row.amount)}</TableCell>
+                    <TableCell>
+                      {row.paid ? (
+                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-300">
+                          Pagado
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">Pendiente</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
