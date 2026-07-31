@@ -27,7 +27,7 @@ interface PayrollPeriod {
   end_date: string
   payment_date: string | null
   status: string
-  agency_id: string
+  agency_id: string | null
 }
 
 interface Agency {
@@ -45,7 +45,7 @@ export default function EditPayrollPeriodPage() {
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [formData, setFormData] = useState({
     period_name: "",
-    period_type: "monthly",
+    period_type: "quincenal",
     start_date: "",
     end_date: "",
     payment_date: "",
@@ -82,7 +82,8 @@ export default function EditPayrollPeriodPage() {
         start_date: period.start_date,
         end_date: period.end_date,
         payment_date: period.payment_date || "",
-        agency_id: period.agency_id,
+        // agency_id NULL representa nómina global (todas las agencias).
+        agency_id: period.agency_id ?? "global",
       })
 
       if (agenciesRes.data) setAgencies(agenciesRes.data)
@@ -107,7 +108,7 @@ export default function EditPayrollPeriodPage() {
           start_date: formData.start_date,
           end_date: formData.end_date,
           payment_date: formData.payment_date || null,
-          agency_id: formData.agency_id,
+          agency_id: formData.agency_id === "global" ? null : formData.agency_id,
         })
         .eq("id", periodId)
 
@@ -178,6 +179,7 @@ export default function EditPayrollPeriodPage() {
                     <SelectValue placeholder="Seleccionar agencia" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="global">Global (todas las agencias)</SelectItem>
                     {agencies.map((agency) => (
                       <SelectItem key={agency.id} value={agency.id}>
                         {agency.name}
@@ -197,9 +199,9 @@ export default function EditPayrollPeriodPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="weekly">Semanal</SelectItem>
-                    <SelectItem value="biweekly">Quincenal</SelectItem>
-                    <SelectItem value="monthly">Mensual</SelectItem>
+                    <SelectItem value="semanal">Semanal</SelectItem>
+                    <SelectItem value="quincenal">Quincenal</SelectItem>
+                    <SelectItem value="mensual">Mensual</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
