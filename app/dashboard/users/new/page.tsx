@@ -9,7 +9,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { FieldGroup, Field, FieldLabel, FieldSet, FieldLegend } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, UserPlus } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { ArrowLeft, UserPlus, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import type { Role, Agency } from "@/lib/types"
 
@@ -44,12 +54,22 @@ export default function NewUserPage() {
     loadData()
   }, [supabase])
 
+  // Datos del usuario existente cuando el correo ya está en uso, y control de
+  // las dos confirmaciones necesarias para reemplazarlo.
+  const [existingUser, setExistingUser] = useState<{
+    id: string
+    email: string
+    is_active: boolean
+    name: string
+  } | null>(null)
+  const [showFirstConfirm, setShowFirstConfirm] = useState(false)
+  const [showSecondConfirm, setShowSecondConfirm] = useState(false)
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const submitUser = async (replace: boolean) => {
     setLoading(true)
     setError(null)
 
@@ -69,12 +89,20 @@ export default function NewUserPage() {
           role_id: formData.role_id || null,
           agency_id: formData.agency_id === "__global__" ? null : formData.agency_id || null,
           is_global_access: formData.agency_id === "__global__",
+          replace,
         }),
       })
 
       const data = await response.json()
 
       if (!response.ok) {
+        // El correo ya existe: iniciar el flujo de doble confirmación.
+        if (data.error === "EMAIL_EXISTS" && data.existingUser) {
+          setExistingUser(data.existingUser)
+          setShowFirstConfirm(true)
+          setLoading(false)
+          return
+        }
         setError(data.error || "Error al crear el usuario")
         setLoading(false)
         return
@@ -86,6 +114,11 @@ export default function NewUserPage() {
       setError("Error de conexión. Por favor intenta de nuevo.")
       setLoading(false)
     }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await submitUser(false)
   }
 
   return (
@@ -276,6 +309,78 @@ export default function NewUserPage() {
           </form>
         </CardContent>
       </Card>
+
+      {/* Primera confirmación: reemplazar al usuario existente */}
+      <AlertDialog open={showFirstConfirm} onOpenChange={setShowFirstConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Este correo ya está registrado
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {existingUser
+                ? `El correo ${existingUser.email} ya pertenece a ${existingUser.name || "otro usuario"}${existingUser.is_active ? " (usuario activo)" : " (usuario inactivo)"}. ¿Deseas reemplazarlo para crear el nuevo usuario con este mismo correo?`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setShowFirstConfirm(false)
+                setExistingUser(null)
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowFirstConfirm(false)
+                setShowSecondConfirm(true)
+              }}
+            >
+              Sí, reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Segunda confirmación: el usuario anterior se deshabilitará */}
+      <AlertDialog open={showSecondConfirm} onOpenChange={setShowSecondConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Confirmar deshabilitación
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {existingUser
+                ? `El usuario anterior (${existingUser.name || existingUser.email}) se deshabilitará y ya no podrá iniciar sesión. Esta acción es definitiva. ¿Confirmas el reemplazo?`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setShowSecondConfirm(false)
+                setExistingUser(null)
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setShowSecondConfirm(false)
+                setExistingUser(null)
+                submitUser(true)
+              }}
+            >
+              Reemplazar y deshabilitar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
