@@ -42,7 +42,8 @@ import {
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "sonner"
-import { Plus, Search, Wallet, Calendar, DollarSign, Users, Eye, CheckCircle, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
+import { Plus, Search, Wallet, Calendar, DollarSign, Users, Eye, CheckCircle, MoreHorizontal, Pencil, Trash2, Download } from "lucide-react"
+import { computePayrollEntries, exportPayrollToXls } from "@/lib/payroll-export"
 
 interface PayrollPeriod {
   id: string
@@ -97,7 +98,30 @@ export default function PayrollPage() {
   const [agencyFilter, setAgencyFilter] = useState<string>("all")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [periodToDelete, setPeriodToDelete] = useState<PayrollPeriod | null>(null)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const supabase = createClient()
+
+  // Descarga la tabla del periodo en .xls (solo disponible cuando está aprobada).
+  const handleDownloadXls = async (period: PayrollPeriod) => {
+    setDownloadingId(period.id)
+    try {
+      // El registro se consulta con select("*"), por lo que incluye payment_concept
+      // y agency_id aunque no estén en el tipo local.
+      const p = period as unknown as Parameters<typeof computePayrollEntries>[1]
+      const entries = await computePayrollEntries(supabase, p)
+      if (entries.length === 0) {
+        toast.error("No hay colaboradores en este periodo para exportar")
+        return
+      }
+      exportPayrollToXls(p, entries)
+      toast.success("Tabla de nómina descargada")
+    } catch (error) {
+      console.error("Error exporting payroll:", error)
+      toast.error("Error al descargar la tabla de nómina")
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   useEffect(() => {
     fetchData()
@@ -376,6 +400,18 @@ export default function PayrollPage() {
                                 Ver Detalle
                               </Link>
                             </DropdownMenuItem>
+                            {period.status === "approved" && (
+                              <DropdownMenuItem
+                                onSelect={(e) => {
+                                  e.preventDefault()
+                                  handleDownloadXls(period)
+                                }}
+                                disabled={downloadingId === period.id}
+                              >
+                                <Download className="mr-2 h-4 w-4" />
+                                {downloadingId === period.id ? "Descargando..." : "Descargar XLS"}
+                              </DropdownMenuItem>
+                            )}
                             {(period.status === "draft" || period.status === "calculating") && (
                               <>
                                 <DropdownMenuItem asChild>

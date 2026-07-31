@@ -16,13 +16,74 @@ const supabaseAdmin = createClient(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { email, password, first_name, last_name, phone, role_id, agency_id, is_global_access } = body
+    const { email, password, first_name, last_name, phone, role_id, agency_id, is_global_access, replace } = body
 
     if (!email || !password) {
       return NextResponse.json(
         { error: "Email y contraseña son requeridos" },
         { status: 400 }
       )
+    }
+
+    // Verificar si ya existe un usuario con este correo.
+    const { data: existingUser } = await supabaseAdmin
+      .from("users")
+      .select("id, email, is_active, first_name, last_name")
+      .ilike("email", email)
+      .maybeSingle()
+
+    if (existingUser && !replace) {
+      // Se requiere confirmación explícita para reemplazar al usuario anterior.
+      return NextResponse.json(
+        {
+          error: "EMAIL_EXISTS",
+          existingUser: {
+            id: existingUser.id,
+            email: existingUser.email,
+            is_active: existingUser.is_active,
+            name: `${existingUser.first_name ?? ""} ${existingUser.last_name ?? ""}`.trim(),
+          },
+        },
+        { status: 409 }
+      )
+    }
+
+    if (existingUser && replace) {
+      // Deshabilitar al usuario anterior en el perfil.
+      const { error: disableError } = await supabaseAdmin
+        .from("users")
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq("id", existingUser.id)
+
+      if (disableError) {
+        console.error("Error disabling previous user:", disableError)
+        return NextResponse.json(
+          { error: "No se pudo deshabilitar al usuario anterior" },
+          { status: 500 }
+        )
+      }
+
+      // Liberar el correo en Auth (renombrándolo) y bloquear el acceso del usuario anterior.
+      const [localPart, domainPart] = email.split("@")
+      const freedEmail = domainPart
+        ? `${localPart}+reemplazado-${Date.now()}@${domainPart}`
+        : `reemplazado-${Date.now()}-${email}`
+
+      const { error: freeEmailError } = await supabaseAdmin.auth.admin.updateUserById(
+        existingUser.id,
+        {
+          email: freedEmail,
+          ban_duration: "876000h", // ~100 años: se deshabilita el acceso.
+        }
+      )
+
+      if (freeEmailError) {
+        console.error("Error freeing previous email:", freeEmailError)
+        return NextResponse.json(
+          { error: "No se pudo liberar el correo del usuario anterior" },
+          { status: 500 }
+        )
+      }
     }
 
     // Create user with admin API (bypasses email confirmation)

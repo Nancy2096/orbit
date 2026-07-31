@@ -4,6 +4,7 @@ import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -56,6 +57,14 @@ interface PayrollPeriod {
   notes: string | null
   // Concepto de pago (mismo para toda la nómina), editable al crear la nómina.
   payment_concept: string | null
+  // Ajuste de impuestos/deducciones guardado para este periodo (se conserva
+  // para que quien apruebe vea lo previamente configurado).
+  tax_config: {
+    taxRate: number
+    imssRate: number
+    isrRate: number
+    otherDeductions: number
+  } | null
   agency_id: string | null
   agency: {
     id: string
@@ -156,6 +165,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const resolvedParams = use(params)
   const router = useRouter()
   const supabase = createClient()
+  // Solo super administrador y director general pueden aprobar nóminas.
+  const { roleName } = usePermissions()
+  const canApprovePayroll = roleName === "superadmin" || roleName === "direccion_general"
   const [period, setPeriod] = useState<PayrollPeriod | null>(null)
   const [entries, setEntries] = useState<PayrollEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -191,6 +203,18 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       if (periodError) throw periodError
       setPeriod(periodData)
+
+      // Config de impuestos guardada para este periodo. Si existe, se usa tal cual
+      // (para que quien apruebe vea lo previamente configurado); si no, se usan
+      // los valores por defecto.
+      const savedConfig = periodData.tax_config
+      const config = {
+        taxRate: savedConfig?.taxRate ?? 10,
+        imssRate: savedConfig?.imssRate ?? 3,
+        isrRate: savedConfig?.isrRate ?? 0,
+        otherDeductions: savedConfig?.otherDeductions ?? 0,
+      }
+      setPayrollConfig(config)
 
       // Un periodo GLOBAL no tiene agencia (agency_id null) => incluye a todo el personal
       const isGlobalPeriod = !periodData.agency_id
@@ -329,10 +353,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           staff.employment_status === "terminated" && !staff.finiquito_paid_at
             ? Number(staff.finiquito || 0)
             : 0
-        const deductions = 0
+        // Deducciones fijas configuradas para el periodo (aplicadas a cada entrada).
+        const deductions = config.otherDeductions
         const loanDeductions = loanDeductionsByStaff[staff.id] || 0
         const grossPay = baseSalary + bonuses + commissions + finiquito
-        const taxes = grossPay * 0.10 // 10% tax estimate
+        // Impuestos según la config guardada del periodo.
+        const taxes = grossPay * ((config.taxRate + config.imssRate + config.isrRate) / 100)
         const netPay = grossPay - deductions - loanDeductions - taxes
 
         return {
@@ -450,6 +476,25 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     return standardSalary()
   }
 
+  // Guarda el ajuste de impuestos/deducciones en el periodo para que se conserve
+  // (no se reinicia) y quien apruebe vea lo previamente configurado.
+  const handleSaveConfig = async () => {
+    if (!period) return
+    try {
+      const { error } = await supabase
+        .from("payroll_periods")
+        .update({ tax_config: payrollConfig })
+        .eq("id", period.id)
+      if (error) throw error
+      setPeriod({ ...period, tax_config: payrollConfig })
+      setShowConfigDialog(false)
+      toast.success("Configuración guardada. Recalcula la nómina para aplicar los cambios.")
+    } catch (error) {
+      console.error("Error saving payroll config:", error)
+      toast.error("Error al guardar la configuración")
+    }
+  }
+
   const handleCalculatePayroll = async () => {
     if (!period) return
     
@@ -491,6 +536,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           total_deductions: totalDeductions,
           total_net: totalNet,
           status: "calculating",
+          // Conservar el ajuste usado para este cálculo.
+          tax_config: payrollConfig,
         })
         .eq("id", period.id)
 
@@ -502,6 +549,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         total_deductions: totalDeductions,
         total_net: totalNet,
         status: "calculating",
+        tax_config: payrollConfig,
       })
 
       toast.success("Nómina calculada exitosamente")
@@ -516,10 +564,25 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const handleApprovePayroll = async () => {
     if (!period) return
 
+    // Solo super administrador o director general pueden aprobar.
+    if (!canApprovePayroll) {
+      toast.error("No tienes permiso para aprobar nóminas")
+      return
+    }
+
     try {
+      // Registrar quién autoriza junto con la aprobación.
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
       const { error } = await supabase
         .from("payroll_periods")
-        .update({ status: "approved" })
+        .update({
+          status: "approved",
+          approved_by: user?.id ?? null,
+          approved_at: new Date().toISOString(),
+        })
         .eq("id", period.id)
 
       if (error) throw error
@@ -787,10 +850,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                 )}
                 Recalcular
               </Button>
-              <Button onClick={handleApprovePayroll}>
-                <CheckCircle className="mr-2 h-4 w-4" />
-                Aprobar
-              </Button>
+              {canApprovePayroll ? (
+                <Button onClick={handleApprovePayroll}>
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Aprobar
+                </Button>
+              ) : (
+                <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
+                  Solo el super administrador o el director general pueden aprobar la nómina.
+                </p>
+              )}
             </>
           )}
           {period.status === "approved" && (
@@ -1364,10 +1433,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             <Button variant="outline" onClick={() => setShowConfigDialog(false)}>
               Cancelar
             </Button>
-            <Button onClick={() => {
-              setShowConfigDialog(false)
-              toast.success("Configuración guardada. Recalcula la nómina para aplicar los cambios.")
-            }}>
+            <Button onClick={handleSaveConfig}>
               <Save className="mr-2 h-4 w-4" />
               Guardar Configuración
             </Button>
