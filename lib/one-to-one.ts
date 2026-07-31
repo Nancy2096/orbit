@@ -61,7 +61,29 @@ export interface OneToOneReport {
   additional_notes: string | null
   created_by_name: string | null
   created_at: string
-  staff?: { first_name: string; last_name: string; position: string | null } | null
+  staff?: {
+    first_name: string
+    last_name: string
+    position: string | null
+    is_active?: boolean | null
+    employment_status?: string | null
+    department?: { name: string } | { name: string }[] | null
+  } | null
+}
+
+/** Etiquetas legibles de estado laboral. */
+export const EMPLOYMENT_STATUS_LABELS: Record<string, string> = {
+  active: "Activo",
+  inactive: "Inactivo",
+  suspended: "Suspendido",
+  terminated: "Baja",
+}
+
+/** Devuelve el nombre del departamento del colaborador de un reporte. */
+export function reportDepartment(r: Pick<OneToOneReport, "staff">): string {
+  const dept = r.staff?.department
+  const d = Array.isArray(dept) ? dept[0] : dept
+  return d?.name || "Sin departamento"
 }
 
 export const MEETING_TYPE_OPTIONS = [
@@ -120,5 +142,5 @@ export const REPORT_SELECT = `
   action_items, private_notes, turnover_risk, nonverbal_observations,
   topics, tools_provided, staff_commitments, leader_commitments,
   next_followup_date, additional_notes, created_by_name, created_at,
-  staff:staff_id(first_name, last_name, position)
+  staff:staff_id(first_name, last_name, position, is_active, employment_status, department:department_id(name))
 `

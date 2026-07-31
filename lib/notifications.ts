@@ -13,6 +13,15 @@ const ONE2ONE_MILESTONES: { months: number; meetingType: string; label: string }
   { months: 3, meetingType: "tercer_mes", label: "3er mes" },
 ]
 
+/**
+ * Ventana de vigencia (en días) de un recordatorio de hito. El programa de
+ * reuniones One 2 One aplica solo durante los primeros 3 meses; pasado este
+ * margen desde que venció el hito, el recordatorio deja de mostrarse para no
+ * seguir alertando de personas cuyo ingreso fue hace más de 3 meses.
+ */
+const MILESTONE_GRACE_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
+
 /** Suma meses a una fecha (base) y devuelve el resultado. */
 function addMonths(dateStr: string, months: number): Date {
   const d = new Date(dateStr)
@@ -29,6 +38,8 @@ export interface AppNotification {
   href: string
   createdAt: string
   read: boolean
+  /** Grupo opcional para agrupar en la UI (p. ej. departamento en One 2 One). */
+  group?: string
 }
 
 /** Resultado de la carga de notificaciones del usuario actual. */
@@ -88,14 +99,14 @@ export async function fetchNotifications(): Promise<NotificationsResult> {
     // Ficha propia (para calcular hitos One 2 One a partir de la fecha de ingreso).
     const { data: selfStaff } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, hire_date")
+      .select("id, first_name, last_name, hire_date, department:department_id(name)")
       .eq("id", staffId)
       .maybeSingle()
 
     // Personal que le reporta directamente (para bonos pendientes y One 2 One de líder).
     const { data: reports } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, hire_date")
+      .select("id, first_name, last_name, hire_date, department:department_id(name)")
       .eq("reports_to_id", staffId)
       .eq("is_active", true)
     const reportIds = (reports ?? []).map((r) => r.id)
@@ -207,11 +218,17 @@ export async function fetchNotifications(): Promise<NotificationsResult> {
 
       const now = Date.now()
       for (const s of monitoredStaff) {
+        const dept =
+          (Array.isArray((s as any).department) ? (s as any).department[0] : (s as any).department)
+            ?.name || "Sin departamento"
         for (const milestone of ONE2ONE_MILESTONES) {
           const dueDate = addMonths(s.hire_date as string, milestone.months)
           // Solo cuando el hito ya venció y aún no se registró la reunión.
           if (now < dueDate.getTime()) continue
           if (doneKeys.has(`${s.id}:${milestone.meetingType}`)) continue
+          // Solo mientras el recordatorio sigue vigente: si venció hace más del
+          // margen de gracia (programa de 3 meses ya finalizado), no se muestra.
+          if (now > dueDate.getTime() + MILESTONE_GRACE_DAYS * DAY_MS) continue
 
           if (s.isSelf) {
             notifications.push({
@@ -222,6 +239,7 @@ export async function fetchNotifications(): Promise<NotificationsResult> {
               href: "/dashboard/hr/one-to-one",
               createdAt: dueDate.toISOString(),
               read: false,
+              group: dept,
             })
           } else {
             notifications.push({
@@ -232,6 +250,7 @@ export async function fetchNotifications(): Promise<NotificationsResult> {
               href: "/dashboard/hr/one-to-one",
               createdAt: dueDate.toISOString(),
               read: false,
+              group: dept,
             })
           }
         }
