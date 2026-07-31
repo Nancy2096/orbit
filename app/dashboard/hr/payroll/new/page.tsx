@@ -44,6 +44,8 @@ export default function NewPayrollPeriodPage() {
     start_date: "",
     end_date: "",
     payment_date: "",
+    // Concepto de pago único para toda la nómina (aparece en cada colaborador).
+    payment_concept: "Pago de nómina",
     notes: "",
   })
 
@@ -179,6 +181,7 @@ export default function NewPayrollPeriodPage() {
           start_date: formData.start_date,
           end_date: formData.end_date,
           payment_date: formData.payment_date || null,
+          payment_concept: formData.payment_concept || null,
           notes: formData.notes || null,
           status: "draft",
           total_gross: 0,
@@ -326,6 +329,19 @@ export default function NewPayrollPeriodPage() {
                   />
                   <p className="text-xs text-muted-foreground mt-1">
                     Se sugiere el día 15 o el último día del mes según el periodo; si cae en fin de semana, se recorre al viernes hábil anterior. Puedes ajustarla manualmente.
+                  </p>
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="payment_concept">Concepto de Pago</FieldLabel>
+                  <Input
+                    id="payment_concept"
+                    value={formData.payment_concept}
+                    onChange={(e) => setFormData({ ...formData, payment_concept: e.target.value })}
+                    placeholder="Ej: Pago de nómina 1ra quincena"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Es el mismo concepto para todos los colaboradores de esta nómina.
                   </p>
                 </Field>
 
