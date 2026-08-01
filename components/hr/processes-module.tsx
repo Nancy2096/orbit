@@ -116,7 +116,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 const NONE = "none"
 
-type DurationUnit = "horas" | "días"
+type DurationUnit = "horas" | "días" | "semanas"
 
 // La duración se guarda como texto (ej. "2 días"). Estos helpers separan y
 // recomponen la cantidad y la unidad para el editor sin cambiar el esquema.
@@ -124,7 +124,11 @@ function parseDuration(value: string | null | undefined): { amount: string; unit
   if (!value) return { amount: "", unit: "días" }
   const match = value.match(/(\d+(?:[.,]\d+)?)/)
   const amount = match ? match[1].replace(",", ".") : ""
-  const unit: DurationUnit = /hora/i.test(value) ? "horas" : "días"
+  const unit: DurationUnit = /hora/i.test(value)
+    ? "horas"
+    : /semana/i.test(value)
+      ? "semanas"
+      : "días"
   return { amount, unit }
 }
 
@@ -863,6 +867,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                       <SelectContent>
                                         <SelectItem value="horas">Horas</SelectItem>
                                         <SelectItem value="días">Días</SelectItem>
+                                        <SelectItem value="semanas">Semanas</SelectItem>
                                       </SelectContent>
                                     </Select>
                                   </div>

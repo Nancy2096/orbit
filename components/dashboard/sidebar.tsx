@@ -306,6 +306,11 @@ const crmNavItems = [
     url: "/dashboard/hr/commissions",
     icon: BadgePercent,
   },
+  {
+    title: "Comisiones Clientes",
+    url: "/dashboard/commercial/client-commissions",
+    icon: HandCoins,
+  },
 ]
 
 const settingsNavItems = [
