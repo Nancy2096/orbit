@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { upload } from "@vercel/blob/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -56,7 +57,10 @@ import {
   XCircle,
   UserCheck,
   Send,
-  History
+  History,
+  Upload,
+  FileText,
+  X
 } from "lucide-react"
 
 interface ExpenseCategory {
@@ -72,6 +76,9 @@ interface Expense {
   id: string
   expense_number: string
   expense_date: string
+  start_date: string | null
+  end_date: string | null
+  receipt_url: string | null
   description: string
   amount: number
   tax_amount: number
@@ -193,7 +200,8 @@ export default function ExpensesPage() {
     vendor_id: "",
     requested_by_id: "",
     approver_id: "",
-    expense_date: new Date().toISOString().split("T")[0],
+    start_date: new Date().toISOString().split("T")[0],
+    end_date: new Date().toISOString().split("T")[0],
     description: "",
     amount: 0,
     tax_amount: 0,
@@ -204,7 +212,12 @@ export default function ExpensesPage() {
     currency_id: "",
     notes: "",
     status: "pending",
+    receipt_url: "",
   })
+
+  // Estado de subida del comprobante/factura del gasto.
+  const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const receiptInputRef = useRef<HTMLInputElement>(null)
 
   // Expense types for financial statements
   const expenseTypes = [
@@ -529,6 +542,28 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
     return `GAS-${year}-${String(nextNumber).padStart(5, "0")}`
   }
 
+  // Sube el comprobante/factura del gasto a Blob (privado) y guarda la URL.
+  const handleReceiptUpload = async (file: File) => {
+    setUploadingReceipt(true)
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
+      const blob = await upload(`expense-receipts/${Date.now()}-${safeName}`, file, {
+        access: "private",
+        handleUploadUrl: "/api/expenses/receipt/upload",
+        contentType: file.type,
+      })
+      // El store es privado: guardamos el pathname para servirlo vía /api/file.
+      const pathname = blob.url.split(".vercel-storage.com/")[1] || blob.url
+      setExpenseForm((prev) => ({ ...prev, receipt_url: pathname }))
+    } catch (error) {
+      console.error("Error uploading receipt:", error)
+      alert("Error al subir el comprobante. Verifica que sea PDF o imagen (máx 25MB).")
+    } finally {
+      setUploadingReceipt(false)
+      if (receiptInputRef.current) receiptInputRef.current.value = ""
+    }
+  }
+
   const handleSaveExpense = async () => {
     if (!expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id) return
     setSaving(true)
@@ -546,7 +581,10 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           vendor_id: expenseForm.vendor_id || null,
           requested_by_id: expenseForm.requested_by_id,
           approver_id: expenseForm.approver_id,
-          expense_date: expenseForm.expense_date,
+          start_date: expenseForm.start_date,
+          end_date: expenseForm.end_date,
+          // expense_date se conserva por compatibilidad (columna NOT NULL).
+          expense_date: expenseForm.start_date,
           description: expenseForm.description,
           amount: expenseForm.amount,
           tax_amount: expenseForm.tax_amount,
@@ -558,6 +596,7 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           currency_id: expenseForm.currency_id || null,
           notes: expenseForm.notes || null,
           status: expenseForm.status,
+          receipt_url: expenseForm.receipt_url || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", editingExpense.id)
@@ -576,7 +615,10 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           requested_by_id: expenseForm.requested_by_id,
           approver_id: expenseForm.approver_id,
           expense_number: expenseNumber,
-          expense_date: expenseForm.expense_date,
+          start_date: expenseForm.start_date,
+          end_date: expenseForm.end_date,
+          // expense_date se conserva por compatibilidad (columna NOT NULL).
+          expense_date: expenseForm.start_date,
           description: expenseForm.description,
           amount: expenseForm.amount,
           tax_amount: expenseForm.tax_amount,
@@ -588,6 +630,7 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           currency_id: expenseForm.currency_id || null,
           notes: expenseForm.notes || null,
           status: expenseForm.status,
+          receipt_url: expenseForm.receipt_url || null,
           approval_status: "pending",
         })
         .select("id")
@@ -756,7 +799,9 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
       vendor_id: (expense as Record<string, unknown>).vendor_id as string || "",
       requested_by_id: expense.requested_by_id || "",
       approver_id: (expense as Record<string, unknown>).approver_id as string || "",
-      expense_date: expense.expense_date,
+      // Usar el rango si existe; si no, caer al expense_date anterior.
+      start_date: expense.start_date || expense.expense_date,
+      end_date: expense.end_date || expense.expense_date,
       description: expense.description,
       amount: Number(expense.amount),
       tax_amount: Number(expense.tax_amount),
@@ -767,6 +812,7 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
       currency_id: expense.currency?.id || "",
       notes: expense.notes || "",
       status: expense.status,
+      receipt_url: expense.receipt_url || "",
     })
     setShowExpenseDialog(true)
   }
@@ -809,7 +855,8 @@ const resetExpenseForm = () => {
       vendor_id: "",
       requested_by_id: defaultRequestedById, // Always the logged-in user
       approver_id: "",
-      expense_date: new Date().toISOString().split("T")[0],
+      start_date: new Date().toISOString().split("T")[0],
+      end_date: new Date().toISOString().split("T")[0],
       description: "",
       amount: 0,
       tax_amount: 0,
@@ -820,6 +867,7 @@ const resetExpenseForm = () => {
       currency_id: currencies.find(c => c.code === "MXN")?.id || "",
       notes: "",
       status: "pending",
+      receipt_url: "",
     })
     setFormCategories([])
     setProjects([])
@@ -1020,7 +1068,7 @@ const resetExpenseForm = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Número</TableHead>
-                      <TableHead>Fecha</TableHead>
+                      <TableHead>Periodo</TableHead>
                       <TableHead>Descripción</TableHead>
                       <TableHead>Solicitante</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
@@ -1032,10 +1080,33 @@ const resetExpenseForm = () => {
                     {filteredExpenses.map((expense) => (
                         <TableRow key={expense.id}>
                           <TableCell className="font-medium">{expense.expense_number}</TableCell>
-                          <TableCell>{formatDate(expense.expense_date)}</TableCell>
+                          <TableCell>
+                            {expense.start_date ? (
+                              <div className="text-sm">
+                                <div>{formatDate(expense.start_date)}</div>
+                                <div className="text-muted-foreground">al {formatDate(expense.end_date || expense.start_date)}</div>
+                              </div>
+                            ) : (
+                              formatDate(expense.expense_date)
+                            )}
+                          </TableCell>
                           <TableCell>
                             <div>
-                              <div className="font-medium">{expense.description}</div>
+                              <div className="font-medium flex items-center gap-2">
+                                {expense.description}
+                                {expense.receipt_url && (
+                                  <a
+                                    href={`/api/file?pathname=${encodeURIComponent(expense.receipt_url)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-primary"
+                                    title="Ver comprobante"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <FileText className="h-3.5 w-3.5" />
+                                  </a>
+                                )}
+                              </div>
                               <div className="text-sm text-muted-foreground">{expense.agency?.name} • {expense.category?.name || "Sin categoría"}</div>
                             </div>
                           </TableCell>
@@ -1200,11 +1271,20 @@ const resetExpenseForm = () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Fecha *</Label>
+              <Label>Fecha de Inicio *</Label>
               <Input
                 type="date"
-                value={expenseForm.expense_date}
-                onChange={(e) => setExpenseForm({ ...expenseForm, expense_date: e.target.value })}
+                value={expenseForm.start_date}
+                onChange={(e) => setExpenseForm({ ...expenseForm, start_date: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Fecha Final *</Label>
+              <Input
+                type="date"
+                value={expenseForm.end_date}
+                min={expenseForm.start_date || undefined}
+                onChange={(e) => setExpenseForm({ ...expenseForm, end_date: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -1380,6 +1460,61 @@ const resetExpenseForm = () => {
                 onChange={(e) => setExpenseForm({ ...expenseForm, invoice_number: e.target.value })}
                 placeholder="Número de factura"
               />
+            </div>
+            <div className="md:col-span-2 space-y-2">
+              <Label>Comprobante o Factura</Label>
+              <input
+                ref={receiptInputRef}
+                type="file"
+                accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void handleReceiptUpload(file)
+                }}
+              />
+              {expenseForm.receipt_url ? (
+                <div className="flex items-center gap-2 rounded-md border p-2">
+                  <FileText className="h-4 w-4 text-primary shrink-0" />
+                  <a
+                    href={`/api/file?pathname=${encodeURIComponent(expenseForm.receipt_url)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary underline truncate flex-1"
+                  >
+                    Ver comprobante adjunto
+                  </a>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setExpenseForm({ ...expenseForm, receipt_url: "" })}
+                    aria-label="Quitar comprobante"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full bg-transparent"
+                  disabled={uploadingReceipt}
+                  onClick={() => receiptInputRef.current?.click()}
+                >
+                  {uploadingReceipt ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Subiendo...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Subir comprobante o factura (PDF o imagen)
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Estado</Label>
