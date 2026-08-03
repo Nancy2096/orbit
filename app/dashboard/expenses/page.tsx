@@ -97,7 +97,7 @@ interface Expense {
   approved_by_id: string | null
   approved_at: string | null
   rejection_reason: string | null
-  category: { id: string; name: string } | null
+  category: { id: string; name: string; expense_type?: string | null } | null
   agency: { id: string; name: string } | null
   currency: { id: string; code: string; symbol: string } | null
   project: { id: string; name: string } | null
@@ -440,7 +440,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
       .from("expenses")
       .select(`
         *,
-        category:expense_categories(id, name),
+        category:expense_categories(id, name, expense_type),
         agency:agencies(id, name),
         currency:currencies(id, code, symbol),
         project:projects(id, name),
@@ -1100,6 +1100,7 @@ const resetExpenseForm = () => {
                       <TableHead>Periodo</TableHead>
                       <TableHead>Descripción</TableHead>
                       <TableHead>Categoría</TableHead>
+                      <TableHead>Tipo de Gasto</TableHead>
                       <TableHead>Solicitante</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead>Aprobación</TableHead>
@@ -1150,6 +1151,15 @@ const resetExpenseForm = () => {
                               <Badge variant="outline">{expense.category.name}</Badge>
                             ) : (
                               <span className="text-sm text-muted-foreground">Sin categoría</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {expense.category?.expense_type ? (
+                              <span className="text-sm">
+                                {expenseTypes.find(t => t.value === expense.category?.expense_type)?.label || expense.category.expense_type}
+                              </span>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">-</span>
                             )}
                           </TableCell>
                           <TableCell>
