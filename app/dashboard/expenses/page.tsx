@@ -136,6 +136,7 @@ interface Currency {
 }
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  draft: { label: "Borrador", variant: "secondary" },
   pending: { label: "Pendiente", variant: "outline" },
   approved: { label: "Aprobado", variant: "default" },
   paid: { label: "Pagado", variant: "default" },
@@ -577,17 +578,23 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
     }
   }
 
-  const handleSaveExpense = async () => {
-    if (!expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id) return
+  const handleSaveExpense = async (submitForApproval: boolean) => {
+    // Datos mínimos para cualquier guardado (incluido el borrador).
+    if (!expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id) return
+    // Para enviar a aprobación es obligatorio elegir un aprobador.
+    if (submitForApproval && !expenseForm.approver_id) return
     setSaving(true)
 
     const totalAmount = expenseForm.amount + expenseForm.tax_amount
     // Un gasto operativo es de la agencia: no se asocia a proyecto ni cuenta.
     const projectId = expenseForm.is_operational ? null : expenseForm.project_id || null
     const accountId = expenseForm.is_operational ? null : expenseForm.account_id || null
-    // Auto-aprobación: si el solicitante es su propio aprobador (empleado sin
-    // jefe), el gasto queda aprobado al registrarse.
-    const isSelfApproval = expenseForm.approver_id === expenseForm.requested_by_id
+    // Auto-aprobación: al enviar a aprobación, si el solicitante es su propio
+    // aprobador (empleado sin jefe), el gasto queda aprobado al registrarse.
+    const isSelfApproval = submitForApproval && expenseForm.approver_id === expenseForm.requested_by_id
+    // Estado resultante: borrador, aprobado (auto) o pendiente de aprobación.
+    const resolvedStatus = !submitForApproval ? "draft" : isSelfApproval ? "approved" : "pending"
+    const resolvedApprovalStatus = resolvedStatus
 
     if (editingExpense) {
       const { error } = await supabase
@@ -615,13 +622,28 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           payment_date: expenseForm.payment_date || null,
           currency_id: expenseForm.currency_id || null,
           notes: expenseForm.notes || null,
-          status: expenseForm.status,
+          status: resolvedStatus,
+          approval_status: resolvedApprovalStatus,
+          approved_by_id: isSelfApproval ? expenseForm.approver_id : null,
+          approved_at: isSelfApproval ? new Date().toISOString() : null,
           receipt_url: expenseForm.receipt_url || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", editingExpense.id)
 
-      if (error) console.error("Error updating expense:", error)
+      if (error) {
+        console.error("Error updating expense:", error)
+      } else if (submitForApproval) {
+        // Registrar en el historial la transición al enviar a aprobación.
+        await supabase.from("expense_approval_history").insert({
+          expense_id: editingExpense.id,
+          action: isSelfApproval ? "approved" : "submitted",
+          performed_by_id: expenseForm.requested_by_id,
+          comments: isSelfApproval
+            ? "Gasto aprobado por el mismo solicitante (sin jefe asignado)"
+            : "Gasto enviado para aprobación",
+        })
+      }
     } else {
       const expenseNumber = await generateExpenseNumber(expenseForm.agency_id)
       const { data: newExpense, error } = await supabase
@@ -650,8 +672,8 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           payment_date: expenseForm.payment_date || null,
           currency_id: expenseForm.currency_id || null,
           notes: expenseForm.notes || null,
-          status: isSelfApproval ? "approved" : expenseForm.status,
-          approval_status: isSelfApproval ? "approved" : "pending",
+          status: resolvedStatus,
+          approval_status: resolvedApprovalStatus,
           approved_by_id: isSelfApproval ? expenseForm.approver_id : null,
           approved_at: isSelfApproval ? new Date().toISOString() : null,
           receipt_url: expenseForm.receipt_url || null,
@@ -661,8 +683,8 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
 
       if (error) {
         console.error("Error creating expense:", error)
-      } else if (newExpense) {
-        // Historial: si es auto-aprobación queda aprobado directamente.
+      } else if (newExpense && submitForApproval) {
+        // Solo se registra historial cuando el gasto se envía a aprobación.
         await supabase.from("expense_approval_history").insert({
           expense_id: newExpense.id,
           action: isSelfApproval ? "approved" : "submitted",
@@ -1578,19 +1600,14 @@ const resetExpenseForm = () => {
             </div>
             <div className="space-y-2">
               <Label>Estado</Label>
-              <Select
-                value={expenseForm.status}
-                onValueChange={(value) => setExpenseForm({ ...expenseForm, status: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(statusConfig).map(([key, config]) => (
-                    <SelectItem key={key} value={key}>{config.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex h-10 items-center rounded-md border bg-muted/40 px-3">
+                <Badge variant={statusConfig[editingExpense?.status || "draft"]?.variant || "secondary"}>
+                  {statusConfig[editingExpense?.status || "draft"]?.label || "Borrador"}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                El estado se define automáticamente: al enviar a aprobación queda pendiente para que un responsable lo autorice.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Moneda</Label>
@@ -1628,10 +1645,21 @@ const resetExpenseForm = () => {
           </div>
           </div>
           <DialogFooter className="flex-shrink-0 border-t pt-4">
-            <Button variant="outline" onClick={() => setShowExpenseDialog(false)}>Cancelar</Button>
-            <Button onClick={handleSaveExpense} disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id}>
+            <Button variant="ghost" onClick={() => setShowExpenseDialog(false)}>Cancelar</Button>
+            <Button
+              variant="outline"
+              onClick={() => handleSaveExpense(false)}
+              disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id}
+            >
               {saving && <Spinner className="mr-2 h-4 w-4" />}
-              {editingExpense ? "Guardar Cambios" : "Registrar Gasto"}
+              Guardar como borrador
+            </Button>
+            <Button
+              onClick={() => handleSaveExpense(true)}
+              disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id}
+            >
+              {saving && <Spinner className="mr-2 h-4 w-4" />}
+              Enviar a aprobación
             </Button>
           </DialogFooter>
         </DialogContent>
