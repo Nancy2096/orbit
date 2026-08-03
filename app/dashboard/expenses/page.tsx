@@ -189,10 +189,10 @@ export default function ExpensesPage() {
 
   // Stats
   const [stats, setStats] = useState({
-    totalExpenses: 0,
+    totalApproved: 0,
     thisMonth: 0,
     pending: 0,
-    byCategory: [] as { name: string; total: number }[],
+    byType: [] as { type: string; total: number }[],
   })
 
   // New expense form
@@ -475,26 +475,25 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     const now = new Date()
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
-    const totalExpenses = expensesData.reduce((sum, e) => sum + Number(e.total_amount), 0)
-    const thisMonth = expensesData
+    // El total gastado considera únicamente los gastos aprobados.
+    const approved = expensesData.filter(e => e.status === "approved")
+    const totalApproved = approved.reduce((sum, e) => sum + Number(e.total_amount), 0)
+    const thisMonth = approved
       .filter(e => new Date(e.expense_date) >= thisMonthStart)
       .reduce((sum, e) => sum + Number(e.total_amount), 0)
     const pending = expensesData
       .filter(e => e.status === "pending")
       .reduce((sum, e) => sum + Number(e.total_amount), 0)
 
-    // By category
-    const categoryMap = new Map<string, number>()
-    expensesData.forEach(e => {
-      const catName = e.category?.name || "Sin categoría"
-      categoryMap.set(catName, (categoryMap.get(catName) || 0) + Number(e.total_amount))
+    // Acumulado por tipo de gasto (solo aprobados).
+    const typeMap = new Map<string, number>()
+    approved.forEach(e => {
+      const type = e.category?.expense_type || "sin_tipo"
+      typeMap.set(type, (typeMap.get(type) || 0) + Number(e.total_amount))
     })
-    const byCategory = Array.from(categoryMap.entries())
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5)
+    const byType = Array.from(typeMap.entries()).map(([type, total]) => ({ type, total }))
 
-    setStats({ totalExpenses, thisMonth, pending, byCategory })
+    setStats({ totalApproved, thisMonth, pending, byType })
   }
 
   const filteredExpenses = expenses.filter((expense) => {
@@ -938,15 +937,15 @@ const resetExpenseForm = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Gastos</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Gastado</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.totalExpenses)}</div>
-            <p className="text-xs text-muted-foreground">{expenses.length} gastos registrados</p>
+            <div className="text-2xl font-bold">{formatCurrency(stats.totalApproved)}</div>
+            <p className="text-xs text-muted-foreground">Solo gastos aprobados</p>
           </CardContent>
         </Card>
         <Card>
@@ -956,7 +955,7 @@ const resetExpenseForm = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(stats.thisMonth)}</div>
-            <p className="text-xs text-muted-foreground">Mes actual</p>
+            <p className="text-xs text-muted-foreground">Aprobado en el mes actual</p>
           </CardContent>
         </Card>
         <Card>
@@ -969,39 +968,26 @@ const resetExpenseForm = () => {
             <p className="text-xs text-muted-foreground">Por aprobar</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Categorías</CardTitle>
-            <FolderTree className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{categories.filter(c => c.is_active).length}</div>
-            <p className="text-xs text-muted-foreground">Categorías activas</p>
-          </CardContent>
-        </Card>
       </div>
 
-      {/* Top Categories */}
-      {stats.byCategory.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Top Categorías de Gasto</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {stats.byCategory.map((cat, index) => (
-                <div key={cat.name} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted-foreground">{index + 1}.</span>
-                    <span className="font-medium">{cat.name}</span>
-                  </div>
-                  <span className="font-semibold">{formatCurrency(cat.total)}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Acumulado por tipo de gasto: una tarjeta por cada tipo (solo aprobados) */}
+      <div className="grid gap-4 md:grid-cols-4">
+        {expenseTypes.map((t) => {
+          const total = stats.byType.find((b) => b.type === t.value)?.total || 0
+          return (
+            <Card key={t.value}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-pretty">{t.label}</CardTitle>
+                <FolderTree className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(total)}</div>
+                <p className="text-xs text-muted-foreground">Acumulado aprobado</p>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
