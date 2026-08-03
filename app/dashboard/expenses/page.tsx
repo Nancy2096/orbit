@@ -97,6 +97,7 @@ interface Expense {
   approved_by_id: string | null
   approved_at: string | null
   rejection_reason: string | null
+  created_at: string | null
   category: { id: string; name: string; expense_type?: string | null } | null
   agency: { id: string; name: string } | null
   currency: { id: string; code: string; symbol: string } | null
@@ -447,7 +448,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         requested_by:staff!expenses_requested_by_id_fkey(id, first_name, last_name),
         approved_by:staff!expenses_approved_by_id_fkey(id, first_name, last_name)
       `)
-      .order("expense_date", { ascending: false })
+      .order("created_at", { ascending: false })
 
     if (selectedAgency !== "all") {
       query = query.eq("agency_id", selectedAgency)
@@ -522,6 +523,18 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
     return new Date(dateString).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })
+  }
+
+  // Fecha y hora de registro (cuando se hizo la solicitud del gasto).
+  const formatDateTime = (dateString: string | null) => {
+    if (!dateString) return "-"
+    return new Date(dateString).toLocaleString("es-MX", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
   }
 
   const generateExpenseNumber = async (agencyId: string) => {
@@ -1083,7 +1096,7 @@ const resetExpenseForm = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Número</TableHead>
-                      <TableHead>Periodo</TableHead>
+                      <TableHead>Fecha de Registro</TableHead>
                       <TableHead>Descripción</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Tipo de Gasto</TableHead>
@@ -1098,14 +1111,7 @@ const resetExpenseForm = () => {
                         <TableRow key={expense.id}>
                           <TableCell className="font-medium">{expense.expense_number}</TableCell>
                           <TableCell>
-                            {expense.start_date ? (
-                              <div className="text-sm">
-                                <div>{formatDate(expense.start_date)}</div>
-                                <div className="text-muted-foreground">al {formatDate(expense.end_date || expense.start_date)}</div>
-                              </div>
-                            ) : (
-                              formatDate(expense.expense_date)
-                            )}
+                            <div className="text-sm">{formatDateTime(expense.created_at)}</div>
                           </TableCell>
                           <TableCell>
                             <div>
