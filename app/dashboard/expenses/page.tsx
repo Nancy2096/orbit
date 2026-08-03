@@ -369,89 +369,69 @@ export default function ExpensesPage() {
     if (data) setStaffList(data)
   }
 
-const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
-    // Get all staff for the agency
-    const { data: allStaff } = await supabase
+const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
+    // Traemos TODO el staff activo (sin filtrar por agencia): los puestos más
+    // altos (Director General, Directora de Operaciones) tienen agency_id nulo
+    // y no aparecerían al filtrar por una agencia específica. La cadena de
+    // aprobación se construye siguiendo reports_to_id, que es explícito.
+    const { data: allStaffRaw } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, reports_to_id, position_id, positions(hierarchy_level)")
-      .eq("agency_id", agencyId)
+      .select("id, first_name, last_name, reports_to_id, position:positions(sort_order)")
       .eq("is_active", true)
 
-    if (!allStaff || allStaff.length === 0) {
+    if (!allStaffRaw || allStaffRaw.length === 0) {
       setApproversList([])
       return
     }
 
-    // Find current staff - could be the logged-in user
-    let currentStaff = allStaff.find(s => s.id === staffId)
-    
-    // If current user is global (not in this agency's staff), show all managers/supervisors
-    if (!currentStaff && currentUserStaff) {
-      // For global users, show staff who have subordinates (managers/supervisors)
-      const managersAndSupervisors = allStaff.filter(s => 
-        allStaff.some(subordinate => subordinate.reports_to_id === s.id) || 
-        s.reports_to_id === null // Top-level managers
-      )
-      setApproversList(managersAndSupervisors)
-      
-      // Auto-select the first available approver
-      if (managersAndSupervisors.length > 0 && !expenseForm.approver_id) {
-        setExpenseForm(prev => ({ ...prev, approver_id: managersAndSupervisors[0].id }))
-      }
-      return
+    type StaffWithPosition = Staff & { position?: { sort_order: number | null } | { sort_order: number | null }[] | null }
+    const allStaff = allStaffRaw as unknown as StaffWithPosition[]
+
+    // El sort_order del puesto define la jerarquía (0 = más alto). Supabase
+    // puede devolver la relación como objeto o como arreglo.
+    const getSortOrder = (s: StaffWithPosition): number => {
+      const pos = Array.isArray(s.position) ? s.position[0] : s.position
+      return typeof pos?.sort_order === "number" ? pos.sort_order : Number.POSITIVE_INFINITY
     }
 
+    const currentStaff = allStaff.find(s => s.id === staffId)
     if (!currentStaff) {
       setApproversList([])
       return
     }
 
-    // Build hierarchy - get direct supervisor and all higher levels
-    const approvers: Staff[] = []
-
-    // Add direct supervisor first
+    // Empleado CON jefe: se arma la cadena de mando hacia arriba.
     if (currentStaff.reports_to_id) {
-      const directSupervisor = allStaff.find(s => s.id === currentStaff.reports_to_id)
-      if (directSupervisor) {
-        approvers.push(directSupervisor)
-
-        // Recursively add higher levels
-        let currentSupervisorId = directSupervisor.reports_to_id
-        while (currentSupervisorId) {
-          const higherSupervisor = allStaff.find(s => s.id === currentSupervisorId)
-          if (higherSupervisor && !approvers.find(a => a.id === higherSupervisor.id)) {
-            approvers.push(higherSupervisor)
-            currentSupervisorId = higherSupervisor.reports_to_id
-          } else {
-            break
-          }
+      const approvers: Staff[] = []
+      let currentSupervisorId: string | null = currentStaff.reports_to_id
+      while (currentSupervisorId) {
+        const supervisor = allStaff.find(s => s.id === currentSupervisorId)
+        if (supervisor && !approvers.find(a => a.id === supervisor.id)) {
+          approvers.push(supervisor)
+          currentSupervisorId = supervisor.reports_to_id
+        } else {
+          break
         }
       }
-    }
-
-    // Si el empleado NO tiene jefe (reports_to_id null), puede aprobar sus
-    // propios gastos: se agrega a sí mismo como aprobador y se preselecciona.
-    if (!currentStaff.reports_to_id) {
-      approvers.unshift(currentStaff)
       setApproversList(approvers)
-      setExpenseForm(prev => ({ ...prev, approver_id: currentStaff!.id }))
+      setExpenseForm(prev => ({ ...prev, approver_id: currentStaff.reports_to_id || "" }))
       return
     }
 
-    // Also add staff without supervisors (top level managers) if not already included
-    const topLevelManagers = allStaff.filter(s => 
-      s.reports_to_id === null && 
-      s.id !== staffId && 
-      !approvers.find(a => a.id === s.id)
-    )
-    approvers.push(...topLevelManagers)
+    // Empleado SIN jefe (puesto más alto, ej. Director General): mostramos los
+    // dos puestos más altos: él mismo y el siguiente nivel jerárquico (ej.
+    // Directora de Operaciones). Puede aprobar sus propios gastos.
+    const ownOrder = getSortOrder(currentStaff)
+    const nextOrder = allStaff
+      .map(getSortOrder)
+      .filter(o => Number.isFinite(o) && o > ownOrder)
+      .sort((a, b) => a - b)[0]
+    const nextLevelStaff = nextOrder !== undefined
+      ? allStaff.filter(s => getSortOrder(s) === nextOrder && s.id !== currentStaff.id)
+      : []
 
-    setApproversList(approvers)
-    
-    // Pre-select direct supervisor if available
-    if (currentStaff.reports_to_id) {
-      setExpenseForm(prev => ({ ...prev, approver_id: currentStaff.reports_to_id || "" }))
-    }
+    setApproversList([currentStaff, ...nextLevelStaff])
+    setExpenseForm(prev => ({ ...prev, approver_id: currentStaff.id }))
   }
 
   const fetchExpenses = async () => {
