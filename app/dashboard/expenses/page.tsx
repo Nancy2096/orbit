@@ -1155,9 +1155,9 @@ const resetExpenseForm = () => {
                           </TableCell>
                           <TableCell>
                             {expense.category?.expense_type ? (
-                              <span className="text-sm">
+                              <Badge variant="secondary">
                                 {expenseTypes.find(t => t.value === expense.category?.expense_type)?.label || expense.category.expense_type}
-                              </span>
+                              </Badge>
                             ) : (
                               <span className="text-sm text-muted-foreground">-</span>
                             )}
