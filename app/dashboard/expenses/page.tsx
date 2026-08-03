@@ -1099,6 +1099,7 @@ const resetExpenseForm = () => {
                       <TableHead>Número</TableHead>
                       <TableHead>Periodo</TableHead>
                       <TableHead>Descripción</TableHead>
+                      <TableHead>Categoría</TableHead>
                       <TableHead>Solicitante</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead>Aprobación</TableHead>
@@ -1137,12 +1138,19 @@ const resetExpenseForm = () => {
                                 )}
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                {expense.agency?.name} • {expense.category?.name || "Sin categoría"}
+                                {expense.agency?.name}
                                 {expense.is_operational && (
                                   <Badge variant="secondary" className="ml-2 text-xs">Operativo</Badge>
                                 )}
                               </div>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {expense.category?.name ? (
+                              <Badge variant="outline">{expense.category.name}</Badge>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">Sin categoría</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {expense.requested_by ? (
