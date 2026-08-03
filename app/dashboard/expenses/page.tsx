@@ -36,6 +36,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -79,6 +80,8 @@ interface Expense {
   start_date: string | null
   end_date: string | null
   receipt_url: string | null
+  is_operational: boolean | null
+  account_id: string | null
   description: string
   amount: number
   tax_amount: number
@@ -197,6 +200,7 @@ export default function ExpensesPage() {
     category_id: "",
     project_id: "",
     account_id: "",
+    is_operational: false,
     vendor_id: "",
     requested_by_id: "",
     approver_id: "",
@@ -424,6 +428,15 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
       }
     }
 
+    // Si el empleado NO tiene jefe (reports_to_id null), puede aprobar sus
+    // propios gastos: se agrega a sí mismo como aprobador y se preselecciona.
+    if (!currentStaff.reports_to_id) {
+      approvers.unshift(currentStaff)
+      setApproversList(approvers)
+      setExpenseForm(prev => ({ ...prev, approver_id: currentStaff!.id }))
+      return
+    }
+
     // Also add staff without supervisors (top level managers) if not already included
     const topLevelManagers = allStaff.filter(s => 
       s.reports_to_id === null && 
@@ -569,6 +582,12 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
     setSaving(true)
 
     const totalAmount = expenseForm.amount + expenseForm.tax_amount
+    // Un gasto operativo es de la agencia: no se asocia a proyecto ni cuenta.
+    const projectId = expenseForm.is_operational ? null : expenseForm.project_id || null
+    const accountId = expenseForm.is_operational ? null : expenseForm.account_id || null
+    // Auto-aprobación: si el solicitante es su propio aprobador (empleado sin
+    // jefe), el gasto queda aprobado al registrarse.
+    const isSelfApproval = expenseForm.approver_id === expenseForm.requested_by_id
 
     if (editingExpense) {
       const { error } = await supabase
@@ -576,8 +595,9 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
         .update({
           agency_id: expenseForm.agency_id,
           category_id: expenseForm.category_id || null,
-          project_id: expenseForm.project_id || null,
-          account_id: expenseForm.account_id || null,
+          project_id: projectId,
+          account_id: accountId,
+          is_operational: expenseForm.is_operational,
           vendor_id: expenseForm.vendor_id || null,
           requested_by_id: expenseForm.requested_by_id,
           approver_id: expenseForm.approver_id,
@@ -609,8 +629,9 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
         .insert({
           agency_id: expenseForm.agency_id,
           category_id: expenseForm.category_id || null,
-          project_id: expenseForm.project_id || null,
-          account_id: expenseForm.account_id || null,
+          project_id: projectId,
+          account_id: accountId,
+          is_operational: expenseForm.is_operational,
           vendor_id: expenseForm.vendor_id || null,
           requested_by_id: expenseForm.requested_by_id,
           approver_id: expenseForm.approver_id,
@@ -629,9 +650,11 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           payment_date: expenseForm.payment_date || null,
           currency_id: expenseForm.currency_id || null,
           notes: expenseForm.notes || null,
-          status: expenseForm.status,
+          status: isSelfApproval ? "approved" : expenseForm.status,
+          approval_status: isSelfApproval ? "approved" : "pending",
+          approved_by_id: isSelfApproval ? expenseForm.approver_id : null,
+          approved_at: isSelfApproval ? new Date().toISOString() : null,
           receipt_url: expenseForm.receipt_url || null,
-          approval_status: "pending",
         })
         .select("id")
         .single()
@@ -639,12 +662,14 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
       if (error) {
         console.error("Error creating expense:", error)
       } else if (newExpense) {
-        // Create approval history entry
+        // Historial: si es auto-aprobación queda aprobado directamente.
         await supabase.from("expense_approval_history").insert({
           expense_id: newExpense.id,
-          action: "submitted",
+          action: isSelfApproval ? "approved" : "submitted",
           performed_by_id: expenseForm.requested_by_id,
-          comments: "Gasto enviado para aprobación",
+          comments: isSelfApproval
+            ? "Gasto registrado y aprobado por el mismo solicitante (sin jefe asignado)"
+            : "Gasto enviado para aprobación",
         })
       }
     }
@@ -795,7 +820,8 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
       agency_id: expense.agency?.id || "",
       category_id: expense.category?.id || "",
       project_id: expense.project?.id || "",
-      account_id: "",
+      account_id: expense.account_id || "",
+      is_operational: expense.is_operational ?? false,
       vendor_id: (expense as Record<string, unknown>).vendor_id as string || "",
       requested_by_id: expense.requested_by_id || "",
       approver_id: (expense as Record<string, unknown>).approver_id as string || "",
@@ -852,6 +878,7 @@ const resetExpenseForm = () => {
       category_id: "",
       project_id: "",
       account_id: "",
+      is_operational: false,
       vendor_id: "",
       requested_by_id: defaultRequestedById, // Always the logged-in user
       approver_id: "",
@@ -1107,7 +1134,12 @@ const resetExpenseForm = () => {
                                   </a>
                                 )}
                               </div>
-                              <div className="text-sm text-muted-foreground">{expense.agency?.name} • {expense.category?.name || "Sin categoría"}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {expense.agency?.name} • {expense.category?.name || "Sin categoría"}
+                                {expense.is_operational && (
+                                  <Badge variant="secondary" className="ml-2 text-xs">Operativo</Badge>
+                                )}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -1326,13 +1358,20 @@ const resetExpenseForm = () => {
                   {approversList.map((approver) => (
                     <SelectItem key={approver.id} value={approver.id}>
                       {approver.first_name} {approver.last_name}
-                      {approver.reports_to_id === null && " (Director)"}
+                      {approver.id === expenseForm.requested_by_id
+                        ? " (Yo mismo)"
+                        : approver.reports_to_id === null && " (Director)"}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {approversList.length === 0 && expenseForm.requested_by_id && (
                 <p className="text-xs text-muted-foreground">No hay supervisores configurados para este empleado</p>
+              )}
+              {expenseForm.approver_id && expenseForm.approver_id === expenseForm.requested_by_id && (
+                <p className="text-xs text-muted-foreground">
+                  Al no tener jefe asignado, el gasto quedará aprobado automáticamente al registrarlo.
+                </p>
               )}
             </div>
             <div className="md:col-span-2 space-y-2">
@@ -1403,15 +1442,36 @@ const resetExpenseForm = () => {
                 onChange={(e) => setExpenseForm({ ...expenseForm, tax_amount: Number(e.target.value) })}
               />
             </div>
+            <div className="md:col-span-2 flex items-start gap-3 rounded-md border p-3">
+              <Switch
+                id="is-operational"
+                checked={expenseForm.is_operational}
+                onCheckedChange={(checked) =>
+                  setExpenseForm({
+                    ...expenseForm,
+                    is_operational: checked,
+                    // Un gasto operativo es de la agencia: se limpia proyecto y cuenta.
+                    project_id: checked ? "" : expenseForm.project_id,
+                    account_id: checked ? "" : expenseForm.account_id,
+                  })
+                }
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="is-operational">Gasto Operativo (de la Agencia)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Actívalo cuando el gasto no corresponde a un proyecto o cuenta específica, sino a la operación de la agencia.
+                </p>
+              </div>
+            </div>
             <div className="space-y-2">
               <Label>Proyecto</Label>
               <Select
                 value={expenseForm.project_id}
                 onValueChange={(value) => setExpenseForm({ ...expenseForm, project_id: value })}
-                disabled={!expenseForm.agency_id}
+                disabled={!expenseForm.agency_id || expenseForm.is_operational}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={expenseForm.agency_id ? "Seleccionar proyecto" : "Selecciona agencia primero"} />
+                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.agency_id ? "Seleccionar proyecto" : "Selecciona agencia primero"} />
                 </SelectTrigger>
                 <SelectContent>
                   {projects.map((project) => (
@@ -1425,10 +1485,10 @@ const resetExpenseForm = () => {
               <Select
                 value={expenseForm.account_id}
                 onValueChange={(value) => setExpenseForm({ ...expenseForm, account_id: value })}
-                disabled={!expenseForm.agency_id}
+                disabled={!expenseForm.agency_id || expenseForm.is_operational}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={expenseForm.agency_id ? "Seleccionar cuenta" : "Selecciona agencia primero"} />
+                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.agency_id ? "Seleccionar cuenta" : "Selecciona agencia primero"} />
                 </SelectTrigger>
                 <SelectContent>
                   {accounts.map((account) => (
