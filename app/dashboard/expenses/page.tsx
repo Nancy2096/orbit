@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { upload } from "@vercel/blob/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -35,6 +36,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -56,7 +58,10 @@ import {
   XCircle,
   UserCheck,
   Send,
-  History
+  History,
+  Upload,
+  FileText,
+  X
 } from "lucide-react"
 
 interface ExpenseCategory {
@@ -72,6 +77,11 @@ interface Expense {
   id: string
   expense_number: string
   expense_date: string
+  start_date: string | null
+  end_date: string | null
+  receipt_url: string | null
+  is_operational: boolean | null
+  account_id: string | null
   description: string
   amount: number
   tax_amount: number
@@ -87,7 +97,8 @@ interface Expense {
   approved_by_id: string | null
   approved_at: string | null
   rejection_reason: string | null
-  category: { id: string; name: string } | null
+  created_at: string | null
+  category: { id: string; name: string; expense_type?: string | null } | null
   agency: { id: string; name: string } | null
   currency: { id: string; code: string; symbol: string } | null
   project: { id: string; name: string } | null
@@ -126,6 +137,7 @@ interface Currency {
 }
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  draft: { label: "Borrador", variant: "secondary" },
   pending: { label: "Pendiente", variant: "outline" },
   approved: { label: "Aprobado", variant: "default" },
   paid: { label: "Pagado", variant: "default" },
@@ -178,10 +190,10 @@ export default function ExpensesPage() {
 
   // Stats
   const [stats, setStats] = useState({
-    totalExpenses: 0,
+    totalApproved: 0,
     thisMonth: 0,
     pending: 0,
-    byCategory: [] as { name: string; total: number }[],
+    byType: [] as { type: string; total: number }[],
   })
 
   // New expense form
@@ -190,10 +202,12 @@ export default function ExpensesPage() {
     category_id: "",
     project_id: "",
     account_id: "",
+    is_operational: false,
     vendor_id: "",
     requested_by_id: "",
     approver_id: "",
-    expense_date: new Date().toISOString().split("T")[0],
+    start_date: new Date().toISOString().split("T")[0],
+    end_date: new Date().toISOString().split("T")[0],
     description: "",
     amount: 0,
     tax_amount: 0,
@@ -204,15 +218,20 @@ export default function ExpensesPage() {
     currency_id: "",
     notes: "",
     status: "pending",
+    receipt_url: "",
   })
 
-  // Expense types for financial statements
+  // Estado de subida del comprobante/factura del gasto.
+  const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const receiptInputRef = useRef<HTMLInputElement>(null)
+
+  // Tipos de gasto alineados con los rubros de "Objetivos Financieros" de la agencia.
+  // Si cambian los nombres allá, deben cambiar aquí también.
   const expenseTypes = [
-    { value: "fixed", label: "Gastos Fijos" },
-    { value: "variable", label: "Variables" },
-    { value: "direct", label: "Directos" },
-    { value: "indirect", label: "Indirectos" },
-    { value: "financial", label: "Costos Financieros" },
+    { value: "fixed", label: "Gastos Operativos fijos" },
+    { value: "variable", label: "Gastos Operativos Variables" },
+    { value: "marketing", label: "Marketing y Ventas" },
+    { value: "financial", label: "Impuestos y Pagos Financieros" },
   ]
 
   // New category form
@@ -351,80 +370,69 @@ export default function ExpensesPage() {
     if (data) setStaffList(data)
   }
 
-const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
-    // Get all staff for the agency
-    const { data: allStaff } = await supabase
+const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
+    // Traemos TODO el staff activo (sin filtrar por agencia): los puestos más
+    // altos (Director General, Directora de Operaciones) tienen agency_id nulo
+    // y no aparecerían al filtrar por una agencia específica. La cadena de
+    // aprobación se construye siguiendo reports_to_id, que es explícito.
+    const { data: allStaffRaw } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, reports_to_id, position_id, positions(hierarchy_level)")
-      .eq("agency_id", agencyId)
+      .select("id, first_name, last_name, reports_to_id, position:positions(sort_order)")
       .eq("is_active", true)
 
-    if (!allStaff || allStaff.length === 0) {
+    if (!allStaffRaw || allStaffRaw.length === 0) {
       setApproversList([])
       return
     }
 
-    // Find current staff - could be the logged-in user
-    let currentStaff = allStaff.find(s => s.id === staffId)
-    
-    // If current user is global (not in this agency's staff), show all managers/supervisors
-    if (!currentStaff && currentUserStaff) {
-      // For global users, show staff who have subordinates (managers/supervisors)
-      const managersAndSupervisors = allStaff.filter(s => 
-        allStaff.some(subordinate => subordinate.reports_to_id === s.id) || 
-        s.reports_to_id === null // Top-level managers
-      )
-      setApproversList(managersAndSupervisors)
-      
-      // Auto-select the first available approver
-      if (managersAndSupervisors.length > 0 && !expenseForm.approver_id) {
-        setExpenseForm(prev => ({ ...prev, approver_id: managersAndSupervisors[0].id }))
-      }
-      return
+    type StaffWithPosition = Staff & { position?: { sort_order: number | null } | { sort_order: number | null }[] | null }
+    const allStaff = allStaffRaw as unknown as StaffWithPosition[]
+
+    // El sort_order del puesto define la jerarquía (0 = más alto). Supabase
+    // puede devolver la relación como objeto o como arreglo.
+    const getSortOrder = (s: StaffWithPosition): number => {
+      const pos = Array.isArray(s.position) ? s.position[0] : s.position
+      return typeof pos?.sort_order === "number" ? pos.sort_order : Number.POSITIVE_INFINITY
     }
 
+    const currentStaff = allStaff.find(s => s.id === staffId)
     if (!currentStaff) {
       setApproversList([])
       return
     }
 
-    // Build hierarchy - get direct supervisor and all higher levels
-    const approvers: Staff[] = []
-
-    // Add direct supervisor first
+    // Empleado CON jefe: se arma la cadena de mando hacia arriba.
     if (currentStaff.reports_to_id) {
-      const directSupervisor = allStaff.find(s => s.id === currentStaff.reports_to_id)
-      if (directSupervisor) {
-        approvers.push(directSupervisor)
-
-        // Recursively add higher levels
-        let currentSupervisorId = directSupervisor.reports_to_id
-        while (currentSupervisorId) {
-          const higherSupervisor = allStaff.find(s => s.id === currentSupervisorId)
-          if (higherSupervisor && !approvers.find(a => a.id === higherSupervisor.id)) {
-            approvers.push(higherSupervisor)
-            currentSupervisorId = higherSupervisor.reports_to_id
-          } else {
-            break
-          }
+      const approvers: Staff[] = []
+      let currentSupervisorId: string | null = currentStaff.reports_to_id
+      while (currentSupervisorId) {
+        const supervisor = allStaff.find(s => s.id === currentSupervisorId)
+        if (supervisor && !approvers.find(a => a.id === supervisor.id)) {
+          approvers.push(supervisor)
+          currentSupervisorId = supervisor.reports_to_id
+        } else {
+          break
         }
       }
-    }
-
-    // Also add staff without supervisors (top level managers) if not already included
-    const topLevelManagers = allStaff.filter(s => 
-      s.reports_to_id === null && 
-      s.id !== staffId && 
-      !approvers.find(a => a.id === s.id)
-    )
-    approvers.push(...topLevelManagers)
-
-    setApproversList(approvers)
-    
-    // Pre-select direct supervisor if available
-    if (currentStaff.reports_to_id) {
+      setApproversList(approvers)
       setExpenseForm(prev => ({ ...prev, approver_id: currentStaff.reports_to_id || "" }))
+      return
     }
+
+    // Empleado SIN jefe (puesto más alto, ej. Director General): mostramos los
+    // dos puestos más altos: él mismo y el siguiente nivel jerárquico (ej.
+    // Directora de Operaciones). Puede aprobar sus propios gastos.
+    const ownOrder = getSortOrder(currentStaff)
+    const nextOrder = allStaff
+      .map(getSortOrder)
+      .filter(o => Number.isFinite(o) && o > ownOrder)
+      .sort((a, b) => a - b)[0]
+    const nextLevelStaff = nextOrder !== undefined
+      ? allStaff.filter(s => getSortOrder(s) === nextOrder && s.id !== currentStaff.id)
+      : []
+
+    setApproversList([currentStaff, ...nextLevelStaff])
+    setExpenseForm(prev => ({ ...prev, approver_id: currentStaff.id }))
   }
 
   const fetchExpenses = async () => {
@@ -433,14 +441,14 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
       .from("expenses")
       .select(`
         *,
-        category:expense_categories(id, name),
+        category:expense_categories(id, name, expense_type),
         agency:agencies(id, name),
         currency:currencies(id, code, symbol),
         project:projects(id, name),
         requested_by:staff!expenses_requested_by_id_fkey(id, first_name, last_name),
         approved_by:staff!expenses_approved_by_id_fkey(id, first_name, last_name)
       `)
-      .order("expense_date", { ascending: false })
+      .order("created_at", { ascending: false })
 
     if (selectedAgency !== "all") {
       query = query.eq("agency_id", selectedAgency)
@@ -468,26 +476,25 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
     const now = new Date()
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
-    const totalExpenses = expensesData.reduce((sum, e) => sum + Number(e.total_amount), 0)
-    const thisMonth = expensesData
+    // El total gastado considera únicamente los gastos aprobados.
+    const approved = expensesData.filter(e => e.status === "approved")
+    const totalApproved = approved.reduce((sum, e) => sum + Number(e.total_amount), 0)
+    const thisMonth = approved
       .filter(e => new Date(e.expense_date) >= thisMonthStart)
       .reduce((sum, e) => sum + Number(e.total_amount), 0)
     const pending = expensesData
       .filter(e => e.status === "pending")
       .reduce((sum, e) => sum + Number(e.total_amount), 0)
 
-    // By category
-    const categoryMap = new Map<string, number>()
-    expensesData.forEach(e => {
-      const catName = e.category?.name || "Sin categoría"
-      categoryMap.set(catName, (categoryMap.get(catName) || 0) + Number(e.total_amount))
+    // Acumulado por tipo de gasto (solo aprobados).
+    const typeMap = new Map<string, number>()
+    approved.forEach(e => {
+      const type = e.category?.expense_type || "sin_tipo"
+      typeMap.set(type, (typeMap.get(type) || 0) + Number(e.total_amount))
     })
-    const byCategory = Array.from(categoryMap.entries())
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5)
+    const byType = Array.from(typeMap.entries()).map(([type, total]) => ({ type, total }))
 
-    setStats({ totalExpenses, thisMonth, pending, byCategory })
+    setStats({ totalApproved, thisMonth, pending, byType })
   }
 
   const filteredExpenses = expenses.filter((expense) => {
@@ -518,6 +525,18 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
     return new Date(dateString).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })
   }
 
+  // Fecha y hora de registro (cuando se hizo la solicitud del gasto).
+  const formatDateTime = (dateString: string | null) => {
+    if (!dateString) return "-"
+    return new Date(dateString).toLocaleString("es-MX", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  }
+
   const generateExpenseNumber = async (agencyId: string) => {
     const year = new Date().getFullYear()
     const { count } = await supabase
@@ -529,11 +548,45 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
     return `GAS-${year}-${String(nextNumber).padStart(5, "0")}`
   }
 
-  const handleSaveExpense = async () => {
-    if (!expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id) return
+  // Sube el comprobante/factura del gasto a Blob (privado) y guarda la URL.
+  const handleReceiptUpload = async (file: File) => {
+    setUploadingReceipt(true)
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
+      const blob = await upload(`expense-receipts/${Date.now()}-${safeName}`, file, {
+        access: "private",
+        handleUploadUrl: "/api/expenses/receipt/upload",
+        contentType: file.type,
+      })
+      // El store es privado: guardamos el pathname para servirlo vía /api/file.
+      const pathname = blob.url.split(".vercel-storage.com/")[1] || blob.url
+      setExpenseForm((prev) => ({ ...prev, receipt_url: pathname }))
+    } catch (error) {
+      console.error("Error uploading receipt:", error)
+      alert("Error al subir el comprobante. Verifica que sea PDF o imagen (máx 25MB).")
+    } finally {
+      setUploadingReceipt(false)
+      if (receiptInputRef.current) receiptInputRef.current.value = ""
+    }
+  }
+
+  const handleSaveExpense = async (submitForApproval: boolean) => {
+    // Datos mínimos para cualquier guardado (incluido el borrador).
+    if (!expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id) return
+    // Para enviar a aprobación es obligatorio elegir un aprobador.
+    if (submitForApproval && !expenseForm.approver_id) return
     setSaving(true)
 
     const totalAmount = expenseForm.amount + expenseForm.tax_amount
+    // Un gasto operativo es de la agencia: no se asocia a proyecto ni cuenta.
+    const projectId = expenseForm.is_operational ? null : expenseForm.project_id || null
+    const accountId = expenseForm.is_operational ? null : expenseForm.account_id || null
+    // Auto-aprobación: al enviar a aprobación, si el solicitante es su propio
+    // aprobador (empleado sin jefe), el gasto queda aprobado al registrarse.
+    const isSelfApproval = submitForApproval && expenseForm.approver_id === expenseForm.requested_by_id
+    // Estado resultante: borrador, aprobado (auto) o pendiente de aprobación.
+    const resolvedStatus = !submitForApproval ? "draft" : isSelfApproval ? "approved" : "pending"
+    const resolvedApprovalStatus = resolvedStatus
 
     if (editingExpense) {
       const { error } = await supabase
@@ -541,12 +594,16 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
         .update({
           agency_id: expenseForm.agency_id,
           category_id: expenseForm.category_id || null,
-          project_id: expenseForm.project_id || null,
-          account_id: expenseForm.account_id || null,
+          project_id: projectId,
+          account_id: accountId,
+          is_operational: expenseForm.is_operational,
           vendor_id: expenseForm.vendor_id || null,
           requested_by_id: expenseForm.requested_by_id,
           approver_id: expenseForm.approver_id,
-          expense_date: expenseForm.expense_date,
+          start_date: expenseForm.start_date,
+          end_date: expenseForm.end_date,
+          // expense_date se conserva por compatibilidad (columna NOT NULL).
+          expense_date: expenseForm.start_date,
           description: expenseForm.description,
           amount: expenseForm.amount,
           tax_amount: expenseForm.tax_amount,
@@ -557,12 +614,28 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           payment_date: expenseForm.payment_date || null,
           currency_id: expenseForm.currency_id || null,
           notes: expenseForm.notes || null,
-          status: expenseForm.status,
+          status: resolvedStatus,
+          approval_status: resolvedApprovalStatus,
+          approved_by_id: isSelfApproval ? expenseForm.approver_id : null,
+          approved_at: isSelfApproval ? new Date().toISOString() : null,
+          receipt_url: expenseForm.receipt_url || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", editingExpense.id)
 
-      if (error) console.error("Error updating expense:", error)
+      if (error) {
+        console.error("Error updating expense:", error)
+      } else if (submitForApproval) {
+        // Registrar en el historial la transición al enviar a aprobación.
+        await supabase.from("expense_approval_history").insert({
+          expense_id: editingExpense.id,
+          action: isSelfApproval ? "approved" : "submitted",
+          performed_by_id: expenseForm.requested_by_id,
+          comments: isSelfApproval
+            ? "Gasto aprobado por el mismo solicitante (sin jefe asignado)"
+            : "Gasto enviado para aprobación",
+        })
+      }
     } else {
       const expenseNumber = await generateExpenseNumber(expenseForm.agency_id)
       const { data: newExpense, error } = await supabase
@@ -570,13 +643,17 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
         .insert({
           agency_id: expenseForm.agency_id,
           category_id: expenseForm.category_id || null,
-          project_id: expenseForm.project_id || null,
-          account_id: expenseForm.account_id || null,
+          project_id: projectId,
+          account_id: accountId,
+          is_operational: expenseForm.is_operational,
           vendor_id: expenseForm.vendor_id || null,
           requested_by_id: expenseForm.requested_by_id,
           approver_id: expenseForm.approver_id,
           expense_number: expenseNumber,
-          expense_date: expenseForm.expense_date,
+          start_date: expenseForm.start_date,
+          end_date: expenseForm.end_date,
+          // expense_date se conserva por compatibilidad (columna NOT NULL).
+          expense_date: expenseForm.start_date,
           description: expenseForm.description,
           amount: expenseForm.amount,
           tax_amount: expenseForm.tax_amount,
@@ -587,21 +664,26 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
           payment_date: expenseForm.payment_date || null,
           currency_id: expenseForm.currency_id || null,
           notes: expenseForm.notes || null,
-          status: expenseForm.status,
-          approval_status: "pending",
+          status: resolvedStatus,
+          approval_status: resolvedApprovalStatus,
+          approved_by_id: isSelfApproval ? expenseForm.approver_id : null,
+          approved_at: isSelfApproval ? new Date().toISOString() : null,
+          receipt_url: expenseForm.receipt_url || null,
         })
         .select("id")
         .single()
 
       if (error) {
         console.error("Error creating expense:", error)
-      } else if (newExpense) {
-        // Create approval history entry
+      } else if (newExpense && submitForApproval) {
+        // Solo se registra historial cuando el gasto se envía a aprobación.
         await supabase.from("expense_approval_history").insert({
           expense_id: newExpense.id,
-          action: "submitted",
+          action: isSelfApproval ? "approved" : "submitted",
           performed_by_id: expenseForm.requested_by_id,
-          comments: "Gasto enviado para aprobación",
+          comments: isSelfApproval
+            ? "Gasto registrado y aprobado por el mismo solicitante (sin jefe asignado)"
+            : "Gasto enviado para aprobación",
         })
       }
     }
@@ -752,11 +834,14 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
       agency_id: expense.agency?.id || "",
       category_id: expense.category?.id || "",
       project_id: expense.project?.id || "",
-      account_id: "",
+      account_id: expense.account_id || "",
+      is_operational: expense.is_operational ?? false,
       vendor_id: (expense as Record<string, unknown>).vendor_id as string || "",
       requested_by_id: expense.requested_by_id || "",
       approver_id: (expense as Record<string, unknown>).approver_id as string || "",
-      expense_date: expense.expense_date,
+      // Usar el rango si existe; si no, caer al expense_date anterior.
+      start_date: expense.start_date || expense.expense_date,
+      end_date: expense.end_date || expense.expense_date,
       description: expense.description,
       amount: Number(expense.amount),
       tax_amount: Number(expense.tax_amount),
@@ -767,6 +852,7 @@ const fetchApproversForStaff = async (staffId: string, agencyId: string) => {
       currency_id: expense.currency?.id || "",
       notes: expense.notes || "",
       status: expense.status,
+      receipt_url: expense.receipt_url || "",
     })
     setShowExpenseDialog(true)
   }
@@ -806,10 +892,12 @@ const resetExpenseForm = () => {
       category_id: "",
       project_id: "",
       account_id: "",
+      is_operational: false,
       vendor_id: "",
       requested_by_id: defaultRequestedById, // Always the logged-in user
       approver_id: "",
-      expense_date: new Date().toISOString().split("T")[0],
+      start_date: new Date().toISOString().split("T")[0],
+      end_date: new Date().toISOString().split("T")[0],
       description: "",
       amount: 0,
       tax_amount: 0,
@@ -820,6 +908,7 @@ const resetExpenseForm = () => {
       currency_id: currencies.find(c => c.code === "MXN")?.id || "",
       notes: "",
       status: "pending",
+      receipt_url: "",
     })
     setFormCategories([])
     setProjects([])
@@ -861,15 +950,15 @@ const resetExpenseForm = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Gastos</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Gastado</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.totalExpenses)}</div>
-            <p className="text-xs text-muted-foreground">{expenses.length} gastos registrados</p>
+            <div className="text-2xl font-bold">{formatCurrency(stats.totalApproved)}</div>
+            <p className="text-xs text-muted-foreground">Solo gastos aprobados</p>
           </CardContent>
         </Card>
         <Card>
@@ -879,7 +968,7 @@ const resetExpenseForm = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(stats.thisMonth)}</div>
-            <p className="text-xs text-muted-foreground">Mes actual</p>
+            <p className="text-xs text-muted-foreground">Aprobado en el mes actual</p>
           </CardContent>
         </Card>
         <Card>
@@ -892,39 +981,26 @@ const resetExpenseForm = () => {
             <p className="text-xs text-muted-foreground">Por aprobar</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Categorías</CardTitle>
-            <FolderTree className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{categories.filter(c => c.is_active).length}</div>
-            <p className="text-xs text-muted-foreground">Categorías activas</p>
-          </CardContent>
-        </Card>
       </div>
 
-      {/* Top Categories */}
-      {stats.byCategory.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Top Categorías de Gasto</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {stats.byCategory.map((cat, index) => (
-                <div key={cat.name} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted-foreground">{index + 1}.</span>
-                    <span className="font-medium">{cat.name}</span>
-                  </div>
-                  <span className="font-semibold">{formatCurrency(cat.total)}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Acumulado por tipo de gasto: una tarjeta por cada tipo (solo aprobados) */}
+      <div className="grid gap-4 md:grid-cols-4">
+        {expenseTypes.map((t) => {
+          const total = stats.byType.find((b) => b.type === t.value)?.total || 0
+          return (
+            <Card key={t.value}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium text-pretty">{t.label}</CardTitle>
+                <FolderTree className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(total)}</div>
+                <p className="text-xs text-muted-foreground">Acumulado aprobado</p>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1020,8 +1096,10 @@ const resetExpenseForm = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Número</TableHead>
-                      <TableHead>Fecha</TableHead>
+                      <TableHead>Fecha de Registro</TableHead>
                       <TableHead>Descripción</TableHead>
+                      <TableHead>Categoría</TableHead>
+                      <TableHead>Tipo de Gasto</TableHead>
                       <TableHead>Solicitante</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead>Aprobación</TableHead>
@@ -1032,12 +1110,49 @@ const resetExpenseForm = () => {
                     {filteredExpenses.map((expense) => (
                         <TableRow key={expense.id}>
                           <TableCell className="font-medium">{expense.expense_number}</TableCell>
-                          <TableCell>{formatDate(expense.expense_date)}</TableCell>
+                          <TableCell>
+                            <div className="text-sm">{formatDateTime(expense.created_at)}</div>
+                          </TableCell>
                           <TableCell>
                             <div>
-                              <div className="font-medium">{expense.description}</div>
-                              <div className="text-sm text-muted-foreground">{expense.agency?.name} • {expense.category?.name || "Sin categoría"}</div>
+                              <div className="font-medium flex items-center gap-2">
+                                {expense.description}
+                                {expense.receipt_url && (
+                                  <a
+                                    href={`/api/file?pathname=${encodeURIComponent(expense.receipt_url)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-primary"
+                                    title="Ver comprobante"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <FileText className="h-3.5 w-3.5" />
+                                  </a>
+                                )}
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                {expense.agency?.name}
+                                {expense.is_operational && (
+                                  <Badge variant="secondary" className="ml-2 text-xs">Operativo</Badge>
+                                )}
+                              </div>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {expense.category?.name ? (
+                              <Badge variant="outline">{expense.category.name}</Badge>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">Sin categoría</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {expense.category?.expense_type ? (
+                              <Badge variant="secondary">
+                                {expenseTypes.find(t => t.value === expense.category?.expense_type)?.label || expense.category.expense_type}
+                              </Badge>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {expense.requested_by ? (
@@ -1200,11 +1315,20 @@ const resetExpenseForm = () => {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Fecha *</Label>
+              <Label>Fecha de Inicio *</Label>
               <Input
                 type="date"
-                value={expenseForm.expense_date}
-                onChange={(e) => setExpenseForm({ ...expenseForm, expense_date: e.target.value })}
+                value={expenseForm.start_date}
+                onChange={(e) => setExpenseForm({ ...expenseForm, start_date: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Fecha Final *</Label>
+              <Input
+                type="date"
+                value={expenseForm.end_date}
+                min={expenseForm.start_date || undefined}
+                onChange={(e) => setExpenseForm({ ...expenseForm, end_date: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -1246,13 +1370,20 @@ const resetExpenseForm = () => {
                   {approversList.map((approver) => (
                     <SelectItem key={approver.id} value={approver.id}>
                       {approver.first_name} {approver.last_name}
-                      {approver.reports_to_id === null && " (Director)"}
+                      {approver.id === expenseForm.requested_by_id
+                        ? " (Yo mismo)"
+                        : approver.reports_to_id === null && " (Director)"}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {approversList.length === 0 && expenseForm.requested_by_id && (
                 <p className="text-xs text-muted-foreground">No hay supervisores configurados para este empleado</p>
+              )}
+              {expenseForm.approver_id && expenseForm.approver_id === expenseForm.requested_by_id && (
+                <p className="text-xs text-muted-foreground">
+                  Al no tener jefe asignado, el gasto quedará aprobado automáticamente al registrarlo.
+                </p>
               )}
             </div>
             <div className="md:col-span-2 space-y-2">
@@ -1323,15 +1454,36 @@ const resetExpenseForm = () => {
                 onChange={(e) => setExpenseForm({ ...expenseForm, tax_amount: Number(e.target.value) })}
               />
             </div>
+            <div className="md:col-span-2 flex items-start gap-3 rounded-md border p-3">
+              <Switch
+                id="is-operational"
+                checked={expenseForm.is_operational}
+                onCheckedChange={(checked) =>
+                  setExpenseForm({
+                    ...expenseForm,
+                    is_operational: checked,
+                    // Un gasto operativo es de la agencia: se limpia proyecto y cuenta.
+                    project_id: checked ? "" : expenseForm.project_id,
+                    account_id: checked ? "" : expenseForm.account_id,
+                  })
+                }
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="is-operational">Gasto Operativo (de la Agencia)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Actívalo cuando el gasto no corresponde a un proyecto o cuenta específica, sino a la operación de la agencia.
+                </p>
+              </div>
+            </div>
             <div className="space-y-2">
               <Label>Proyecto</Label>
               <Select
                 value={expenseForm.project_id}
                 onValueChange={(value) => setExpenseForm({ ...expenseForm, project_id: value })}
-                disabled={!expenseForm.agency_id}
+                disabled={!expenseForm.agency_id || expenseForm.is_operational}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={expenseForm.agency_id ? "Seleccionar proyecto" : "Selecciona agencia primero"} />
+                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.agency_id ? "Seleccionar proyecto" : "Selecciona agencia primero"} />
                 </SelectTrigger>
                 <SelectContent>
                   {projects.map((project) => (
@@ -1345,10 +1497,10 @@ const resetExpenseForm = () => {
               <Select
                 value={expenseForm.account_id}
                 onValueChange={(value) => setExpenseForm({ ...expenseForm, account_id: value })}
-                disabled={!expenseForm.agency_id}
+                disabled={!expenseForm.agency_id || expenseForm.is_operational}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={expenseForm.agency_id ? "Seleccionar cuenta" : "Selecciona agencia primero"} />
+                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.agency_id ? "Seleccionar cuenta" : "Selecciona agencia primero"} />
                 </SelectTrigger>
                 <SelectContent>
                   {accounts.map((account) => (
@@ -1381,21 +1533,71 @@ const resetExpenseForm = () => {
                 placeholder="Número de factura"
               />
             </div>
+            <div className="md:col-span-2 space-y-2">
+              <Label>Comprobante o Factura</Label>
+              <input
+                ref={receiptInputRef}
+                type="file"
+                accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void handleReceiptUpload(file)
+                }}
+              />
+              {expenseForm.receipt_url ? (
+                <div className="flex items-center gap-2 rounded-md border p-2">
+                  <FileText className="h-4 w-4 text-primary shrink-0" />
+                  <a
+                    href={`/api/file?pathname=${encodeURIComponent(expenseForm.receipt_url)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary underline truncate flex-1"
+                  >
+                    Ver comprobante adjunto
+                  </a>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setExpenseForm({ ...expenseForm, receipt_url: "" })}
+                    aria-label="Quitar comprobante"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full bg-transparent"
+                  disabled={uploadingReceipt}
+                  onClick={() => receiptInputRef.current?.click()}
+                >
+                  {uploadingReceipt ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Subiendo...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Subir comprobante o factura (PDF o imagen)
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
             <div className="space-y-2">
               <Label>Estado</Label>
-              <Select
-                value={expenseForm.status}
-                onValueChange={(value) => setExpenseForm({ ...expenseForm, status: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(statusConfig).map(([key, config]) => (
-                    <SelectItem key={key} value={key}>{config.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex h-10 items-center rounded-md border bg-muted/40 px-3">
+                <Badge variant={statusConfig[editingExpense?.status || "draft"]?.variant || "secondary"}>
+                  {statusConfig[editingExpense?.status || "draft"]?.label || "Borrador"}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                El estado se define automáticamente: al enviar a aprobación queda pendiente para que un responsable lo autorice.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Moneda</Label>
@@ -1433,10 +1635,21 @@ const resetExpenseForm = () => {
           </div>
           </div>
           <DialogFooter className="flex-shrink-0 border-t pt-4">
-            <Button variant="outline" onClick={() => setShowExpenseDialog(false)}>Cancelar</Button>
-            <Button onClick={handleSaveExpense} disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id}>
+            <Button variant="ghost" onClick={() => setShowExpenseDialog(false)}>Cancelar</Button>
+            <Button
+              variant="outline"
+              onClick={() => handleSaveExpense(false)}
+              disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id}
+            >
               {saving && <Spinner className="mr-2 h-4 w-4" />}
-              {editingExpense ? "Guardar Cambios" : "Registrar Gasto"}
+              Guardar como borrador
+            </Button>
+            <Button
+              onClick={() => handleSaveExpense(true)}
+              disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id}
+            >
+              {saving && <Spinner className="mr-2 h-4 w-4" />}
+              Enviar a aprobación
             </Button>
           </DialogFooter>
         </DialogContent>

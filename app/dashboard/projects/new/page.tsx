@@ -582,7 +582,7 @@ if (deptRes.data) setDepartments(deptRes.data)
                         <SelectValue placeholder={selectedClientId ? "Selecciona una cuenta" : "Primero selecciona cliente"} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Sin cuenta</SelectItem>
+                        <SelectItem value="none">No aplica (solo proyecto)</SelectItem>
                         {filteredAccounts.map((account) => (
                           <SelectItem key={account.id} value={account.id}>
                             {account.account_name}

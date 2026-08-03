@@ -2006,8 +2006,8 @@ const [positions, setPositions] = useState<Position[]>([])
                       {[
                         {
                           key: "fin_cogs_pct" as const,
-                          label: "Costos de bienes o servicios (COGS)",
-                          help: "Gastos directos de producción: materias primas, manufactura o compra de mercancía.",
+                          label: "Gastos Operativos fijos",
+                          help: "Gastos directos para poder atender a los clientes (Correos, Internet, Celular, Renta)",
                           placeholder: "Ej. 30",
                         },
                         {
@@ -2018,8 +2018,8 @@ const [positions, setPositions] = useState<Position[]>([])
                         },
                         {
                           key: "fin_fixed_opex_pct" as const,
-                          label: "Gastos operativos fijos",
-                          help: "Alquiler de locales u oficinas, servicios públicos (agua, luz, internet) y seguros.",
+                          label: "Gastos Operativos Variables",
+                          help: "Gastos directos a la operación que no son recurrentes (Reuniones, mejoras, nuevos proyectos)",
                           placeholder: "Ej. 15",
                         },
                         {

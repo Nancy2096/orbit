@@ -530,7 +530,7 @@ export default function ProjectsPage() {
           </p>
         </div>
         <Button asChild>
-          <Link href="/dashboard/accounts/new">
+          <Link href="/dashboard/projects/new">
             <Plus className="mr-2 h-4 w-4" />
             Nuevo Proyecto
           </Link>
@@ -718,7 +718,7 @@ export default function ProjectsPage() {
               </EmptyDescription>
               {!searchTerm && activeFiltersCount === 0 && (
                 <Button asChild>
-                  <Link href="/dashboard/accounts/new">
+                  <Link href="/dashboard/projects/new">
                     <Plus className="mr-2 h-4 w-4" />
                     Crear Proyecto
                   </Link>
