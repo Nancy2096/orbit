@@ -224,13 +224,13 @@ export default function ExpensesPage() {
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
   const receiptInputRef = useRef<HTMLInputElement>(null)
 
-  // Expense types for financial statements
+  // Tipos de gasto alineados con los rubros de "Objetivos Financieros" de la agencia.
+  // Si cambian los nombres allá, deben cambiar aquí también.
   const expenseTypes = [
-    { value: "fixed", label: "Gastos Fijos" },
-    { value: "variable", label: "Variables" },
-    { value: "direct", label: "Directos" },
-    { value: "indirect", label: "Indirectos" },
-    { value: "financial", label: "Costos Financieros" },
+    { value: "fixed", label: "Gastos Operativos fijos" },
+    { value: "variable", label: "Gastos Operativos Variables" },
+    { value: "marketing", label: "Marketing y Ventas" },
+    { value: "financial", label: "Impuestos y Pagos Financieros" },
   ]
 
   // New category form
