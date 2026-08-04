@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect, use } from "react"
+import { useState, useEffect, use, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { upload } from "@vercel/blob/client"
 import { createClient } from "@/lib/supabase/client"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
@@ -39,7 +40,10 @@ import {
   Save,
   FileText,
   Wallet,
-  Settings
+  Settings,
+  Upload,
+  Paperclip,
+  X
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -184,10 +188,99 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     isrRate: 0, // ISR percentage (calculated separately)
     otherDeductions: 0, // Fixed amount
   })
+  // Comprobantes de pago por empleado (staff_id -> { file_path, file_name }).
+  const [receipts, setReceipts] = useState<Record<string, { file_path: string; file_name: string | null }>>({})
+  // staff_id que está subiendo actualmente su comprobante.
+  const [uploadingStaffId, setUploadingStaffId] = useState<string | null>(null)
+  const receiptInputRef = useRef<HTMLInputElement>(null)
+  // staff_id objetivo del input de archivo (se establece antes de abrir el selector).
+  const [receiptTargetStaffId, setReceiptTargetStaffId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchData()
   }, [resolvedParams.id, includeGlobalStaff])
+
+  // Carga los comprobantes de pago guardados para este periodo.
+  const fetchReceipts = async () => {
+    const { data, error } = await supabase
+      .from("payroll_payment_receipts")
+      .select("staff_id, file_path, file_name")
+      .eq("period_id", resolvedParams.id)
+    if (error) {
+      console.error("Error fetching payroll receipts:", error)
+      return
+    }
+    const map: Record<string, { file_path: string; file_name: string | null }> = {}
+    ;(data || []).forEach((r) => {
+      map[r.staff_id] = { file_path: r.file_path, file_name: r.file_name }
+    })
+    setReceipts(map)
+  }
+
+  useEffect(() => {
+    fetchReceipts()
+  }, [resolvedParams.id])
+
+  // Abre el selector de archivos para el empleado indicado.
+  const openReceiptPicker = (staffId: string) => {
+    setReceiptTargetStaffId(staffId)
+    receiptInputRef.current?.click()
+  }
+
+  // Sube el comprobante a Blob (privado) y lo guarda por empleado/periodo.
+  const handleReceiptSelected = async (file: File) => {
+    const staffId = receiptTargetStaffId
+    if (!staffId) return
+    setUploadingStaffId(staffId)
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
+      const blob = await upload(`payroll-receipts/${resolvedParams.id}/${staffId}-${Date.now()}-${safeName}`, file, {
+        access: "private",
+        handleUploadUrl: "/api/payroll/receipt/upload",
+        contentType: file.type,
+      })
+      // Store privado: guardamos el pathname para servirlo vía /api/file.
+      const pathname = blob.url.split(".vercel-storage.com/")[1] || blob.url
+      // Upsert por (period_id, staff_id).
+      const { error } = await supabase
+        .from("payroll_payment_receipts")
+        .upsert(
+          { period_id: resolvedParams.id, staff_id: staffId, file_path: pathname, file_name: file.name },
+          { onConflict: "period_id,staff_id" },
+        )
+      if (error) throw error
+      setReceipts((prev) => ({ ...prev, [staffId]: { file_path: pathname, file_name: file.name } }))
+      toast.success("Comprobante adjuntado")
+    } catch (error) {
+      console.error("Error uploading payroll receipt:", error)
+      toast.error("Error al subir el comprobante. Verifica que sea PDF o imagen (máx 25MB).")
+    } finally {
+      setUploadingStaffId(null)
+      setReceiptTargetStaffId(null)
+      if (receiptInputRef.current) receiptInputRef.current.value = ""
+    }
+  }
+
+  // Elimina el comprobante adjunto de un empleado.
+  const handleRemoveReceipt = async (staffId: string) => {
+    try {
+      const { error } = await supabase
+        .from("payroll_payment_receipts")
+        .delete()
+        .eq("period_id", resolvedParams.id)
+        .eq("staff_id", staffId)
+      if (error) throw error
+      setReceipts((prev) => {
+        const next = { ...prev }
+        delete next[staffId]
+        return next
+      })
+      toast.success("Comprobante eliminado")
+    } catch (error) {
+      console.error("Error removing payroll receipt:", error)
+      toast.error("Error al eliminar el comprobante")
+    }
+  }
 
   const fetchData = async () => {
     try {
@@ -1011,6 +1104,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   <TableHead>Banco</TableHead>
                   <TableHead>CLABE Interbancaria</TableHead>
                   <TableHead>Concepto</TableHead>
+                  {(period.status === "approved" || period.status === "paid") && (
+                    <TableHead>Comprobante</TableHead>
+                  )}
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -1094,6 +1190,47 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     <TableCell className="text-muted-foreground">
                       {period.payment_concept || <span className="text-muted-foreground">—</span>}
                     </TableCell>
+                    {(period.status === "approved" || period.status === "paid") && (
+                      <TableCell>
+                        {receipts[entry.staff_id] ? (
+                          <div className="flex items-center gap-1">
+                            <a
+                              href={`/api/file?pathname=${encodeURIComponent(receipts[entry.staff_id].file_path)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-800 max-w-[160px] truncate"
+                              title={receipts[entry.staff_id].file_name || "Ver comprobante"}
+                            >
+                              <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">{receipts[entry.staff_id].file_name || "Comprobante"}</span>
+                            </a>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => handleRemoveReceipt(entry.staff_id)}
+                              title="Eliminar comprobante"
+                            >
+                              <X className="h-3.5 w-3.5 text-destructive" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openReceiptPicker(entry.staff_id)}
+                            disabled={uploadingStaffId === entry.staff_id}
+                          >
+                            {uploadingStaffId === entry.staff_id ? (
+                              <Spinner className="mr-1 h-3.5 w-3.5" />
+                            ) : (
+                              <Upload className="mr-1 h-3.5 w-3.5" />
+                            )}
+                            Adjuntar
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       {(period.status === "draft" || period.status === "calculating") && (
                         <Button 
@@ -1112,6 +1249,18 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           )}
         </CardContent>
       </Card>
+
+      {/* Input oculto para adjuntar comprobantes de pago (PDF o imagen) */}
+      <input
+        ref={receiptInputRef}
+        type="file"
+        accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) handleReceiptSelected(file)
+        }}
+      />
 
       {/* Edit Entry Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
