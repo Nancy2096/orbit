@@ -467,22 +467,23 @@ export default function EditUserPage() {
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-1">
                     {agencies.map((agency) => (
-                      <div
+                      <label
                         key={agency.id}
+                        htmlFor={`agency-${agency.id}`}
                         className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                           selectedAgencies.includes(agency.id)
                             ? "border-primary bg-primary/5"
                             : "border-border hover:border-muted-foreground/50"
                         }`}
-                        onClick={() => toggleAgency(agency.id)}
                       >
-                        <Checkbox 
+                        <Checkbox
+                          id={`agency-${agency.id}`}
                           checked={selectedAgencies.includes(agency.id)}
                           onCheckedChange={() => toggleAgency(agency.id)}
                         />
                         <Building2 className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm font-medium">{agency.name}</span>
-                      </div>
+                      </label>
                     ))}
                   </div>
 
