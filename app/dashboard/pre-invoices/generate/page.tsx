@@ -118,7 +118,7 @@ export default function GeneratePreInvoicesPage() {
         `id, account_name, account_code, client_id, agency_id,
          agency:agencies(id, name),
          client:clients(id, company_name),
-         account_services(id, service_id, custom_name, quantity, unit_price, final_price, frequency, is_active, billing_date, service:services(name))`,
+         account_services(id, service_id, custom_name, quantity, unit_price, final_price, frequency, is_active, billing_date, currency_code, service:services(name))`,
       )
       .eq("status", "active")
 
@@ -146,6 +146,9 @@ export default function GeneratePreInvoicesPage() {
         // Excluir servicios cuya fecha de facturación aún no llega en este mes.
         .filter((s: { billing_date: string | null }) => isBillable(s.billing_date))
       if (services.length === 0) continue
+      // Respetar la moneda del servicio contratado (p. ej. USD no se convierte a MXN).
+      const accountCurrency =
+        (services.find((s: { currency_code: string | null }) => s.currency_code)?.currency_code as string) || "MXN"
       const lines: DraftLine[] = services.map((s: {
         id: string
         service_id: string | null
@@ -180,7 +183,7 @@ export default function GeneratePreInvoicesPage() {
         client_id: acc.client_id,
         agency_id: acc.agency_id,
         agency_name: agency?.name || "Sin agencia",
-        currency: "MXN",
+        currency: accountCurrency,
         alreadyExists: existingAccounts.has(acc.id),
         lines,
       })
@@ -307,7 +310,10 @@ export default function GeneratePreInvoicesPage() {
     let created = 0
     try {
       for (const group of generatableGroups) {
-        const totals = computeTotals(group.lines)
+        // Por defecto, las prefacturas en moneda distinta a MXN (p. ej. USD de
+        // clientes extranjeros) se generan sin IVA. Puede ajustarse luego.
+        const taxEnabled = group.currency === "MXN"
+        const totals = computeTotals(group.lines, taxEnabled)
         const number = `PRE-${year}-${String(seq).padStart(5, "0")}`
         seq++
 
@@ -324,6 +330,7 @@ export default function GeneratePreInvoicesPage() {
             period_label: label,
             status: "draft",
             currency: group.currency,
+            tax_enabled: taxEnabled,
             subtotal: totals.subtotal,
             tax: totals.tax,
             total: totals.total,

@@ -23,13 +23,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Search, Eye, ClipboardList, FileText, Send, DollarSign } from "lucide-react"
+import { Plus, Search, Eye, ClipboardList, FileText, Send, DollarSign, RefreshCw, Trash2 } from "lucide-react"
+import { toast } from "sonner"
 import {
   STATUS_LABELS,
   STATUS_VARIANTS,
   formatCurrency,
   periodLabel,
   recentMonths,
+  refreshPreInvoiceAmounts,
   type PreInvoiceStatus,
 } from "@/lib/pre-invoices"
 
@@ -58,6 +60,41 @@ export default function PreInvoicesPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [agencyFilter, setAgencyFilter] = useState<string>("all")
   const [periodFilter, setPeriodFilter] = useState<string>("all")
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Recalcula los montos con los datos actuales de Cuentas/Proyectos.
+  async function handleRefresh(id: string) {
+    setRefreshingId(id)
+    try {
+      const totals = await refreshPreInvoiceAmounts(supabase, id)
+      setRows((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, total: totals.total, currency: totals.currency } : r)),
+      )
+      toast.success("Montos actualizados con los datos de Cuentas/Proyectos")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo actualizar la prefactura")
+    } finally {
+      setRefreshingId(null)
+    }
+  }
+
+  // Elimina la prefactura y sus líneas.
+  async function handleDelete(id: string, number: string) {
+    if (!confirm(`¿Eliminar la prefactura ${number}? Esta acción no se puede deshacer.`)) return
+    setDeletingId(id)
+    try {
+      await supabase.from("pre_invoice_items").delete().eq("pre_invoice_id", id)
+      const { error } = await supabase.from("pre_invoices").delete().eq("id", id)
+      if (error) throw new Error(error.message)
+      setRows((prev) => prev.filter((r) => r.id !== id))
+      toast.success("Prefactura eliminada")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo eliminar la prefactura")
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -226,12 +263,42 @@ export default function PreInvoicesPage() {
                     </TableCell>
                     <TableCell className="text-right">{formatCurrency(r.total, r.currency)}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/dashboard/pre-invoices/${r.id}`}>
-                          <Eye className="mr-1 h-4 w-4" />
-                          Ver
-                        </Link>
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/dashboard/pre-invoices/${r.id}`}>
+                            <Eye className="mr-1 h-4 w-4" />
+                            Ver
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRefresh(r.id)}
+                          disabled={refreshingId === r.id}
+                          title="Actualizar montos con los datos de Cuentas/Proyectos"
+                        >
+                          {refreshingId === r.id ? (
+                            <Spinner className="mr-1 h-4 w-4" />
+                          ) : (
+                            <RefreshCw className="mr-1 h-4 w-4" />
+                          )}
+                          Actualizar
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDelete(r.id, r.pre_invoice_number)}
+                          disabled={deletingId === r.id}
+                          title="Borrar prefactura"
+                        >
+                          {deletingId === r.id ? (
+                            <Spinner className="h-4 w-4" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

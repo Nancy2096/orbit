@@ -38,15 +38,21 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowLeft, Eye, Send, FileCheck, Loader2, Printer, Mail } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { ArrowLeft, Eye, Send, FileCheck, Loader2, Printer, Mail, RefreshCw } from "lucide-react"
+import { toast } from "sonner"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 import {
   type PreInvoice,
   type PreInvoiceItem,
   STATUS_LABELS,
   STATUS_VARIANTS,
+  canEditPreInvoicePrices,
   computeTotals,
   formatCurrency,
+  lineAmount,
   periodLabel,
+  refreshPreInvoiceAmounts,
 } from "@/lib/pre-invoices"
 
 interface RelatedInfo {
@@ -76,10 +82,15 @@ export default function PreInvoiceDetailPage() {
   const [saving, setSaving] = useState(false)
   const [converting, setConverting] = useState(false)
   const [sending, setSending] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showPreview, setShowPreview] = useState(false)
   const [showSendDialog, setShowSendDialog] = useState(false)
   const [recipient, setRecipient] = useState("")
+
+  const { roleName } = usePermissions()
+  // Solo Finanzas/Administración, Dirección General y Superadmin editan precios.
+  const canEditPrices = canEditPreInvoicePrices(roleName)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -139,10 +150,11 @@ export default function PreInvoiceDetailPage() {
   }, [loadData])
 
   const editable = preInvoice?.status === "draft" || preInvoice?.status === "sent"
-  const totals = computeTotals(items)
+  const taxEnabled = preInvoice?.tax_enabled !== false
+  const totals = computeTotals(items, taxEnabled)
 
-  const persistTotals = async (nextItems: PreInvoiceItem[]) => {
-    const t = computeTotals(nextItems)
+  const persistTotals = async (nextItems: PreInvoiceItem[], nextTaxEnabled = taxEnabled) => {
+    const t = computeTotals(nextItems, nextTaxEnabled)
     await supabase
       .from("pre_invoices")
       .update({ subtotal: t.subtotal, tax: t.tax, total: t.total })
@@ -157,6 +169,49 @@ export default function PreInvoiceDetailPage() {
     await supabase.from("pre_invoice_items").update({ is_included: included }).eq("id", itemId)
     await persistTotals(nextItems)
     setSaving(false)
+  }
+
+  // Activa/desactiva el IVA (p. ej. cuentas extranjeras o acuerdos sin impuestos).
+  const toggleTax = async (enabled: boolean) => {
+    if (!editable || !preInvoice) return
+    setSaving(true)
+    setPreInvoice({ ...preInvoice, tax_enabled: enabled })
+    await supabase.from("pre_invoices").update({ tax_enabled: enabled }).eq("id", id)
+    await persistTotals(items, enabled)
+    setSaving(false)
+  }
+
+  // Edición manual del precio unitario (solo roles autorizados).
+  const updateUnitPrice = async (itemId: string, value: number) => {
+    if (!canEditPrices || !editable) return
+    const unit_price = Number.isFinite(value) && value >= 0 ? value : 0
+    setSaving(true)
+    const nextItems = items.map((i) =>
+      i.id === itemId ? { ...i, unit_price, amount: lineAmount(i.quantity, unit_price, i.discount) } : i,
+    )
+    setItems(nextItems)
+    const updated = nextItems.find((i) => i.id === itemId)
+    await supabase
+      .from("pre_invoice_items")
+      .update({ unit_price, amount: updated?.amount ?? 0 })
+      .eq("id", itemId)
+    await persistTotals(nextItems)
+    setSaving(false)
+  }
+
+  // Recalcula los montos con los datos actuales de Cuentas/Proyectos.
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    setError(null)
+    try {
+      await refreshPreInvoiceAmounts(supabase, id)
+      await loadData()
+      toast.success("Montos actualizados con los datos de Cuentas/Proyectos")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo actualizar la prefactura")
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   const includedItems = items.filter((i) => i.is_included)
@@ -186,7 +241,7 @@ export default function PreInvoiceDetailPage() {
         .eq("agency_id", preInvoice.agency_id)
       const invoiceNumber = `FAC-${year}-${String((count || 0) + 1).padStart(5, "0")}`
 
-      const taxRate = 16
+      const taxRate = taxEnabled ? 16 : 0
       const { data: invoice, error: invoiceError } = await supabase
         .from("invoices")
         .insert({
@@ -315,6 +370,14 @@ export default function PreInvoiceDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={handleRefresh} disabled={refreshing || !editable}>
+            {refreshing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Actualizar
+          </Button>
           <Button variant="outline" onClick={() => setShowPreview(true)}>
             <Eye className="mr-2 h-4 w-4" />
             Vista previa
@@ -415,7 +478,23 @@ export default function PreInvoiceDetailPage() {
                         <TableCell className="font-medium">{item.description}</TableCell>
                         <TableCell className="text-right">{item.quantity}</TableCell>
                         <TableCell className="text-right">
-                          {formatCurrency(item.unit_price, preInvoice.currency)}
+                          {canEditPrices && editable ? (
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              defaultValue={item.unit_price}
+                              disabled={saving}
+                              onBlur={(e) => {
+                                const v = Number.parseFloat(e.target.value)
+                                if (v !== item.unit_price) updateUnitPrice(item.id, v)
+                              }}
+                              className="h-8 w-28 text-right ml-auto"
+                              aria-label={`Precio unitario de ${item.description}`}
+                            />
+                          ) : (
+                            formatCurrency(item.unit_price, preInvoice.currency)
+                          )}
                         </TableCell>
                         <TableCell className="text-right">{item.discount ? `${item.discount}%` : "—"}</TableCell>
                         <TableCell className="text-right font-medium">
@@ -455,12 +534,29 @@ export default function PreInvoiceDetailPage() {
                 </span>
               </div>
               <Separator />
+              <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+                <div className="flex flex-col">
+                  <Label htmlFor="tax-toggle" className="text-sm font-medium">
+                    Aplicar IVA (16%)
+                  </Label>
+                  <span className="text-xs text-muted-foreground">
+                    {taxEnabled ? "Se incluye el impuesto" : "Prefactura sin impuestos"}
+                  </span>
+                </div>
+                <Switch
+                  id="tax-toggle"
+                  checked={taxEnabled}
+                  disabled={!editable || saving}
+                  onCheckedChange={(v) => toggleTax(Boolean(v))}
+                />
+              </div>
+              <Separator />
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>
                 <span className="font-medium">{formatCurrency(totals.subtotal, preInvoice.currency)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">IVA (16%)</span>
+                <span className="text-muted-foreground">{taxEnabled ? "IVA (16%)" : "IVA (exento)"}</span>
                 <span className="font-medium">{formatCurrency(totals.tax, preInvoice.currency)}</span>
               </div>
               <Separator />
@@ -528,7 +624,7 @@ export default function PreInvoiceDetailPage() {
                 <span>{formatCurrency(totals.subtotal, preInvoice.currency)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">IVA (16%)</span>
+                <span className="text-muted-foreground">{taxEnabled ? "IVA (16%)" : "IVA (exento)"}</span>
                 <span>{formatCurrency(totals.tax, preInvoice.currency)}</span>
               </div>
               <Separator />
