@@ -11,6 +11,9 @@ export interface CrmTaskTemplate {
   offset_minutes: number
   requires_manager: boolean
   is_active: boolean
+  whatsapp_message?: string | null
+  email_subject?: string | null
+  email_message?: string | null
 }
 
 interface ApplyTemplatesArgs {
@@ -92,6 +95,9 @@ export async function applyTaskTemplatesToProspect(
         template_id: tpl.id,
         created_by: createdBy,
         is_completed: false,
+        whatsapp_message: tpl.whatsapp_message ?? null,
+        email_subject: tpl.email_subject ?? null,
+        email_message: tpl.email_message ?? null,
       }
     })
 

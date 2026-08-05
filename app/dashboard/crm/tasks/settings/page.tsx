@@ -50,6 +50,7 @@ import {
   ArrowDown,
   UserCog,
   Clock,
+  MessageSquareText,
 } from "lucide-react"
 
 interface TaskTemplate {
@@ -63,6 +64,9 @@ interface TaskTemplate {
   offset_minutes: number
   requires_manager: boolean
   is_active: boolean
+  whatsapp_message: string | null
+  email_subject: string | null
+  email_message: string | null
 }
 
 interface StaffMember {
@@ -96,6 +100,9 @@ const emptyForm = {
   offset_days: 0,
   offset_minutes: 0,
   requires_manager: false,
+  whatsapp_message: "",
+  email_subject: "",
+  email_message: "",
 }
 
 export default function TaskSettingsPage() {
@@ -202,6 +209,9 @@ export default function TaskSettingsPage() {
       offset_days: tpl.offset_days,
       offset_minutes: tpl.offset_minutes,
       requires_manager: tpl.requires_manager,
+      whatsapp_message: tpl.whatsapp_message || "",
+      email_subject: tpl.email_subject || "",
+      email_message: tpl.email_message || "",
     })
     setDialogOpen(true)
   }
@@ -224,6 +234,9 @@ export default function TaskSettingsPage() {
             offset_days: formData.offset_days,
             offset_minutes: formData.offset_minutes,
             requires_manager: formData.requires_manager,
+            whatsapp_message: formData.whatsapp_message || null,
+            email_subject: formData.email_subject || null,
+            email_message: formData.email_message || null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", editing.id)
@@ -239,6 +252,9 @@ export default function TaskSettingsPage() {
           offset_days: formData.offset_days,
           offset_minutes: formData.offset_minutes,
           requires_manager: formData.requires_manager,
+          whatsapp_message: formData.whatsapp_message || null,
+          email_subject: formData.email_subject || null,
+          email_message: formData.email_message || null,
           order_index: maxOrder + 1,
           is_active: true,
         })
@@ -477,7 +493,7 @@ export default function TaskSettingsPage() {
 
       {/* Dialog crear/editar tarea predefinida */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? "Editar Tarea Predefinida" : "Nueva Tarea Predefinida"}</DialogTitle>
             <DialogDescription>
@@ -545,6 +561,58 @@ export default function TaskSettingsPage() {
                 </Select>
               </div>
             </div>
+
+            {(formData.task_type === "whatsapp" || formData.task_type === "email") && (
+              <div className="space-y-4 pt-2 border-t">
+                <Label className="flex items-center gap-2">
+                  <MessageSquareText className="h-4 w-4 text-emerald-600" />
+                  Mensaje de la tarea
+                </Label>
+
+                {formData.task_type === "whatsapp" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="whatsapp_message" className="text-xs text-muted-foreground">
+                      Mensaje de WhatsApp
+                    </Label>
+                    <Textarea
+                      id="whatsapp_message"
+                      value={formData.whatsapp_message}
+                      onChange={(e) => setFormData({ ...formData, whatsapp_message: e.target.value })}
+                      placeholder="Escribe el mensaje que el asesor enviará por WhatsApp..."
+                      rows={5}
+                    />
+                  </div>
+                )}
+
+                {formData.task_type === "email" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="email_subject" className="text-xs text-muted-foreground">
+                        Asunto del correo
+                      </Label>
+                      <Input
+                        id="email_subject"
+                        value={formData.email_subject}
+                        onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
+                        placeholder="Ej: Seguimiento a tu solicitud"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email_message" className="text-xs text-muted-foreground">
+                        Cuerpo del correo
+                      </Label>
+                      <Textarea
+                        id="email_message"
+                        value={formData.email_message}
+                        onChange={(e) => setFormData({ ...formData, email_message: e.target.value })}
+                        placeholder="Escribe el contenido del correo electrónico..."
+                        rows={6}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2 pt-2 border-t">
               <Label className="flex items-center gap-2">
