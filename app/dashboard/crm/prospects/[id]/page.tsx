@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { createClient } from "@/lib/supabase/client"
+import { syncAutomaticTasksWithStage } from "@/lib/crm-task-templates"
 import { toast } from "sonner"
 import { useAgency } from "@/contexts/agency-context"
 import { 
@@ -148,6 +149,9 @@ interface Task {
   due_date: string
   priority: string
   is_completed: boolean
+  is_paused?: boolean
+  status?: string
+  template_id?: string | null
 }
 
 interface Service {
@@ -537,6 +541,10 @@ state_province: prospectData.state_province || "",
       console.error(error)
       return
     }
+
+    // Pausar o reanudar las tareas automáticas según la etapa del prospecto:
+    // activas en Prospecto e Intento de Contacto (etapas 1 y 2), pausadas al salir de la etapa 2.
+    await syncAutomaticTasksWithStage(supabase, prospectId, formData.stage_id || null)
 
     // Registrar en el historial de asignaciones cuando hay un nuevo asesor.
     if (assignmentChanged && newAssignedTo) {
@@ -1937,6 +1945,11 @@ state_province: prospectData.state_province || "",
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className={`font-medium ${task.is_completed || task.status === "completed" ? "line-through" : ""}`}>{task.title}</span>
                                 {getPriorityBadge(task.priority)}
+                                {task.is_paused && (
+                                  <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50">
+                                    En pausa
+                                  </Badge>
+                                )}
                               </div>
                               {task.description && (
                                 <p className="text-sm text-muted-foreground mt-1">{task.description}</p>

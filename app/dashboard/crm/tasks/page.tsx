@@ -133,6 +133,7 @@ export default function TasksPage() {
         prospect:crm_prospects(id, contact_name, company_name)
       `)
       .eq("agency_id", selectedAgencyId)
+      .eq("is_paused", false)
       .order("due_date", { ascending: true })
 
     if (tasksData) {

@@ -105,3 +105,53 @@ export async function applyTaskTemplatesToProspect(
 
   return rows.length
 }
+
+/**
+ * Orden de etapa hasta el cual las tareas automáticas siguen activas.
+ * Etapa 1 (Prospecto) y Etapa 2 (Intento de Contacto) => tareas activas.
+ * Al salir de la etapa 2 (sort_order > 2) => las tareas automáticas se pausan.
+ */
+export const AUTO_TASKS_ACTIVE_MAX_STAGE_ORDER = 2
+
+/**
+ * Pausa o reanuda las tareas automáticas (las que provienen de una plantilla)
+ * de un prospecto según la etapa a la que se mueve.
+ *
+ * - Si la nueva etapa tiene sort_order <= 2 (Prospecto o Intento de Contacto),
+ *   las tareas automáticas pendientes se reanudan (is_paused = false).
+ * - Si la nueva etapa tiene sort_order > 2, las tareas automáticas pendientes
+ *   se pausan (is_paused = true), deteniendo el flujo automático.
+ *
+ * Solo afecta tareas con template_id (automáticas) y que no estén completadas.
+ * Las tareas creadas manualmente nunca se tocan.
+ */
+export async function syncAutomaticTasksWithStage(
+  supabase: SupabaseClient,
+  prospectId: string,
+  newStageId: string | null,
+): Promise<void> {
+  if (!prospectId) return
+
+  let sortOrder = 0
+  if (newStageId) {
+    const { data: stage } = await supabase
+      .from("crm_pipeline_stages")
+      .select("sort_order")
+      .eq("id", newStageId)
+      .maybeSingle()
+    sortOrder = stage?.sort_order ?? 0
+  }
+
+  const shouldPause = sortOrder > AUTO_TASKS_ACTIVE_MAX_STAGE_ORDER
+
+  const { error } = await supabase
+    .from("crm_tasks")
+    .update({ is_paused: shouldPause })
+    .eq("prospect_id", prospectId)
+    .not("template_id", "is", null)
+    .eq("is_completed", false)
+
+  if (error) {
+    console.error("[v0] Error syncing automatic tasks with stage:", error)
+  }
+}
