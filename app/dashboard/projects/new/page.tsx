@@ -122,8 +122,8 @@ export default function NewProjectPage() {
     project_code: "",
     name: "",
     description: "",
-    project_type: "standard",
-    status: "draft",
+    project_type: "project",
+    status: "active",
     priority: "medium",
     start_date: "",
     end_date: "",
@@ -625,9 +625,7 @@ if (deptRes.data) setDepartments(deptRes.data)
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="standard">Estándar</SelectItem>
-                        <SelectItem value="retainer">Retainer</SelectItem>
-                        <SelectItem value="internal">Interno</SelectItem>
+                        <SelectItem value="project">Por proyecto</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
@@ -641,13 +639,10 @@ if (deptRes.data) setDepartments(deptRes.data)
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="draft">Borrador</SelectItem>
-                        <SelectItem value="quoted">Cotizado</SelectItem>
-                        <SelectItem value="approved">Aprobado</SelectItem>
-                        <SelectItem value="in_progress">En progreso</SelectItem>
-                        <SelectItem value="on_hold">Pausado</SelectItem>
-                        <SelectItem value="completed">Completado</SelectItem>
-                        <SelectItem value="cancelled">Cancelado</SelectItem>
+                        <SelectItem value="active">Activa</SelectItem>
+                        <SelectItem value="inactive">Inactiva</SelectItem>
+                        <SelectItem value="on_hold">En pausa</SelectItem>
+                        <SelectItem value="closed">Cerrada</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>

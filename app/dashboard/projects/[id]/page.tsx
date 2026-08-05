@@ -148,8 +148,8 @@ export default function EditProjectPage({ params }: { params: Promise<{ id: stri
     project_code: "",
     name: "",
     description: "",
-    project_type: "standard",
-    status: "draft",
+    project_type: "project",
+    status: "active",
     priority: "medium",
     start_date: "",
     end_date: "",
@@ -218,8 +218,8 @@ export default function EditProjectPage({ params }: { params: Promise<{ id: stri
         project_code: p.project_code || "",
         name: p.name || "",
         description: p.description || "",
-        project_type: p.project_type || "standard",
-        status: p.status || "draft",
+        project_type: p.project_type || "project",
+        status: p.status || "active",
         priority: p.priority || "medium",
         start_date: p.start_date || "",
         end_date: p.end_date || "",
@@ -971,9 +971,7 @@ async function fetchAgencyServices(agencyId: string) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="standard">Estándar</SelectItem>
-                        <SelectItem value="retainer">Retainer</SelectItem>
-                        <SelectItem value="internal">Interno</SelectItem>
+                        <SelectItem value="project">Por proyecto</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
@@ -987,13 +985,10 @@ async function fetchAgencyServices(agencyId: string) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="draft">Borrador</SelectItem>
-                        <SelectItem value="quoted">Cotizado</SelectItem>
-                        <SelectItem value="approved">Aprobado</SelectItem>
-                        <SelectItem value="in_progress">En progreso</SelectItem>
-                        <SelectItem value="on_hold">Pausado</SelectItem>
-                        <SelectItem value="completed">Completado</SelectItem>
-                        <SelectItem value="cancelled">Cancelado</SelectItem>
+                        <SelectItem value="active">Activa</SelectItem>
+                        <SelectItem value="inactive">Inactiva</SelectItem>
+                        <SelectItem value="on_hold">En pausa</SelectItem>
+                        <SelectItem value="closed">Cerrada</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
