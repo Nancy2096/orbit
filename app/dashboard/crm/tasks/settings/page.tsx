@@ -562,57 +562,50 @@ export default function TaskSettingsPage() {
               </div>
             </div>
 
-            {(formData.task_type === "whatsapp" || formData.task_type === "email") && (
-              <div className="space-y-4 pt-2 border-t">
-                <Label className="flex items-center gap-2">
-                  <MessageSquareText className="h-4 w-4 text-emerald-600" />
-                  Mensaje de la tarea
+            <div className="space-y-4 pt-2 border-t">
+              <Label className="flex items-center gap-2">
+                <MessageSquareText className="h-4 w-4 text-emerald-600" />
+                Mensaje de la tarea
+              </Label>
+
+              <div className="space-y-2">
+                <Label htmlFor="whatsapp_message" className="text-xs text-muted-foreground">
+                  Mensaje de WhatsApp
                 </Label>
-
-                {formData.task_type === "whatsapp" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="whatsapp_message" className="text-xs text-muted-foreground">
-                      Mensaje de WhatsApp
-                    </Label>
-                    <Textarea
-                      id="whatsapp_message"
-                      value={formData.whatsapp_message}
-                      onChange={(e) => setFormData({ ...formData, whatsapp_message: e.target.value })}
-                      placeholder="Escribe el mensaje que el asesor enviará por WhatsApp..."
-                      rows={5}
-                    />
-                  </div>
-                )}
-
-                {formData.task_type === "email" && (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="email_subject" className="text-xs text-muted-foreground">
-                        Asunto del correo
-                      </Label>
-                      <Input
-                        id="email_subject"
-                        value={formData.email_subject}
-                        onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
-                        placeholder="Ej: Seguimiento a tu solicitud"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="email_message" className="text-xs text-muted-foreground">
-                        Cuerpo del correo
-                      </Label>
-                      <Textarea
-                        id="email_message"
-                        value={formData.email_message}
-                        onChange={(e) => setFormData({ ...formData, email_message: e.target.value })}
-                        placeholder="Escribe el contenido del correo electrónico..."
-                        rows={6}
-                      />
-                    </div>
-                  </>
-                )}
+                <Textarea
+                  id="whatsapp_message"
+                  value={formData.whatsapp_message}
+                  onChange={(e) => setFormData({ ...formData, whatsapp_message: e.target.value })}
+                  placeholder="Escribe el mensaje que el asesor enviará por WhatsApp..."
+                  rows={5}
+                />
               </div>
-            )}
+
+              <div className="space-y-2">
+                <Label htmlFor="email_subject" className="text-xs text-muted-foreground">
+                  Asunto del correo
+                </Label>
+                <Input
+                  id="email_subject"
+                  value={formData.email_subject}
+                  onChange={(e) => setFormData({ ...formData, email_subject: e.target.value })}
+                  placeholder="Ej: Seguimiento a tu solicitud"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email_message" className="text-xs text-muted-foreground">
+                  Cuerpo del correo
+                </Label>
+                <Textarea
+                  id="email_message"
+                  value={formData.email_message}
+                  onChange={(e) => setFormData({ ...formData, email_message: e.target.value })}
+                  placeholder="Escribe el contenido del correo electrónico..."
+                  rows={6}
+                />
+              </div>
+            </div>
 
             <div className="space-y-2 pt-2 border-t">
               <Label className="flex items-center gap-2">
