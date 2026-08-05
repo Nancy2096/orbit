@@ -73,6 +73,7 @@ interface StaffMember {
 
 const TASK_TYPES = [
   { value: "call", label: "Llamada" },
+  { value: "whatsapp", label: "WhatsApp" },
   { value: "email", label: "Email" },
   { value: "meeting", label: "Reunión" },
   { value: "follow_up", label: "Seguimiento" },

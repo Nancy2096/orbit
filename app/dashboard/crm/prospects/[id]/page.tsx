@@ -968,6 +968,7 @@ state_province: prospectData.state_province || "",
     // Registrar actividad automáticamente al crear la tarea
     const taskTypeLabels: Record<string, string> = {
       call: "Llamada",
+      whatsapp: "WhatsApp",
       email: "Email", 
       meeting: "Reunión",
       follow_up: "Seguimiento",
@@ -2811,6 +2812,7 @@ state_province: prospectData.state_province || "",
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="call">Llamada</SelectItem>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
                     <SelectItem value="email">Email</SelectItem>
                     <SelectItem value="meeting">Reunion</SelectItem>
                     <SelectItem value="other">Otro</SelectItem>

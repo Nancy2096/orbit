@@ -38,6 +38,7 @@ import {
   CheckCircle,
   AlertTriangle,
   Filter,
+  MessageCircle,
 } from "lucide-react"
 
 interface SalesRep {
@@ -241,6 +242,7 @@ export default function TasksPage() {
   const getTaskTypeIcon = (type: string) => {
     const icons: Record<string, React.ReactNode> = {
       call: <Phone className="h-4 w-4" />,
+      whatsapp: <MessageCircle className="h-4 w-4" />,
       email: <Mail className="h-4 w-4" />,
       meeting: <Users className="h-4 w-4" />,
       follow_up: <Clock className="h-4 w-4" />,
@@ -252,6 +254,7 @@ export default function TasksPage() {
   const getTaskTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
       call: "Llamada",
+      whatsapp: "WhatsApp",
       email: "Email",
       meeting: "Reunión",
       follow_up: "Seguimiento",
@@ -583,6 +586,7 @@ export default function TasksPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="call">Llamada</SelectItem>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
                     <SelectItem value="email">Email</SelectItem>
                     <SelectItem value="meeting">Reunion</SelectItem>
                     <SelectItem value="follow_up">Seguimiento</SelectItem>
