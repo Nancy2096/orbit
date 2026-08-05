@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { createClient } from "@/lib/supabase/client"
-import { syncAutomaticTasksWithStage } from "@/lib/crm-task-templates"
+import { applyTaskTemplatesToProspect, syncAutomaticTasksWithStage } from "@/lib/crm-task-templates"
 import { toast } from "sonner"
 import { useAgency } from "@/contexts/agency-context"
 import { 
@@ -401,6 +401,23 @@ state_province: prospectData.state_province || "",
       .in("name", ["Comercial", "Dirección"])
     
     const deptIds = commercialDepts?.map(d => d.id) || []
+
+    // Cargar las tareas predefinidas también en prospectos existentes (idempotente):
+    // si el prospecto aún no tiene las tareas de las plantillas configuradas en
+    // "Ajustar Tareas", se crean ahora. Luego se pausan/reanudan según su etapa.
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      await applyTaskTemplatesToProspect(supabase, {
+        prospectId,
+        agencyId,
+        assignedTo: prospectData.assigned_to || null,
+        registeredAt: prospectData.created_at || new Date().toISOString(),
+        createdBy: authData?.user?.id ?? null,
+      })
+      await syncAutomaticTasksWithStage(supabase, prospectId, prospectData.stage_id || null)
+    } catch (e) {
+      console.error("[v0] Error al cargar tareas predefinidas del prospecto:", e)
+    }
 
     // Fetch all related data in parallel
     const [
