@@ -13,6 +13,7 @@ import {
   Users,
   Kanban,
   Settings2,
+  ListChecks,
   DollarSign,
   Trophy,
   Layers,
@@ -528,6 +529,12 @@ export default function CRMDashboardPage() {
           <Button variant="outline" size="sm" onClick={() => fetchDashboardData(true)} disabled={refreshing}>
             <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             {refreshing ? "Actualizando..." : "Actualizar"}
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/dashboard/crm/tasks/settings">
+              <ListChecks className="mr-2 h-4 w-4" />
+              Ajustar Tareas
+            </Link>
           </Button>
           <Button variant="outline" size="sm" asChild>
             <Link href="/dashboard/crm/pipeline/settings">

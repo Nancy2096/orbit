@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { createClient } from "@/lib/supabase/client"
+import { syncAutomaticTasksWithStage } from "@/lib/crm-task-templates"
 import { toast } from "sonner"
 import { 
   UserPlus, 
@@ -233,6 +234,11 @@ export default function PipelinePage() {
       toast.error("Error al mover el prospecto")
       return
     }
+
+    // Pausar o reanudar las tareas automáticas según la nueva etapa:
+    // se mantienen activas en Prospecto e Intento de Contacto (etapas 1 y 2)
+    // y se pausan al salir de la etapa 2.
+    await syncAutomaticTasksWithStage(supabase, prospectId, newStageId)
 
     // Update local state. Mover de etapa cuenta como interacción, por lo que se
     // actualiza también la última fecha de contacto con el momento del cambio.
