@@ -39,6 +39,9 @@ import {
   Save,
   Phone,
   Mail,
+  MessageCircle,
+  ChevronDown,
+  ChevronUp,
   Building2,
   Calendar,
   CalendarDays,
@@ -152,6 +155,9 @@ interface Task {
   is_paused?: boolean
   status?: string
   template_id?: string | null
+  whatsapp_message?: string | null
+  email_subject?: string | null
+  email_message?: string | null
 }
 
 interface Service {
@@ -220,6 +226,7 @@ export default function ProspectDetailPage() {
   const [salesReps, setSalesReps] = useState<SalesRep[]>([])
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [services, setServices] = useState<Service[]>([])
   const [prospectServices, setProspectServices] = useState<ProspectService[]>([])
   const [quotations, setQuotations] = useState<Quotation[]>([])
@@ -1068,6 +1075,18 @@ state_province: prospectData.state_province || "",
       toast.success("Tarea completada y registrada")
       fetchData() // Refrescar actividades
     }
+  }
+
+  const toggleTaskDetail = (taskId: string) => {
+    setExpandedTasks((prev) => {
+      const next = new Set(prev)
+      if (next.has(taskId)) {
+        next.delete(taskId)
+      } else {
+        next.add(taskId)
+      }
+      return next
+    })
   }
 
   const updateTaskStatus = async (taskId: string, newStatus: string) => {
@@ -1995,6 +2014,27 @@ state_province: prospectData.state_province || "",
                                   </SelectContent>
                                 </Select>
                                 
+                                {(task.whatsapp_message || task.email_subject || task.email_message) && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() => toggleTaskDetail(task.id)}
+                                  >
+                                    {expandedTasks.has(task.id) ? (
+                                      <>
+                                        <ChevronUp className="mr-1 h-3.5 w-3.5" />
+                                        Ocultar detalle
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ChevronDown className="mr-1 h-3.5 w-3.5" />
+                                        Ver detalle
+                                      </>
+                                    )}
+                                  </Button>
+                                )}
+
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -2008,6 +2048,35 @@ state_province: prospectData.state_province || "",
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </div>
+
+                              {/* Detalle: mensajes de WhatsApp y correo (solo al expandir) */}
+                              {expandedTasks.has(task.id) && (task.whatsapp_message || task.email_subject || task.email_message) && (
+                                <div className="mt-3 space-y-3 rounded-lg border bg-muted/40 p-3">
+                                  {task.whatsapp_message && (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                                        <MessageCircle className="h-3.5 w-3.5" />
+                                        Mensaje de WhatsApp
+                                      </div>
+                                      <p className="whitespace-pre-wrap text-sm text-foreground/90">{task.whatsapp_message}</p>
+                                    </div>
+                                  )}
+                                  {(task.email_subject || task.email_message) && (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700">
+                                        <Mail className="h-3.5 w-3.5" />
+                                        Correo electrónico
+                                      </div>
+                                      {task.email_subject && (
+                                        <p className="text-sm"><span className="font-medium">Asunto:</span> {task.email_subject}</p>
+                                      )}
+                                      {task.email_message && (
+                                        <p className="whitespace-pre-wrap text-sm text-foreground/90">{task.email_message}</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         )
