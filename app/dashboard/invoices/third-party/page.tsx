@@ -44,7 +44,8 @@ import {
   User,
   Hash,
   AlertCircle,
-  Banknote
+  Banknote,
+  Trash2
 } from "lucide-react"
 import {
   Dialog,
@@ -62,6 +63,16 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 
 interface ThirdPartyPayment {
@@ -209,6 +220,11 @@ export default function ThirdPartyPaymentsPage() {
   const [changeStatusPayment, setChangeStatusPayment] = useState<ThirdPartyPayment | null>(null)
   const [newStatus, setNewStatus] = useState("")
 
+  // Delete confirmation state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [paymentToDelete, setPaymentToDelete] = useState<ThirdPartyPayment | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
   const [formData, setFormData] = useState({
     agency_id: "",
     vendor_id: "",
@@ -320,6 +336,62 @@ export default function ThirdPartyPaymentsPage() {
       })
     }
     setLoading(false)
+  }
+
+  const openDeleteDialog = (payment: ThirdPartyPayment) => {
+    setPaymentToDelete(payment)
+    setDeleteDialogOpen(true)
+  }
+
+  // Elimina por completo un pago por cuenta de cliente: borra el gasto relacionado,
+  // la factura generada (y sus items) y finalmente el propio pago.
+  const handleDeletePayment = async () => {
+    if (!paymentToDelete) return
+    setDeleting(true)
+    try {
+      // 1) Eliminar el gasto relacionado. El gasto generado guarda en notes
+      //    una línea "Referencia: <payment_number>", así que lo localizamos por ahí.
+      const { error: expenseError } = await supabase
+        .from("expenses")
+        .delete()
+        .ilike("notes", `%Referencia: ${paymentToDelete.payment_number}%`)
+      if (expenseError) {
+        console.error("Error deleting related expense:", expenseError)
+        throw new Error("No se pudo eliminar el gasto relacionado")
+      }
+
+      // 2) Eliminar la factura generada (y sus items) si existe.
+      if (paymentToDelete.invoice_id) {
+        await supabase.from("invoice_items").delete().eq("invoice_id", paymentToDelete.invoice_id)
+        const { error: invoiceError } = await supabase
+          .from("invoices")
+          .delete()
+          .eq("id", paymentToDelete.invoice_id)
+        if (invoiceError) {
+          console.error("Error deleting related invoice:", invoiceError)
+          throw new Error("No se pudo eliminar la factura relacionada")
+        }
+      }
+
+      // 3) Eliminar el pago por cuenta de cliente.
+      const { error: paymentError } = await supabase
+        .from("third_party_payments")
+        .delete()
+        .eq("id", paymentToDelete.id)
+      if (paymentError) {
+        console.error("Error deleting payment:", paymentError)
+        throw new Error("No se pudo eliminar el pago")
+      }
+
+      toast.success("Pago eliminado por completo, junto con su factura y gasto relacionados")
+      setDeleteDialogOpen(false)
+      setPaymentToDelete(null)
+      fetchPayments()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al eliminar el pago")
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const calculateAmounts = () => {
@@ -1023,6 +1095,16 @@ const filteredPayments = payments.filter((payment) => {
                                 Reactivar
                               </DropdownMenuItem>
                             )}
+
+                            <DropdownMenuSeparator />
+
+                            <DropdownMenuItem
+                              onClick={() => openDeleteDialog(payment)}
+                              className="cursor-pointer text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Eliminar por completo
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -1034,6 +1116,39 @@ const filteredPayments = payments.filter((payment) => {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar este pago por completo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {paymentToDelete && (
+                <>
+                  Se eliminará de forma permanente el pago{" "}
+                  <strong>{paymentToDelete.payment_number}</strong> a{" "}
+                  <strong>{paymentToDelete.third_party_name}</strong>.
+                  {paymentToDelete.invoice_id && " También se eliminará la factura generada."}{" "}
+                  El registro de <strong>Gasto relacionado</strong> también se borrará. Esta acción no se puede deshacer.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDeletePayment()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Eliminando..." : "Eliminar por completo"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* New Payment Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
