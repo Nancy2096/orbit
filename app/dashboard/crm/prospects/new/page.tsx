@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { applyTaskTemplatesToProspect } from "@/lib/crm-task-templates"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -288,7 +289,7 @@ export default function NewProspectPage() {
       description: formData.description || null,
       notes: formData.notes || null,
       status: "active",
-    }).select("id").single()
+    }).select("id, created_at").single()
 
     if (error) {
       setSaving(false)
@@ -339,6 +340,25 @@ export default function NewProspectPage() {
         }
       })
       await supabase.from("crm_prospect_services").insert(servicesToInsert)
+    }
+
+    // Cargar automáticamente las tareas predefinidas del CRM en el nuevo prospecto.
+    // Las fechas límite se calculan a partir del momento de registro y las tareas
+    // que requieren apoyo del gerente se asignan al gerente configurado de la agencia.
+    if (prospect) {
+      try {
+        const { data: authData } = await supabase.auth.getUser()
+        await applyTaskTemplatesToProspect(supabase, {
+          prospectId: prospect.id,
+          agencyId: selectedAgencyId,
+          assignedTo: formData.assigned_to || null,
+          registeredAt: prospect.created_at || new Date().toISOString(),
+          createdBy: authData?.user?.id ?? null,
+        })
+      } catch (e) {
+        console.error("[v0] Error al cargar tareas predefinidas:", e)
+        // No bloqueamos la creación del prospecto si fallan las tareas predefinidas.
+      }
     }
 
     setSaving(false)
