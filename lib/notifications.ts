@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client"
 
-export type NotificationType = "course" | "expense" | "leave" | "bonus" | "one2one"
+export type NotificationType = "course" | "expense" | "leave" | "bonus" | "one2one" | "crm_task"
 
 /**
  * Hitos de reuniones One 2 One en función del día que la persona inició a
@@ -111,7 +111,7 @@ export async function fetchNotifications(): Promise<NotificationsResult> {
       .eq("is_active", true)
     const reportIds = (reports ?? []).map((r) => r.id)
 
-    const [coursesRes, expensesRes, leavesRes, bonusesRes] = await Promise.all([
+    const [coursesRes, expensesRes, leavesRes, bonusesRes, crmTasksRes] = await Promise.all([
       // Cursos obligatorios asignados y no completados.
       supabase
         .from("training_enrollments")
@@ -139,6 +139,14 @@ export async function fetchNotifications(): Promise<NotificationsResult> {
             .in("staff_id", reportIds)
             .eq("workflow_stage", "pending_manager")
         : Promise.resolve({ data: [] as any[] }),
+      // Tareas del CRM asignadas al usuario y aún pendientes (no completadas ni pausadas).
+      // Incluye las tareas de apoyo generadas para gerentes y directores.
+      supabase
+        .from("crm_tasks")
+        .select("id, created_at, title, due_date, task_type, prospect:crm_prospects(name)")
+        .eq("assigned_to", staffId)
+        .eq("is_completed", false)
+        .or("is_paused.is.null,is_paused.eq.false"),
     ])
 
     for (const e of coursesRes.data ?? []) {
