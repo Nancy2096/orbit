@@ -217,6 +217,121 @@ export async function refreshPreInvoiceAmounts(
   return { ...totals, currency }
 }
 
+// Convierte una prefactura en factura: crea el registro en `invoices` con sus
+// líneas (a partir de las líneas incluidas de la prefactura) y marca la
+// prefactura como "invoiced". Devuelve el id de la factura creada.
+// Reutilizable tanto para la conversión individual como para el facturado
+// masivo de un periodo. Es idempotente por prefactura: si ya está facturada
+// devuelve su invoice_id existente sin crear duplicados.
+export async function convertPreInvoiceToInvoice(
+  supabase: SupabaseClient,
+  preInvoiceId: string,
+): Promise<{ invoiceId: string; alreadyInvoiced: boolean }> {
+  const { data: pre, error: preErr } = await supabase
+    .from("pre_invoices")
+    .select(
+      "id, agency_id, client_id, account_id, project_id, currency, tax_enabled, notes, status, invoice_id",
+    )
+    .eq("id", preInvoiceId)
+    .single()
+  if (preErr || !pre) throw new Error(preErr?.message || "Prefactura no encontrada")
+
+  if (pre.status === "invoiced" && pre.invoice_id) {
+    return { invoiceId: pre.invoice_id, alreadyInvoiced: true }
+  }
+  if (pre.status === "cancelled") {
+    throw new Error("La prefactura está cancelada")
+  }
+
+  const { data: allItems, error: itemsErr } = await supabase
+    .from("pre_invoice_items")
+    .select("*")
+    .eq("pre_invoice_id", preInvoiceId)
+    .order("sort_order")
+  if (itemsErr) throw new Error(itemsErr.message)
+
+  const includedItems = (allItems || []).filter((i) => i.is_included)
+  if (includedItems.length === 0) {
+    throw new Error("La prefactura no tiene servicios incluidos")
+  }
+
+  const taxEnabled = pre.tax_enabled !== false
+  const taxRate = taxEnabled ? 16 : 0
+  const totals = computeTotals(
+    includedItems.map((i) => ({ amount: Number(i.amount) || 0, is_included: true })),
+    taxEnabled,
+  )
+
+  // Moneda -> currency_id
+  const { data: currency } = await supabase
+    .from("currencies")
+    .select("id")
+    .eq("code", pre.currency)
+    .maybeSingle()
+
+  // Número de factura consistente con el módulo de facturas.
+  const year = new Date().getFullYear()
+  const { count } = await supabase
+    .from("invoices")
+    .select("*", { count: "exact", head: true })
+    .eq("agency_id", pre.agency_id)
+  const invoiceNumber = `FAC-${year}-${String((count || 0) + 1).padStart(5, "0")}`
+
+  const { data: invoice, error: invoiceError } = await supabase
+    .from("invoices")
+    .insert({
+      agency_id: pre.agency_id,
+      client_id: pre.client_id,
+      account_id: pre.account_id,
+      project_id: pre.project_id,
+      invoice_number: invoiceNumber,
+      invoice_type: "standard",
+      status: "draft",
+      issue_date: new Date().toISOString().split("T")[0],
+      subtotal: totals.subtotal,
+      tax_amount: totals.tax,
+      tax_rate: taxRate,
+      total_amount: totals.total,
+      balance_due: totals.total,
+      currency_id: currency?.id ?? null,
+      exchange_rate: 1,
+      notes: pre.notes,
+    })
+    .select()
+    .single()
+  if (invoiceError || !invoice) {
+    throw new Error(invoiceError?.message || "No se pudo crear la factura")
+  }
+
+  const itemsToInsert = includedItems.map((item, index) => {
+    const subtotal = Number(item.amount) || 0
+    const tax = Math.round(subtotal * (taxRate / 100) * 100) / 100
+    return {
+      invoice_id: invoice.id,
+      service_id: item.service_id,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      discount_percentage: item.discount,
+      tax_rate: taxRate,
+      subtotal,
+      tax_amount: tax,
+      total: Math.round((subtotal + tax) * 100) / 100,
+      sort_order: index,
+    }
+  })
+
+  const { error: itemsInsertErr } = await supabase.from("invoice_items").insert(itemsToInsert)
+  if (itemsInsertErr) throw new Error(itemsInsertErr.message)
+
+  await supabase
+    .from("pre_invoices")
+    .update({ status: "invoiced", invoice_id: invoice.id })
+    .eq("id", preInvoiceId)
+
+  return { invoiceId: invoice.id, alreadyInvoiced: false }
+}
+
 // Lista de los últimos N meses (incluyendo el actual) como opciones YYYY-MM.
 export function recentMonths(count = 12): { value: string; label: string }[] {
   const options: { value: string; label: string }[] = []

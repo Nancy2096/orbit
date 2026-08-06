@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Table,
@@ -36,6 +37,7 @@ import {
   Calendar,
   ChevronRight,
   ArrowLeft,
+  FileCheck,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -45,6 +47,7 @@ import {
   formatCurrency,
   periodLabel,
   refreshPreInvoiceAmounts,
+  convertPreInvoiceToInvoice,
   type PreInvoiceStatus,
 } from "@/lib/pre-invoices"
 
@@ -85,6 +88,8 @@ export default function PreInvoicesPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [billing, setBilling] = useState(false)
 
   // Recalcula los montos con los datos actuales de Cuentas/Proyectos.
   async function handleRefresh(id: string) {
@@ -117,6 +122,34 @@ export default function PreInvoicesPage() {
     } finally {
       setDeletingId(null)
     }
+  }
+
+  // Factura todas las prefacturas seleccionadas (que aún estén pendientes).
+  async function handleBillSelected(ids: string[]) {
+    if (ids.length === 0) return
+    if (
+      !confirm(
+        `¿Facturar ${ids.length} ${ids.length === 1 ? "prefactura" : "prefacturas"} seleccionadas? Se generará una factura por cada una.`,
+      )
+    )
+      return
+    setBilling(true)
+    let ok = 0
+    let failed = 0
+    for (const id of ids) {
+      try {
+        await convertPreInvoiceToInvoice(supabase, id)
+        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "invoiced" } : r)))
+        ok += 1
+      } catch (err) {
+        failed += 1
+        console.log("[v0] Error al facturar prefactura", id, err)
+      }
+    }
+    setBilling(false)
+    setSelectedIds(new Set())
+    if (ok > 0) toast.success(`${ok} ${ok === 1 ? "prefactura facturada" : "prefacturas facturadas"}`)
+    if (failed > 0) toast.error(`${failed} no se pudieron facturar (revisa que tengan servicios incluidos)`)
   }
 
   useEffect(() => {
@@ -242,6 +275,7 @@ export default function PreInvoicesPage() {
                 setSelectedPeriod(period)
                 setSearch("")
                 setStatusFilter("all")
+                setSelectedIds(new Set())
               }}
             />
           ) : (
@@ -252,11 +286,18 @@ export default function PreInvoicesPage() {
               setSearch={setSearch}
               statusFilter={statusFilter}
               setStatusFilter={setStatusFilter}
-              onBack={() => setSelectedPeriod(null)}
+              onBack={() => {
+                setSelectedPeriod(null)
+                setSelectedIds(new Set())
+              }}
               onRefresh={handleRefresh}
               onDelete={handleDelete}
               refreshingId={refreshingId}
               deletingId={deletingId}
+              selectedIds={selectedIds}
+              setSelectedIds={setSelectedIds}
+              onBillSelected={handleBillSelected}
+              billing={billing}
             />
           )}
         </CardContent>
@@ -380,6 +421,10 @@ function PeriodDetailView({
   onDelete,
   refreshingId,
   deletingId,
+  selectedIds,
+  setSelectedIds,
+  onBillSelected,
+  billing,
 }: {
   label: string
   rows: PreInvoiceRow[]
@@ -392,7 +437,39 @@ function PeriodDetailView({
   onDelete: (id: string, number: string) => void
   refreshingId: string | null
   deletingId: string | null
+  selectedIds: Set<string>
+  setSelectedIds: (updater: (prev: Set<string>) => Set<string>) => void
+  onBillSelected: (ids: string[]) => void
+  billing: boolean
 }) {
+  // Solo se pueden facturar prefacturas que aún no estén facturadas ni canceladas.
+  const billableRows = rows.filter((r) => r.status !== "invoiced" && r.status !== "cancelled")
+  const selectableIds = billableRows.map((r) => r.id)
+  const selectedBillable = selectableIds.filter((id) => selectedIds.has(id))
+  const allSelected = selectableIds.length > 0 && selectedBillable.length === selectableIds.length
+  const someSelected = selectedBillable.length > 0 && !allSelected
+
+  const toggleAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allSelected) {
+        selectableIds.forEach((id) => next.delete(id))
+      } else {
+        selectableIds.forEach((id) => next.add(id))
+      }
+      return next
+    })
+  }
+
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   return (
     <>
       <div className="mb-4 flex flex-col gap-3">
@@ -405,6 +482,21 @@ function PeriodDetailView({
             <Calendar className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-semibold">{label}</h2>
             <Badge variant="secondary">{rows.length}</Badge>
+          </div>
+          <div className="ml-auto">
+            <Button
+              size="sm"
+              onClick={() => onBillSelected(selectedBillable)}
+              disabled={selectedBillable.length === 0 || billing}
+            >
+              {billing ? (
+                <Spinner className="mr-2 h-4 w-4" />
+              ) : (
+                <FileCheck className="mr-2 h-4 w-4" />
+              )}
+              Facturar seleccionados
+              {selectedBillable.length > 0 ? ` (${selectedBillable.length})` : ""}
+            </Button>
           </div>
         </div>
 
@@ -446,6 +538,14 @@ function PeriodDetailView({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                  onCheckedChange={toggleAll}
+                  disabled={selectableIds.length === 0}
+                  aria-label="Seleccionar todas las prefacturas facturables"
+                />
+              </TableHead>
               <TableHead>Número</TableHead>
               <TableHead>Origen</TableHead>
               <TableHead>Cliente</TableHead>
@@ -456,9 +556,26 @@ function PeriodDetailView({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r.id}>
-                <TableCell className="font-medium">{r.pre_invoice_number}</TableCell>
+            {rows.map((r) => {
+              const canSelect = r.status !== "invoiced" && r.status !== "cancelled"
+              return (
+              <TableRow key={r.id} data-state={selectedIds.has(r.id) ? "selected" : undefined}>
+                <TableCell>
+                  <Checkbox
+                    checked={selectedIds.has(r.id)}
+                    onCheckedChange={() => toggleOne(r.id)}
+                    disabled={!canSelect}
+                    aria-label={`Seleccionar prefactura ${r.pre_invoice_number}`}
+                  />
+                </TableCell>
+                <TableCell className="font-medium">
+                  <Link
+                    href={`/dashboard/pre-invoices/${r.id}`}
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    {r.pre_invoice_number}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <div className="flex flex-col">
                     <span>{r.account?.account_name || r.project?.name || "-"}</span>
@@ -514,7 +631,8 @@ function PeriodDetailView({
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+              )
+            })}
           </TableBody>
         </Table>
       )}

@@ -54,6 +54,7 @@ import {
   lineAmount,
   periodLabel,
   refreshPreInvoiceAmounts,
+  convertPreInvoiceToInvoice,
 } from "@/lib/pre-invoices"
 
 interface RelatedInfo {
@@ -227,76 +228,8 @@ export default function PreInvoiceDetailPage() {
     setError(null)
 
     try {
-      // Moneda -> currency_id
-      const { data: currency } = await supabase
-        .from("currencies")
-        .select("id")
-        .eq("code", preInvoice.currency)
-        .maybeSingle()
-
-      // Número de factura consistente con el módulo de facturas
-      const year = new Date().getFullYear()
-      const { count } = await supabase
-        .from("invoices")
-        .select("*", { count: "exact", head: true })
-        .eq("agency_id", preInvoice.agency_id)
-      const invoiceNumber = `FAC-${year}-${String((count || 0) + 1).padStart(5, "0")}`
-
-      const taxRate = taxEnabled ? 16 : 0
-      const { data: invoice, error: invoiceError } = await supabase
-        .from("invoices")
-        .insert({
-          agency_id: preInvoice.agency_id,
-          client_id: preInvoice.client_id,
-          account_id: preInvoice.account_id,
-          project_id: preInvoice.project_id,
-          invoice_number: invoiceNumber,
-          invoice_type: "standard",
-          status: "draft",
-          issue_date: new Date().toISOString().split("T")[0],
-          subtotal: totals.subtotal,
-          tax_amount: totals.tax,
-          tax_rate: taxRate,
-          total_amount: totals.total,
-          balance_due: totals.total,
-          currency_id: currency?.id ?? null,
-          exchange_rate: 1,
-          notes: preInvoice.notes,
-        })
-        .select()
-        .single()
-
-      if (invoiceError || !invoice) {
-        throw new Error(invoiceError?.message || "No se pudo crear la factura")
-      }
-
-      const itemsToInsert = includedItems.map((item, index) => {
-        const subtotal = item.amount
-        const tax = Math.round(subtotal * (taxRate / 100) * 100) / 100
-        return {
-          invoice_id: invoice.id,
-          service_id: item.service_id,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          discount_percentage: item.discount,
-          tax_rate: taxRate,
-          subtotal,
-          tax_amount: tax,
-          total: Math.round((subtotal + tax) * 100) / 100,
-          sort_order: index,
-        }
-      })
-
-      const { error: itemsError } = await supabase.from("invoice_items").insert(itemsToInsert)
-      if (itemsError) throw new Error(itemsError.message)
-
-      await supabase
-        .from("pre_invoices")
-        .update({ status: "invoiced", invoice_id: invoice.id })
-        .eq("id", id)
-
-      router.push(`/dashboard/invoices/${invoice.id}`)
+      const { invoiceId } = await convertPreInvoiceToInvoice(supabase, id)
+      router.push(`/dashboard/invoices/${invoiceId}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al convertir la prefactura")
       setConverting(false)
