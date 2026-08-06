@@ -294,7 +294,7 @@ if (agencyId) {
     setDeleting(true)
     // Borrar primero las líneas y pagos asociados para evitar restricciones de FK.
     await supabase.from("invoice_items").delete().eq("invoice_id", deleteInvoice.id)
-    await supabase.from("invoice_payments").delete().eq("invoice_id", deleteInvoice.id)
+    await supabase.from("payments").delete().eq("invoice_id", deleteInvoice.id)
     const { error } = await supabase.from("invoices").delete().eq("id", deleteInvoice.id)
     setDeleting(false)
     if (error) {
@@ -714,6 +714,14 @@ setUploading(false)
                                 </DropdownMenuItem>
                               </>
                             )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setDeleteInvoice(invoice)}
+                              className="cursor-pointer text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Eliminar
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -725,6 +733,33 @@ setUploading(false)
           )}
         </CardContent>
       </Card>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteInvoice} onOpenChange={(open) => !open && setDeleteInvoice(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta factura?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará permanentemente la factura{" "}
+              <strong>{deleteInvoice?.invoice_number}</strong> junto con sus líneas y pagos
+              registrados. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDeleteInvoice()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Payment Registration Modal */}
       <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}>
