@@ -28,6 +28,7 @@ import { toast } from "sonner"
 import {
   STATUS_LABELS,
   STATUS_VARIANTS,
+  STATUS_CLASSES,
   formatCurrency,
   periodLabel,
   recentMonths,
@@ -259,7 +260,9 @@ export default function PreInvoicesPage() {
                     <TableCell>{r.agency?.name || "-"}</TableCell>
                     <TableCell>{periodLabel(r.period_start)}</TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANTS[r.status]}>{STATUS_LABELS[r.status]}</Badge>
+                      <Badge variant={STATUS_VARIANTS[r.status]} className={STATUS_CLASSES[r.status]}>
+                        {STATUS_LABELS[r.status]}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right">{formatCurrency(r.total, r.currency)}</TableCell>
                     <TableCell className="text-right">

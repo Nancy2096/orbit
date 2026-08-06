@@ -47,6 +47,7 @@ import {
   type PreInvoiceItem,
   STATUS_LABELS,
   STATUS_VARIANTS,
+  STATUS_CLASSES,
   canEditPreInvoicePrices,
   computeTotals,
   formatCurrency,
@@ -362,7 +363,9 @@ export default function PreInvoiceDetailPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight">{preInvoice.pre_invoice_number}</h1>
-              <Badge variant={STATUS_VARIANTS[preInvoice.status]}>{STATUS_LABELS[preInvoice.status]}</Badge>
+              <Badge variant={STATUS_VARIANTS[preInvoice.status]} className={STATUS_CLASSES[preInvoice.status]}>
+            {STATUS_LABELS[preInvoice.status]}
+          </Badge>
             </div>
             <p className="text-muted-foreground">
               {targetName || "—"} · {periodLabel(preInvoice.period_start)}
