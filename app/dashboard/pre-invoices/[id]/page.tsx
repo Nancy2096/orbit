@@ -476,6 +476,10 @@ export default function PreInvoiceDetailPage() {
                 <span className="font-medium">{related.clientName || "—"}</span>
               </div>
               <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Cuenta</span>
+                <span className="font-medium">{related.accountName || "—"}</span>
+              </div>
+              <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Agencia</span>
                 <span className="font-medium">{related.agencyName || "—"}</span>
               </div>
