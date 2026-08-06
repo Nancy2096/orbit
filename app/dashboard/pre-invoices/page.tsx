@@ -23,7 +23,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Search, Eye, ClipboardList, FileText, Send, DollarSign, RefreshCw, Trash2 } from "lucide-react"
+import {
+  Plus,
+  Search,
+  Eye,
+  ClipboardList,
+  FileText,
+  Send,
+  DollarSign,
+  RefreshCw,
+  Trash2,
+  Calendar,
+  ChevronRight,
+  ArrowLeft,
+} from "lucide-react"
 import { toast } from "sonner"
 import {
   STATUS_LABELS,
@@ -31,7 +44,6 @@ import {
   STATUS_CLASSES,
   formatCurrency,
   periodLabel,
-  recentMonths,
   refreshPreInvoiceAmounts,
   type PreInvoiceStatus,
 } from "@/lib/pre-invoices"
@@ -51,16 +63,26 @@ interface PreInvoiceRow {
   agency: { name: string } | null
 }
 
+interface PeriodGroup {
+  period: string
+  label: string
+  count: number
+  draft: number
+  sent: number
+  invoiced: number
+  cancelled: number
+  totalsByCurrency: Record<string, number>
+}
+
 export default function PreInvoicesPage() {
   const supabase = createClient()
-  const months = useMemo(() => recentMonths(12), [])
   const [rows, setRows] = useState<PreInvoiceRow[]>([])
   const [agencies, setAgencies] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [agencyFilter, setAgencyFilter] = useState<string>("all")
-  const [periodFilter, setPeriodFilter] = useState<string>("all")
+  const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -120,19 +142,56 @@ export default function PreInvoicesPage() {
     load()
   }, [supabase])
 
-  const filtered = rows.filter((r) => {
-    const name = r.account?.account_name || r.project?.name || ""
-    const clientName = r.client?.company_name || ""
-    const matchesSearch =
-      !search ||
-      name.toLowerCase().includes(search.toLowerCase()) ||
-      clientName.toLowerCase().includes(search.toLowerCase()) ||
-      r.pre_invoice_number.toLowerCase().includes(search.toLowerCase())
-    const matchesStatus = statusFilter === "all" || r.status === statusFilter
-    const matchesAgency = agencyFilter === "all" || r.agency_id === agencyFilter
-    const matchesPeriod = periodFilter === "all" || r.period_start.startsWith(periodFilter)
-    return matchesSearch && matchesStatus && matchesAgency && matchesPeriod
-  })
+  // Prefacturas visibles según agencia (aplica tanto a la vista de periodos
+  // como al detalle de un periodo).
+  const agencyFiltered = useMemo(
+    () => rows.filter((r) => agencyFilter === "all" || r.agency_id === agencyFilter),
+    [rows, agencyFilter],
+  )
+
+  // Agrupación por periodo para la vista inicial.
+  const periodGroups = useMemo<PeriodGroup[]>(() => {
+    const map = new Map<string, PeriodGroup>()
+    for (const r of agencyFiltered) {
+      const key = r.period_start
+      let g = map.get(key)
+      if (!g) {
+        g = {
+          period: key,
+          label: periodLabel(key),
+          count: 0,
+          draft: 0,
+          sent: 0,
+          invoiced: 0,
+          cancelled: 0,
+          totalsByCurrency: {},
+        }
+        map.set(key, g)
+      }
+      g.count += 1
+      g[r.status] += 1
+      const cur = r.currency || "MXN"
+      g.totalsByCurrency[cur] = (g.totalsByCurrency[cur] || 0) + (r.total || 0)
+    }
+    return Array.from(map.values()).sort((a, b) => b.period.localeCompare(a.period))
+  }, [agencyFiltered])
+
+  // Prefacturas del periodo seleccionado, con búsqueda y estado.
+  const periodRows = useMemo(() => {
+    if (!selectedPeriod) return []
+    return agencyFiltered.filter((r) => {
+      if (r.period_start !== selectedPeriod) return false
+      const name = r.account?.account_name || r.project?.name || ""
+      const clientName = r.client?.company_name || ""
+      const matchesSearch =
+        !search ||
+        name.toLowerCase().includes(search.toLowerCase()) ||
+        clientName.toLowerCase().includes(search.toLowerCase()) ||
+        r.pre_invoice_number.toLowerCase().includes(search.toLowerCase())
+      const matchesStatus = statusFilter === "all" || r.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [agencyFiltered, selectedPeriod, search, statusFilter])
 
   const stats = {
     total: rows.length,
@@ -140,6 +199,8 @@ export default function PreInvoicesPage() {
     sent: rows.filter((r) => r.status === "sent").length,
     invoiced: rows.filter((r) => r.status === "invoiced").length,
   }
+
+  const selectedLabel = selectedPeriod ? periodLabel(selectedPeriod) : ""
 
   return (
     <div className="space-y-6">
@@ -167,150 +228,297 @@ export default function PreInvoicesPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-            <div className="relative w-full sm:max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por cuenta, cliente o número..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Select value={periodFilter} onValueChange={setPeriodFilter}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Periodo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los periodos</SelectItem>
-                {months.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[160px]">
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los estados</SelectItem>
-                {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={agencyFilter} onValueChange={setAgencyFilter}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Agencia" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas las agencias</SelectItem>
-                {agencies.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Spinner className="h-6 w-6" />
             </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-              <ClipboardList className="h-8 w-8 text-muted-foreground" />
-              <p className="font-medium">No hay prefacturas</p>
-              <p className="text-sm text-muted-foreground">
-                Genera prefacturas de tus cuentas y proyectos activos para empezar.
-              </p>
-            </div>
+          ) : selectedPeriod === null ? (
+            <PeriodListView
+              groups={periodGroups}
+              agencies={agencies}
+              agencyFilter={agencyFilter}
+              setAgencyFilter={setAgencyFilter}
+              onSelect={(period) => {
+                setSelectedPeriod(period)
+                setSearch("")
+                setStatusFilter("all")
+              }}
+            />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Número</TableHead>
-                  <TableHead>Origen</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Agencia</TableHead>
-                  <TableHead>Periodo</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.pre_invoice_number}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span>{r.account?.account_name || r.project?.name || "-"}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {r.source_type === "account" ? "Cuenta" : "Proyecto"}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{r.client?.company_name || "-"}</TableCell>
-                    <TableCell>{r.agency?.name || "-"}</TableCell>
-                    <TableCell>{periodLabel(r.period_start)}</TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANTS[r.status]} className={STATUS_CLASSES[r.status]}>
-                        {STATUS_LABELS[r.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">{formatCurrency(r.total, r.currency)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/dashboard/pre-invoices/${r.id}`}>
-                            <Eye className="mr-1 h-4 w-4" />
-                            Ver
-                          </Link>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRefresh(r.id)}
-                          disabled={refreshingId === r.id}
-                          title="Actualizar montos con los datos de Cuentas/Proyectos"
-                        >
-                          {refreshingId === r.id ? (
-                            <Spinner className="mr-1 h-4 w-4" />
-                          ) : (
-                            <RefreshCw className="mr-1 h-4 w-4" />
-                          )}
-                          Actualizar
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => handleDelete(r.id, r.pre_invoice_number)}
-                          disabled={deletingId === r.id}
-                          title="Borrar prefactura"
-                        >
-                          {deletingId === r.id ? (
-                            <Spinner className="h-4 w-4" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <PeriodDetailView
+              label={selectedLabel}
+              rows={periodRows}
+              search={search}
+              setSearch={setSearch}
+              statusFilter={statusFilter}
+              setStatusFilter={setStatusFilter}
+              onBack={() => setSelectedPeriod(null)}
+              onRefresh={handleRefresh}
+              onDelete={handleDelete}
+              refreshingId={refreshingId}
+              deletingId={deletingId}
+            />
           )}
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function PeriodListView({
+  groups,
+  agencies,
+  agencyFilter,
+  setAgencyFilter,
+  onSelect,
+}: {
+  groups: PeriodGroup[]
+  agencies: { id: string; name: string }[]
+  agencyFilter: string
+  setAgencyFilter: (v: string) => void
+  onSelect: (period: string) => void
+}) {
+  return (
+    <>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          Selecciona un periodo para ver las prefacturas generadas ese mes.
+        </p>
+        <Select value={agencyFilter} onValueChange={setAgencyFilter}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="Agencia" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas las agencias</SelectItem>
+            {agencies.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {groups.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+          <ClipboardList className="h-8 w-8 text-muted-foreground" />
+          <p className="font-medium">No hay prefacturas</p>
+          <p className="text-sm text-muted-foreground">
+            Genera prefacturas de tus cuentas y proyectos activos para empezar.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {groups.map((g) => (
+            <button
+              key={g.period}
+              type="button"
+              onClick={() => onSelect(g.period)}
+              className="group flex flex-col gap-4 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary/50 hover:bg-accent/40"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                    <Calendar className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="font-semibold leading-tight">{g.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {g.count} {g.count === 1 ? "prefactura" : "prefacturas"}
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight className="h-5 w-5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {g.draft > 0 && (
+                  <Badge variant={STATUS_VARIANTS.draft}>{g.draft} {STATUS_LABELS.draft.toLowerCase()}</Badge>
+                )}
+                {g.sent > 0 && (
+                  <Badge variant={STATUS_VARIANTS.sent}>{g.sent} {STATUS_LABELS.sent.toLowerCase()}</Badge>
+                )}
+                {g.invoiced > 0 && (
+                  <Badge variant={STATUS_VARIANTS.invoiced} className={STATUS_CLASSES.invoiced}>
+                    {g.invoiced} {STATUS_LABELS.invoiced.toLowerCase()}
+                  </Badge>
+                )}
+                {g.cancelled > 0 && (
+                  <Badge variant={STATUS_VARIANTS.cancelled}>
+                    {g.cancelled} {STATUS_LABELS.cancelled.toLowerCase()}
+                  </Badge>
+                )}
+              </div>
+
+              <div className="mt-auto border-t pt-3">
+                <p className="text-xs text-muted-foreground">Total del periodo</p>
+                <div className="flex flex-col">
+                  {Object.entries(g.totalsByCurrency).map(([currency, amount]) => (
+                    <span key={currency} className="font-semibold">
+                      {formatCurrency(amount, currency)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+function PeriodDetailView({
+  label,
+  rows,
+  search,
+  setSearch,
+  statusFilter,
+  setStatusFilter,
+  onBack,
+  onRefresh,
+  onDelete,
+  refreshingId,
+  deletingId,
+}: {
+  label: string
+  rows: PreInvoiceRow[]
+  search: string
+  setSearch: (v: string) => void
+  statusFilter: string
+  setStatusFilter: (v: string) => void
+  onBack: () => void
+  onRefresh: (id: string) => void
+  onDelete: (id: string, number: string) => void
+  refreshingId: string | null
+  deletingId: string | null
+}) {
+  return (
+    <>
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2">
+            <ArrowLeft className="mr-1 h-4 w-4" />
+            Periodos
+          </Button>
+          <div className="flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">{label}</h2>
+            <Badge variant="secondary">{rows.length}</Badge>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por cuenta, cliente o número..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-[160px]">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los estados</SelectItem>
+              {Object.entries(STATUS_LABELS).map(([value, statusLabel]) => (
+                <SelectItem key={value} value={value}>
+                  {statusLabel}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+          <ClipboardList className="h-8 w-8 text-muted-foreground" />
+          <p className="font-medium">Sin resultados</p>
+          <p className="text-sm text-muted-foreground">
+            No hay prefacturas que coincidan con los filtros en este periodo.
+          </p>
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Número</TableHead>
+              <TableHead>Origen</TableHead>
+              <TableHead>Cliente</TableHead>
+              <TableHead>Agencia</TableHead>
+              <TableHead>Estado</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell className="font-medium">{r.pre_invoice_number}</TableCell>
+                <TableCell>
+                  <div className="flex flex-col">
+                    <span>{r.account?.account_name || r.project?.name || "-"}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {r.source_type === "account" ? "Cuenta" : "Proyecto"}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>{r.client?.company_name || "-"}</TableCell>
+                <TableCell>{r.agency?.name || "-"}</TableCell>
+                <TableCell>
+                  <Badge variant={STATUS_VARIANTS[r.status]} className={STATUS_CLASSES[r.status]}>
+                    {STATUS_LABELS[r.status]}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-right">{formatCurrency(r.total, r.currency)}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href={`/dashboard/pre-invoices/${r.id}`}>
+                        <Eye className="mr-1 h-4 w-4" />
+                        Ver
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onRefresh(r.id)}
+                      disabled={refreshingId === r.id}
+                      title="Actualizar montos con los datos de Cuentas/Proyectos"
+                    >
+                      {refreshingId === r.id ? (
+                        <Spinner className="mr-1 h-4 w-4" />
+                      ) : (
+                        <RefreshCw className="mr-1 h-4 w-4" />
+                      )}
+                      Actualizar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => onDelete(r.id, r.pre_invoice_number)}
+                      disabled={deletingId === r.id}
+                      title="Borrar prefactura"
+                    >
+                      {deletingId === r.id ? (
+                        <Spinner className="h-4 w-4" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </>
   )
 }
 
