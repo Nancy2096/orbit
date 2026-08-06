@@ -972,7 +972,6 @@ const filteredPayments = payments.filter((payment) => {
                   <TableHead>Tercero</TableHead>
                   <TableHead className="text-right">Monto Original</TableHead>
                   <TableHead className="text-right">Fee de Agencia</TableHead>
-                  <TableHead className="text-right">Comisión</TableHead>
                   <TableHead className="text-right">Total a Facturar</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Factura</TableHead>
@@ -1022,11 +1021,6 @@ const filteredPayments = payments.filter((payment) => {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {payment.commission_percentage}%
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="text-green-600 font-medium">
-                          {formatCurrency(payment.commission_amount, payment.currency)}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-bold">
