@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Bell, GraduationCap, Receipt, CalendarDays, Award, Check, ChevronRight, MessagesSquare } from "lucide-react"
+import { Bell, GraduationCap, Receipt, CalendarDays, Award, Check, ChevronRight, MessagesSquare, ListChecks } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +15,7 @@ const ICONS: Record<NotificationType, typeof Bell> = {
   leave: CalendarDays,
   bonus: Award,
   one2one: MessagesSquare,
+  crm_task: ListChecks,
 }
 
 const TYPE_LABELS: Record<NotificationType, string> = {
@@ -23,6 +24,7 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   leave: "Día libre",
   bonus: "Bono",
   one2one: "One 2 One",
+  crm_task: "Tarea CRM",
 }
 
 function formatDate(iso: string) {

@@ -143,7 +143,7 @@ export async function fetchNotifications(): Promise<NotificationsResult> {
       // Incluye las tareas de apoyo generadas para gerentes y directores.
       supabase
         .from("crm_tasks")
-        .select("id, created_at, title, due_date, task_type, prospect:crm_prospects(name)")
+        .select("id, created_at, title, due_date, task_type, prospect:crm_prospects(company_name, contact_name)")
         .eq("assigned_to", staffId)
         .eq("is_completed", false)
         .or("is_paused.is.null,is_paused.eq.false"),
@@ -202,6 +202,26 @@ export async function fetchNotifications(): Promise<NotificationsResult> {
         }`,
         href: `/dashboard/hr/bonuses/${b.id}`,
         createdAt: b.created_at ?? new Date().toISOString(),
+        read: false,
+      })
+    }
+
+    // Tareas del CRM pendientes asignadas al usuario (incluye las tareas de apoyo
+    // generadas para el gerente comercial y el director general).
+    for (const t of crmTasksRes.data ?? []) {
+      const p = Array.isArray(t.prospect) ? t.prospect[0] : t.prospect
+      const prospectName = p?.company_name || p?.contact_name || "un prospecto"
+      const due = t.due_date ? new Date(t.due_date) : null
+      const dueLabel = due
+        ? ` · vence ${due.toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}`
+        : ""
+      notifications.push({
+        key: `crm_task:${t.id}`,
+        type: "crm_task",
+        title: "Tarea del CRM pendiente",
+        description: `${t.title || "Tarea"} · ${prospectName}${dueLabel}`,
+        href: "/dashboard/crm/tasks",
+        createdAt: t.created_at ?? new Date().toISOString(),
         read: false,
       })
     }
