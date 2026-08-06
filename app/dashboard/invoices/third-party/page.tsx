@@ -971,6 +971,7 @@ const filteredPayments = payments.filter((payment) => {
                   <TableHead>Cliente / Cuenta / Proyecto</TableHead>
                   <TableHead>Tercero</TableHead>
                   <TableHead className="text-right">Monto Original</TableHead>
+                  <TableHead className="text-right">Fee de Agencia</TableHead>
                   <TableHead className="text-right">Comisión</TableHead>
                   <TableHead className="text-right">Total a Facturar</TableHead>
                   <TableHead>Estado</TableHead>
@@ -1016,13 +1017,11 @@ const filteredPayments = payments.filter((payment) => {
                         {formatCurrency(payment.original_amount, payment.currency)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div>
-                          <div className="text-green-600 font-medium">
-                            {formatCurrency(payment.commission_amount, payment.currency)}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {payment.commission_percentage}%
-                          </div>
+                        <span className="font-medium">{payment.commission_percentage}%</span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="text-green-600 font-medium">
+                          {formatCurrency(payment.commission_amount, payment.currency)}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-bold">
@@ -1449,7 +1448,7 @@ const filteredPayments = payments.filter((payment) => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Porcentaje de Comisión</Label>
+                  <Label>Fee de Agencia</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       type="number"
