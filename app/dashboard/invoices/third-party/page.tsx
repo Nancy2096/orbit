@@ -62,6 +62,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   AlertDialog,
@@ -86,6 +87,9 @@ interface ThirdPartyPayment {
   original_amount: number
   commission_percentage: number
   commission_amount: number
+  tax_enabled: boolean
+  tax_rate: number
+  tax_amount: number
   total_amount: number
   status: string
   invoice_id: string | null
@@ -240,6 +244,8 @@ export default function ThirdPartyPaymentsPage() {
     third_party_concept: "",
     original_amount: "",
     commission_percentage: "10",
+    tax_enabled: true,
+    tax_rate: "16",
     notes: "",
   })
 
@@ -397,9 +403,12 @@ export default function ThirdPartyPaymentsPage() {
   const calculateAmounts = () => {
     const original = parseFloat(formData.original_amount) || 0
     const percentage = parseFloat(formData.commission_percentage) || 0
-    const commission = original * (percentage / 100)
-    const total = original + commission
-    return { commission, total }
+    const commission = Math.round(original * (percentage / 100) * 100) / 100
+    // El IVA se aplica sobre la comisión (servicio gravable de la agencia).
+    const taxRate = parseFloat(formData.tax_rate) || 0
+    const tax = formData.tax_enabled ? Math.round(commission * (taxRate / 100) * 100) / 100 : 0
+    const total = Math.round((original + commission + tax) * 100) / 100
+    return { commission, tax, total }
   }
 
   const generatePaymentNumber = async () => {
@@ -430,7 +439,7 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
 
     setSaving(true)
 
-    const { commission, total } = calculateAmounts()
+    const { commission, tax, total } = calculateAmounts()
     const paymentNumber = await generatePaymentNumber()
 
     const { data: payment, error } = await supabase
@@ -450,6 +459,9 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
         original_amount: parseFloat(formData.original_amount),
         commission_percentage: parseFloat(formData.commission_percentage) || 0,
         commission_amount: commission,
+        tax_enabled: formData.tax_enabled,
+        tax_rate: formData.tax_enabled ? parseFloat(formData.tax_rate) || 0 : 0,
+        tax_amount: tax,
         total_amount: total,
         notes: formData.notes || null,
         status: "draft",
@@ -573,6 +585,8 @@ const resetForm = () => {
       third_party_concept: "",
       original_amount: "",
       commission_percentage: "10",
+      tax_enabled: true,
+      tax_rate: "16",
       notes: "",
     })
   }
@@ -611,9 +625,9 @@ const resetForm = () => {
           status: "pending",
           issue_date: new Date().toISOString().split('T')[0],
           due_date: dueDate.toISOString().split('T')[0],
-          subtotal: payment.total_amount,
-          tax_amount: 0,
-          tax_rate: 0,
+          subtotal: Math.round((payment.original_amount + payment.commission_amount) * 100) / 100,
+          tax_amount: payment.tax_amount || 0,
+          tax_rate: payment.tax_enabled ? Number(payment.tax_rate) || 0 : 0,
           total_amount: payment.total_amount,
           balance_due: payment.total_amount,
           currency_id: payment.currency_id || null,
@@ -649,10 +663,10 @@ const resetForm = () => {
           quantity: 1,
           unit_price: payment.commission_amount,
           discount_percentage: 0,
-          tax_rate: 0,
+          tax_rate: payment.tax_enabled ? Number(payment.tax_rate) || 0 : 0,
           subtotal: payment.commission_amount,
-          tax_amount: 0,
-          total: payment.commission_amount,
+          tax_amount: payment.tax_amount || 0,
+          total: Math.round((payment.commission_amount + (payment.tax_amount || 0)) * 100) / 100,
           sort_order: 1,
         },
       ]
@@ -742,7 +756,7 @@ const filteredPayments = payments.filter((payment) => {
     return date.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })
   }
 
-  const { commission, total } = calculateAmounts()
+  const { commission, tax, total } = calculateAmounts()
 
   const getInvoiceStatusBadge = (invoice: { status: string } | null) => {
     if (!invoice) return null
@@ -799,6 +813,8 @@ const filteredPayments = payments.filter((payment) => {
       third_party_concept: "",
       original_amount: "",
       commission_percentage: "10",
+      tax_enabled: true,
+      tax_rate: "16",
       notes: "",
     })
     setModalOpen(true)
@@ -936,6 +952,8 @@ const filteredPayments = payments.filter((payment) => {
       third_party_concept: "",
       original_amount: "",
       commission_percentage: "10",
+      tax_enabled: true,
+      tax_rate: "16",
       notes: "",
     })
     setModalOpen(true)
@@ -953,7 +971,7 @@ const filteredPayments = payments.filter((payment) => {
                   <TableHead>Cliente / Cuenta / Proyecto</TableHead>
                   <TableHead>Tercero</TableHead>
                   <TableHead className="text-right">Monto Original</TableHead>
-                  <TableHead className="text-right">Comisión</TableHead>
+                  <TableHead className="text-right">Fee de Agencia</TableHead>
                   <TableHead className="text-right">Total a Facturar</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Factura</TableHead>
@@ -966,7 +984,13 @@ const filteredPayments = payments.filter((payment) => {
                   return (
                     <TableRow key={payment.id}>
                       <TableCell className="font-medium">
-                        {payment.payment_number}
+                        <button
+                          type="button"
+                          onClick={() => openDetailModal(payment)}
+                          className="text-primary underline-offset-4 hover:underline"
+                        >
+                          {payment.payment_number}
+                        </button>
                       </TableCell>
                       <TableCell>{formatDate(payment.payment_date)}</TableCell>
                       <TableCell>
@@ -992,13 +1016,11 @@ const filteredPayments = payments.filter((payment) => {
                         {formatCurrency(payment.original_amount, payment.currency)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div>
-                          <div className="text-green-600 font-medium">
-                            {formatCurrency(payment.commission_amount, payment.currency)}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {payment.commission_percentage}%
-                          </div>
+                        <div className="font-medium">
+                          {formatCurrency(payment.commission_amount, payment.currency)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {payment.commission_percentage}%
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-bold">
@@ -1425,7 +1447,7 @@ const filteredPayments = payments.filter((payment) => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Porcentaje de Comisión</Label>
+                  <Label>Fee de Agencia</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       type="number"
@@ -1451,6 +1473,49 @@ const filteredPayments = payments.filter((payment) => {
                   </div>
                 </div>
 
+                {/* IVA */}
+                <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <Label htmlFor="tp-tax-toggle" className="text-sm font-medium">
+                        Aplicar IVA a la comisión
+                      </Label>
+                      <span className="text-xs text-muted-foreground">
+                        {formData.tax_enabled
+                          ? "Se agrega el IVA sobre la comisión"
+                          : "Sin IVA sobre la comisión"}
+                      </span>
+                    </div>
+                    <Switch
+                      id="tp-tax-toggle"
+                      checked={formData.tax_enabled}
+                      onCheckedChange={(v) => setFormData({ ...formData, tax_enabled: Boolean(v) })}
+                    />
+                  </div>
+                  {formData.tax_enabled && (
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="tp-tax-rate" className="text-sm text-muted-foreground">
+                        Porcentaje de IVA
+                      </Label>
+                      <div className="relative w-24">
+                        <Input
+                          id="tp-tax-rate"
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          value={formData.tax_rate}
+                          onChange={(e) => setFormData({ ...formData, tax_rate: e.target.value })}
+                          className="h-9 pr-6 text-right"
+                        />
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          %
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Preview */}
                 {parseFloat(formData.original_amount) > 0 && (
                   <div className="mt-4 p-4 bg-white rounded-lg border space-y-2">
@@ -1466,6 +1531,16 @@ const filteredPayments = payments.filter((payment) => {
                         +${commission.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
                       </span>
                     </div>
+                    {formData.tax_enabled && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          IVA ({parseFloat(formData.tax_rate) || 0}% sobre comisión):
+                        </span>
+                        <span className="font-medium">
+                          +${tax.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-base font-bold border-t pt-2 mt-2">
                       <span>Total a Facturar:</span>
                       <span className="text-blue-600">
@@ -1538,12 +1613,20 @@ const filteredPayments = payments.filter((payment) => {
                   <span className="font-medium">{formatCurrency(selectedPayment.original_amount)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Comisión ({selectedPayment.commission_percentage}%):</span>
-                  <span className="font-medium text-green-600">{formatCurrency(selectedPayment.commission_amount)}</span>
-                </div>
-                <div className="flex justify-between text-sm border-t pt-2">
-                  <span className="text-muted-foreground">Total a Facturar:</span>
-                  <span className="font-bold">{formatCurrency(selectedPayment.total_amount)}</span>
+                    <span className="text-muted-foreground">Comisión ({selectedPayment.commission_percentage}%):</span>
+                    <span className="font-medium text-green-600">{formatCurrency(selectedPayment.commission_amount)}</span>
+                  </div>
+                  {selectedPayment.tax_enabled && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        IVA ({Number(selectedPayment.tax_rate) || 0}% sobre comisión):
+                      </span>
+                      <span className="font-medium">{formatCurrency(selectedPayment.tax_amount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm border-t pt-2">
+                    <span className="text-muted-foreground">Total a Facturar:</span>
+                    <span className="font-bold">{formatCurrency(selectedPayment.total_amount)}</span>
                 </div>
               </div>
             )}
@@ -1667,6 +1750,14 @@ const filteredPayments = payments.filter((payment) => {
                   <span className="text-muted-foreground">Comisión ({detailPayment.commission_percentage}%):</span>
                   <span className="font-medium text-green-600">+ {formatCurrency(detailPayment.commission_amount)}</span>
                 </div>
+                {detailPayment.tax_enabled && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      IVA ({Number(detailPayment.tax_rate) || 0}% sobre comisión):
+                    </span>
+                    <span className="font-medium">+ {formatCurrency(detailPayment.tax_amount)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between border-t pt-2">
                   <span className="font-medium">Total a Facturar:</span>
                   <span className="font-bold text-lg">{formatCurrency(detailPayment.total_amount)}</span>

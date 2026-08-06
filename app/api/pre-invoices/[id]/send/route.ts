@@ -62,7 +62,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     )
   }
 
-  const totals = computeTotals(includedItems.map((i) => ({ amount: i.amount, is_included: true })))
+  const totals = computeTotals(
+    includedItems.map((i) => ({ amount: i.amount, is_included: true })),
+    preInvoice.tax_enabled !== false,
+    preInvoice.tax_rate != null ? Number(preInvoice.tax_rate) : undefined,
+  )
 
   // Datos para el encabezado del correo
   let clientName = ""
@@ -114,7 +118,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     </table>
     <table style="width:240px;margin-left:auto;margin-top:16px;">
       <tr><td style="color:#666;">Subtotal</td><td style="text-align:right;">${formatCurrency(totals.subtotal, currency)}</td></tr>
-      <tr><td style="color:#666;">IVA (16%)</td><td style="text-align:right;">${formatCurrency(totals.tax, currency)}</td></tr>
+      <tr><td style="color:#666;">${preInvoice.tax_enabled !== false ? `IVA (${preInvoice.tax_rate != null ? Number(preInvoice.tax_rate) : 16}%)` : "IVA (exento)"}</td><td style="text-align:right;">${formatCurrency(totals.tax, currency)}</td></tr>
       <tr style="font-weight:bold;border-top:1px solid #333;"><td style="padding-top:8px;">Total</td><td style="padding-top:8px;text-align:right;">${formatCurrency(totals.total, currency)}</td></tr>
     </table>
     ${preInvoice.notes ? `<p style="margin-top:24px;color:#666;">${escapeHtml(preInvoice.notes)}</p>` : ""}

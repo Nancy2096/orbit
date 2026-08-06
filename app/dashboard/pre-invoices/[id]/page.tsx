@@ -54,6 +54,7 @@ import {
   lineAmount,
   periodLabel,
   refreshPreInvoiceAmounts,
+  convertPreInvoiceToInvoice,
 } from "@/lib/pre-invoices"
 
 interface RelatedInfo {
@@ -103,6 +104,7 @@ export default function PreInvoiceDetailPage() {
       return
     }
     setPreInvoice(pi as PreInvoice)
+    setTaxRateInput(String(pi.tax_rate != null ? Number(pi.tax_rate) : 16))
 
     const { data: itemsData } = await supabase
       .from("pre_invoice_items")
@@ -152,10 +154,16 @@ export default function PreInvoiceDetailPage() {
 
   const editable = preInvoice?.status === "draft" || preInvoice?.status === "sent"
   const taxEnabled = preInvoice?.tax_enabled !== false
-  const totals = computeTotals(items, taxEnabled)
+  const taxRate = preInvoice?.tax_rate != null ? Number(preInvoice.tax_rate) : 16
+  const [taxRateInput, setTaxRateInput] = useState<string>("16")
+  const totals = computeTotals(items, taxEnabled, taxRate)
 
-  const persistTotals = async (nextItems: PreInvoiceItem[], nextTaxEnabled = taxEnabled) => {
-    const t = computeTotals(nextItems, nextTaxEnabled)
+  const persistTotals = async (
+    nextItems: PreInvoiceItem[],
+    nextTaxEnabled = taxEnabled,
+    nextTaxRate = taxRate,
+  ) => {
+    const t = computeTotals(nextItems, nextTaxEnabled, nextTaxRate)
     await supabase
       .from("pre_invoices")
       .update({ subtotal: t.subtotal, tax: t.tax, total: t.total })
@@ -179,6 +187,19 @@ export default function PreInvoiceDetailPage() {
     setPreInvoice({ ...preInvoice, tax_enabled: enabled })
     await supabase.from("pre_invoices").update({ tax_enabled: enabled }).eq("id", id)
     await persistTotals(items, enabled)
+    setSaving(false)
+  }
+
+  // Actualiza el porcentaje de IVA de la prefactura (no queda fijo en 16%).
+  const updateTaxRate = async (value: number) => {
+    if (!editable || !preInvoice) return
+    const rate = Number.isFinite(value) && value >= 0 ? Math.round(value * 100) / 100 : 16
+    if (rate === taxRate) return
+    setSaving(true)
+    setPreInvoice({ ...preInvoice, tax_rate: rate })
+    setTaxRateInput(String(rate))
+    await supabase.from("pre_invoices").update({ tax_rate: rate }).eq("id", id)
+    await persistTotals(items, taxEnabled, rate)
     setSaving(false)
   }
 
@@ -227,76 +248,8 @@ export default function PreInvoiceDetailPage() {
     setError(null)
 
     try {
-      // Moneda -> currency_id
-      const { data: currency } = await supabase
-        .from("currencies")
-        .select("id")
-        .eq("code", preInvoice.currency)
-        .maybeSingle()
-
-      // Número de factura consistente con el módulo de facturas
-      const year = new Date().getFullYear()
-      const { count } = await supabase
-        .from("invoices")
-        .select("*", { count: "exact", head: true })
-        .eq("agency_id", preInvoice.agency_id)
-      const invoiceNumber = `FAC-${year}-${String((count || 0) + 1).padStart(5, "0")}`
-
-      const taxRate = taxEnabled ? 16 : 0
-      const { data: invoice, error: invoiceError } = await supabase
-        .from("invoices")
-        .insert({
-          agency_id: preInvoice.agency_id,
-          client_id: preInvoice.client_id,
-          account_id: preInvoice.account_id,
-          project_id: preInvoice.project_id,
-          invoice_number: invoiceNumber,
-          invoice_type: "standard",
-          status: "draft",
-          issue_date: new Date().toISOString().split("T")[0],
-          subtotal: totals.subtotal,
-          tax_amount: totals.tax,
-          tax_rate: taxRate,
-          total_amount: totals.total,
-          balance_due: totals.total,
-          currency_id: currency?.id ?? null,
-          exchange_rate: 1,
-          notes: preInvoice.notes,
-        })
-        .select()
-        .single()
-
-      if (invoiceError || !invoice) {
-        throw new Error(invoiceError?.message || "No se pudo crear la factura")
-      }
-
-      const itemsToInsert = includedItems.map((item, index) => {
-        const subtotal = item.amount
-        const tax = Math.round(subtotal * (taxRate / 100) * 100) / 100
-        return {
-          invoice_id: invoice.id,
-          service_id: item.service_id,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          discount_percentage: item.discount,
-          tax_rate: taxRate,
-          subtotal,
-          tax_amount: tax,
-          total: Math.round((subtotal + tax) * 100) / 100,
-          sort_order: index,
-        }
-      })
-
-      const { error: itemsError } = await supabase.from("invoice_items").insert(itemsToInsert)
-      if (itemsError) throw new Error(itemsError.message)
-
-      await supabase
-        .from("pre_invoices")
-        .update({ status: "invoiced", invoice_id: invoice.id })
-        .eq("id", id)
-
-      router.push(`/dashboard/invoices/${invoice.id}`)
+      const { invoiceId } = await convertPreInvoiceToInvoice(supabase, id)
+      router.push(`/dashboard/invoices/${invoiceId}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al convertir la prefactura")
       setConverting(false)
@@ -523,6 +476,10 @@ export default function PreInvoiceDetailPage() {
                 <span className="font-medium">{related.clientName || "—"}</span>
               </div>
               <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Cuenta</span>
+                <span className="font-medium">{related.accountName || "—"}</span>
+              </div>
+              <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Agencia</span>
                 <span className="font-medium">{related.agencyName || "—"}</span>
               </div>
@@ -537,21 +494,48 @@ export default function PreInvoiceDetailPage() {
                 </span>
               </div>
               <Separator />
-              <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-                <div className="flex flex-col">
-                  <Label htmlFor="tax-toggle" className="text-sm font-medium">
-                    Aplicar IVA (16%)
-                  </Label>
-                  <span className="text-xs text-muted-foreground">
-                    {taxEnabled ? "Se incluye el impuesto" : "Prefactura sin impuestos"}
-                  </span>
+              <div className="space-y-2 rounded-md bg-muted/50 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <Label htmlFor="tax-toggle" className="text-sm font-medium">
+                      Aplicar IVA
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      {taxEnabled ? "Se incluye el impuesto" : "Prefactura sin impuestos"}
+                    </span>
+                  </div>
+                  <Switch
+                    id="tax-toggle"
+                    checked={taxEnabled}
+                    disabled={!editable || saving}
+                    onCheckedChange={(v) => toggleTax(Boolean(v))}
+                  />
                 </div>
-                <Switch
-                  id="tax-toggle"
-                  checked={taxEnabled}
-                  disabled={!editable || saving}
-                  onCheckedChange={(v) => toggleTax(Boolean(v))}
-                />
+                {taxEnabled && (
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="tax-rate" className="text-sm text-muted-foreground">
+                      Porcentaje (%)
+                    </Label>
+                    <div className="relative w-24">
+                      <Input
+                        id="tax-rate"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        value={taxRateInput}
+                        disabled={!editable || saving}
+                        onChange={(e) => setTaxRateInput(e.target.value)}
+                        onBlur={(e) => updateTaxRate(Number.parseFloat(e.target.value))}
+                        className="h-8 pr-6 text-right"
+                        aria-label="Porcentaje de IVA"
+                      />
+                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        %
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
               <Separator />
               <div className="flex justify-between text-sm">
@@ -559,7 +543,7 @@ export default function PreInvoiceDetailPage() {
                 <span className="font-medium">{formatCurrency(totals.subtotal, preInvoice.currency)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{taxEnabled ? "IVA (16%)" : "IVA (exento)"}</span>
+                <span className="text-muted-foreground">{taxEnabled ? `IVA (${taxRate}%)` : "IVA (exento)"}</span>
                 <span className="font-medium">{formatCurrency(totals.tax, preInvoice.currency)}</span>
               </div>
               <Separator />
@@ -627,7 +611,7 @@ export default function PreInvoiceDetailPage() {
                 <span>{formatCurrency(totals.subtotal, preInvoice.currency)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{taxEnabled ? "IVA (16%)" : "IVA (exento)"}</span>
+                <span className="text-muted-foreground">{taxEnabled ? `IVA (${taxRate}%)` : "IVA (exento)"}</span>
                 <span>{formatCurrency(totals.tax, preInvoice.currency)}</span>
               </div>
               <Separator />

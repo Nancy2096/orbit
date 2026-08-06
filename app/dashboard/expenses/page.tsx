@@ -225,6 +225,9 @@ export default function ExpensesPage() {
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
   const receiptInputRef = useRef<HTMLInputElement>(null)
 
+  // Previsualización del número consecutivo que tendrá el gasto al registrarse.
+  const [previewNumber, setPreviewNumber] = useState("")
+
   // Tipos de gasto alineados con los rubros de "Objetivos Financieros" de la agencia.
   // Si cambian los nombres allá, deben cambiar aquí también.
   const expenseTypes = [
@@ -297,6 +300,16 @@ export default function ExpensesPage() {
       setApproversList([])
     }
   }, [expenseForm.agency_id, expenseForm.requested_by_id])
+
+  // Al abrir el formulario de un gasto nuevo con agencia seleccionada, se
+  // consulta el siguiente número consecutivo para mostrarlo como referencia.
+  useEffect(() => {
+    if (showExpenseDialog && !editingExpense && expenseForm.agency_id) {
+      generateExpenseNumber(expenseForm.agency_id).then(setPreviewNumber)
+    } else if (!showExpenseDialog) {
+      setPreviewNumber("")
+    }
+  }, [showExpenseDialog, editingExpense, expenseForm.agency_id])
 
   const fetchAgencies = async () => {
     const { data } = await supabase.from("agencies").select("id, name").eq("is_active", true).order("name")
@@ -1103,13 +1116,20 @@ const resetExpenseForm = () => {
                       <TableHead>Solicitante</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead>Aprobación</TableHead>
-                      <TableHead className="w-[150px]"></TableHead>
+                      <TableHead className="w-[150px] text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredExpenses.map((expense) => (
                         <TableRow key={expense.id}>
-                          <TableCell className="font-medium">{expense.expense_number}</TableCell>
+                          <TableCell className="font-medium">
+                            <Link
+                              href={`/dashboard/expenses/${expense.id}`}
+                              className="text-primary underline-offset-4 hover:underline"
+                            >
+                              {expense.expense_number}
+                            </Link>
+                          </TableCell>
                           <TableCell>
                             <div className="text-sm">{formatDateTime(expense.created_at)}</div>
                           </TableCell>
@@ -1166,7 +1186,7 @@ const resetExpenseForm = () => {
                             {getApprovalStatusBadge(expense.approval_status || "pending")}
                           </TableCell>
                           <TableCell>
-                            <div className="flex gap-1">
+                            <div className="flex justify-end gap-1">
                               {expense.approval_status === "pending" && (
                                 <>
                                   <Button
@@ -1289,6 +1309,28 @@ const resetExpenseForm = () => {
             <DialogDescription>Registra un gasto operativo</DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto pr-2">
+          <div className="mb-4 flex flex-wrap items-center gap-4 rounded-md border bg-muted/50 px-4 py-3">
+            <div className="flex flex-col">
+              <span className="text-xs text-muted-foreground">Número de Gasto</span>
+              <span className="font-mono font-medium">
+                {editingExpense
+                  ? editingExpense.expense_number
+                  : expenseForm.agency_id
+                    ? previewNumber || "Generando..."
+                    : "Selecciona una agencia"}
+              </span>
+            </div>
+            <div className="ml-auto flex flex-col text-right">
+              <span className="text-xs text-muted-foreground">Solicitante</span>
+              <span className="font-medium">
+                {currentUserStaff
+                  ? `${currentUserStaff.first_name} ${currentUserStaff.last_name}`
+                  : editingExpense?.requested_by
+                    ? `${editingExpense.requested_by.first_name} ${editingExpense.requested_by.last_name}`
+                    : "-"}
+              </span>
+            </div>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Agencia *</Label>
