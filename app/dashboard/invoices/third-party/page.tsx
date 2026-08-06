@@ -1017,7 +1017,12 @@ const filteredPayments = payments.filter((payment) => {
                         {formatCurrency(payment.original_amount, payment.currency)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className="font-medium">{payment.commission_percentage}%</span>
+                        <div className="font-medium">
+                          {formatCurrency(payment.commission_amount, payment.currency)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {payment.commission_percentage}%
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="text-green-600 font-medium">
