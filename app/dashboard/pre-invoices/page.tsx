@@ -88,6 +88,7 @@ export default function PreInvoicesPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [billing, setBilling] = useState(false)
 
@@ -150,6 +151,26 @@ export default function PreInvoicesPage() {
     setSelectedIds(new Set())
     if (ok > 0) toast.success(`${ok} ${ok === 1 ? "prefactura facturada" : "prefacturas facturadas"}`)
     if (failed > 0) toast.error(`${failed} no se pudieron facturar (revisa que tengan servicios incluidos)`)
+  }
+
+  // Cambia manualmente el estado de una prefactura. Para "Facturada" se usa la
+  // conversión (que genera la factura); el resto son actualizaciones directas.
+  async function handleStatusChange(id: string, status: PreInvoiceStatus) {
+    setStatusUpdatingId(id)
+    try {
+      if (status === "invoiced") {
+        await convertPreInvoiceToInvoice(supabase, id)
+      } else {
+        const { error } = await supabase.from("pre_invoices").update({ status }).eq("id", id)
+        if (error) throw new Error(error.message)
+      }
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)))
+      toast.success(`Estado actualizado a "${STATUS_LABELS[status]}"`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo cambiar el estado")
+    } finally {
+      setStatusUpdatingId(null)
+    }
   }
 
   useEffect(() => {
@@ -292,8 +313,10 @@ export default function PreInvoicesPage() {
               }}
               onRefresh={handleRefresh}
               onDelete={handleDelete}
+              onStatusChange={handleStatusChange}
               refreshingId={refreshingId}
               deletingId={deletingId}
+              statusUpdatingId={statusUpdatingId}
               selectedIds={selectedIds}
               setSelectedIds={setSelectedIds}
               onBillSelected={handleBillSelected}
@@ -419,8 +442,10 @@ function PeriodDetailView({
   onBack,
   onRefresh,
   onDelete,
+  onStatusChange,
   refreshingId,
   deletingId,
+  statusUpdatingId,
   selectedIds,
   setSelectedIds,
   onBillSelected,
@@ -435,8 +460,10 @@ function PeriodDetailView({
   onBack: () => void
   onRefresh: (id: string) => void
   onDelete: (id: string, number: string) => void
+  onStatusChange: (id: string, status: PreInvoiceStatus) => void
   refreshingId: string | null
   deletingId: string | null
+  statusUpdatingId: string | null
   selectedIds: Set<string>
   setSelectedIds: (updater: (prev: Set<string>) => Set<string>) => void
   onBillSelected: (ids: string[]) => void
@@ -594,6 +621,29 @@ function PeriodDetailView({
                 <TableCell className="text-right">{formatCurrency(r.total, r.currency)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-1">
+                    <Select
+                      value={r.status}
+                      onValueChange={(v) => onStatusChange(r.id, v as PreInvoiceStatus)}
+                      disabled={statusUpdatingId === r.id}
+                    >
+                      <SelectTrigger className="h-8 w-[130px]" title="Cambiar estado">
+                        {statusUpdatingId === r.id ? (
+                          <span className="flex items-center gap-1">
+                            <Spinner className="h-3 w-3" />
+                            Guardando
+                          </span>
+                        ) : (
+                          <SelectValue />
+                        )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(STATUS_LABELS) as PreInvoiceStatus[]).map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {STATUS_LABELS[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button variant="ghost" size="sm" asChild>
                       <Link href={`/dashboard/pre-invoices/${r.id}`}>
                         <Eye className="mr-1 h-4 w-4" />
