@@ -43,6 +43,7 @@ export interface PreInvoice {
   status: PreInvoiceStatus
   currency: string
   tax_enabled: boolean
+  tax_rate: number
   subtotal: number
   tax: number
   total: number
@@ -85,14 +86,17 @@ export function lineAmount(quantity: number, unitPrice: number, discount: number
 
 // Totales de una prefactura considerando solo las líneas incluidas.
 // taxEnabled=false (p. ej. clientes extranjeros o acuerdos sin IVA) => impuesto en 0.
+// taxRatePercent permite una tasa de IVA distinta al 16% por prefactura.
 export function computeTotals(
   items: { amount: number; is_included: boolean }[],
   taxEnabled = true,
+  taxRatePercent: number = IVA_RATE * 100,
 ) {
   const subtotal = items
     .filter((i) => i.is_included)
     .reduce((sum, i) => sum + (i.amount || 0), 0)
-  const tax = taxEnabled ? Math.round(subtotal * IVA_RATE * 100) / 100 : 0
+  const rate = Number.isFinite(taxRatePercent) && taxRatePercent >= 0 ? taxRatePercent : IVA_RATE * 100
+  const tax = taxEnabled ? Math.round(subtotal * (rate / 100) * 100) / 100 : 0
   const total = Math.round((subtotal + tax) * 100) / 100
   return { subtotal: Math.round(subtotal * 100) / 100, tax, total }
 }
@@ -127,7 +131,7 @@ export async function refreshPreInvoiceAmounts(
 ): Promise<{ subtotal: number; tax: number; total: number; currency: string }> {
   const { data: pre, error: preErr } = await supabase
     .from("pre_invoices")
-    .select("id, tax_enabled, currency")
+    .select("id, tax_enabled, tax_rate, currency")
     .eq("id", preInvoiceId)
     .single()
   if (preErr || !pre) throw new Error(preErr?.message || "Prefactura no encontrada")
@@ -201,6 +205,7 @@ export async function refreshPreInvoiceAmounts(
   const totals = computeTotals(
     updatedItems.map((i) => ({ amount: Number(i.amount) || 0, is_included: i.is_included })),
     pre.tax_enabled !== false,
+    pre.tax_rate != null ? Number(pre.tax_rate) : undefined,
   )
 
   await supabase
@@ -230,7 +235,7 @@ export async function convertPreInvoiceToInvoice(
   const { data: pre, error: preErr } = await supabase
     .from("pre_invoices")
     .select(
-      "id, agency_id, client_id, account_id, project_id, currency, tax_enabled, notes, status, invoice_id",
+      "id, agency_id, client_id, account_id, project_id, currency, tax_enabled, tax_rate, notes, status, invoice_id",
     )
     .eq("id", preInvoiceId)
     .single()
@@ -256,10 +261,12 @@ export async function convertPreInvoiceToInvoice(
   }
 
   const taxEnabled = pre.tax_enabled !== false
-  const taxRate = taxEnabled ? 16 : 0
+  const preRate = pre.tax_rate != null ? Number(pre.tax_rate) : 16
+  const taxRate = taxEnabled ? preRate : 0
   const totals = computeTotals(
     includedItems.map((i) => ({ amount: Number(i.amount) || 0, is_included: true })),
     taxEnabled,
+    preRate,
   )
 
   // Moneda -> currency_id
