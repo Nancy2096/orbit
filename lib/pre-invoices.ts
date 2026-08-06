@@ -68,6 +68,15 @@ export const STATUS_VARIANTS: Record<PreInvoiceStatus, "secondary" | "default" |
   cancelled: "destructive",
 }
 
+// Clases extra para resaltar ciertos estados con color (p. ej. "Facturada" en
+// verde claro). Vacío para los demás estados, que usan su variant por defecto.
+export const STATUS_CLASSES: Record<PreInvoiceStatus, string> = {
+  draft: "",
+  sent: "",
+  invoiced: "border-green-300 bg-green-100 text-green-700 hover:bg-green-100",
+  cancelled: "",
+}
+
 // Monto de una línea aplicando descuento porcentual.
 export function lineAmount(quantity: number, unitPrice: number, discount: number): number {
   const amount = (quantity || 0) * (unitPrice || 0) * (1 - (discount || 0) / 100)

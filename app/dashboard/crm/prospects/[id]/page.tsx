@@ -410,7 +410,7 @@ state_province: prospectData.state_province || "",
     const deptIds = commercialDepts?.map(d => d.id) || []
 
     // Cargar las tareas predefinidas también en prospectos existentes (idempotente):
-    // si el prospecto aún no tiene las tareas de las plantillas configuradas en
+    // si el prospecto a��n no tiene las tareas de las plantillas configuradas en
     // "Ajustar Tareas", se crean ahora. Luego se pausan/reanudan según su etapa.
     try {
       const { data: authData } = await supabase.auth.getUser()
@@ -1173,6 +1173,22 @@ state_province: prospectData.state_province || "",
     }
     return { color: "bg-green-500", label: "Pendiente", textColor: "text-green-600" }
   }
+
+  // En el apartado de tareas solo mostramos las tareas vencidas y la próxima a
+  // realizar, no toda la secuencia generada por las plantillas. Aplica igual a
+  // prospectos nuevos y existentes porque es un filtro de visualización.
+  const getVisibleTasks = (all: Task[]) => {
+    const now = new Date()
+    const active = all.filter(
+      (t) => !t.is_completed && t.status !== "completed" && t.status !== "cancelled" && !t.is_paused,
+    )
+    const overdue = active.filter((t) => new Date(t.due_date) < now)
+    const nextUpcoming = active
+      .filter((t) => new Date(t.due_date) >= now)
+      .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0]
+    return [...overdue, ...(nextUpcoming ? [nextUpcoming] : [])]
+  }
+  const visibleTasks = getVisibleTasks(tasks)
 
   const addService = async () => {
     if (!newService.service_id) {
@@ -1960,14 +1976,14 @@ state_province: prospectData.state_province || "",
                   </Button>
                 </CardHeader>
                 <CardContent>
-                  {tasks.length === 0 ? (
+                  {visibleTasks.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <ListTodo className="mx-auto h-8 w-8 mb-2 opacity-50" />
                       <p>No hay tareas pendientes</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {tasks.map((task) => {
+                      {visibleTasks.map((task) => {
                         const semaphore = getStatusSemaphore(task)
                         return (
                           <div key={task.id} className={`flex items-start gap-3 p-4 rounded-lg border ${task.is_completed || task.status === "completed" ? "bg-muted/50 opacity-70" : ""}`}>

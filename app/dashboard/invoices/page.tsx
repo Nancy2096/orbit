@@ -24,7 +24,17 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, FileText, Eye, DollarSign, Clock, AlertCircle, CheckCircle, Settings, Upload, CreditCard, MoreHorizontal, X, RefreshCw, Landmark, Pencil } from "lucide-react"
+import { Plus, Search, FileText, Eye, DollarSign, Clock, AlertCircle, CheckCircle, Settings, Upload, CreditCard, MoreHorizontal, X, RefreshCw, Landmark, Pencil, Trash2 } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Dialog,
   DialogContent,
@@ -111,6 +121,10 @@ export default function InvoicesPage() {
     payment_date: new Date().toISOString().split('T')[0],
   })
   const [statusBankAccounts, setStatusBankAccounts] = useState<{ id: string; bank_name: string; account_number: string; account_name: string }[]>([])
+
+  // Delete confirmation state
+  const [deleteInvoice, setDeleteInvoice] = useState<Invoice | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // Stats
   const [stats, setStats] = useState({
@@ -271,6 +285,24 @@ if (agencyId) {
     }
 
     toast.success("Estado actualizado")
+    fetchInvoices()
+  }
+
+  // Elimina la factura (previa confirmación) junto con sus dependencias.
+  const handleDeleteInvoice = async () => {
+    if (!deleteInvoice) return
+    setDeleting(true)
+    // Borrar primero las líneas y pagos asociados para evitar restricciones de FK.
+    await supabase.from("invoice_items").delete().eq("invoice_id", deleteInvoice.id)
+    await supabase.from("payments").delete().eq("invoice_id", deleteInvoice.id)
+    const { error } = await supabase.from("invoices").delete().eq("id", deleteInvoice.id)
+    setDeleting(false)
+    if (error) {
+      toast.error("Error al eliminar la factura: " + error.message)
+      return
+    }
+    toast.success("Factura eliminada")
+    setDeleteInvoice(null)
     fetchInvoices()
   }
 
@@ -586,7 +618,12 @@ setUploading(false)
                   return (
                     <TableRow key={invoice.id}>
                       <TableCell className="font-medium">
-                        {invoice.invoice_number}
+                        <Link
+                          href={`/dashboard/invoices/${invoice.id}`}
+                          className="text-primary underline-offset-4 hover:underline"
+                        >
+                          {invoice.invoice_number}
+                        </Link>
                       </TableCell>
                       <TableCell>
                         <div>
@@ -677,6 +714,14 @@ setUploading(false)
                                 </DropdownMenuItem>
                               </>
                             )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setDeleteInvoice(invoice)}
+                              className="cursor-pointer text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Eliminar
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -688,6 +733,33 @@ setUploading(false)
           )}
         </CardContent>
       </Card>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteInvoice} onOpenChange={(open) => !open && setDeleteInvoice(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta factura?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará permanentemente la factura{" "}
+              <strong>{deleteInvoice?.invoice_number}</strong> junto con sus líneas y pagos
+              registrados. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDeleteInvoice()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Payment Registration Modal */}
       <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}>

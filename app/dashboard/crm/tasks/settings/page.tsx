@@ -63,6 +63,9 @@ interface TaskTemplate {
   offset_days: number
   offset_minutes: number
   requires_manager: boolean
+  requires_director: boolean
+  manager_staff_id: string | null
+  director_staff_id: string | null
   is_active: boolean
   whatsapp_message: string | null
   email_subject: string | null
@@ -73,6 +76,18 @@ interface StaffMember {
   id: string
   first_name: string
   last_name: string
+  position: string | null
+  is_global: boolean | null
+}
+
+// Puestos de mayor jerarquía elegibles como Director General.
+// Se detectan por palabra clave para no depender de un texto exacto.
+const LEADERSHIP_KEYWORDS = ["director", "directora"]
+
+function isLeadershipPosition(position: string | null): boolean {
+  if (!position) return false
+  const p = position.toLowerCase()
+  return LEADERSHIP_KEYWORDS.some((kw) => p.includes(kw))
 }
 
 const TASK_TYPES = [
@@ -100,6 +115,9 @@ const emptyForm = {
   offset_days: 0,
   offset_minutes: 0,
   requires_manager: false,
+  requires_director: false,
+  manager_staff_id: "",
+  director_staff_id: "",
   whatsapp_message: "",
   email_subject: "",
   email_message: "",
@@ -118,6 +136,13 @@ export default function TaskSettingsPage() {
 
   // Gerente por agencia
   const [staff, setStaff] = useState<StaffMember[]>([])
+
+  // Para el Director General solo se ofrecen los puestos de mayor jerarquía
+  // (directores). El personal global ya viene incluido desde fetchStaff. Se
+  // conserva visible el director ya seleccionado aunque no cumpla el filtro.
+  const directorStaff = staff.filter(
+    (s) => isLeadershipPosition(s.position) || s.id === formData.director_staff_id,
+  )
   const [managerStaffId, setManagerStaffId] = useState<string>("")
   const [savingManager, setSavingManager] = useState(false)
 
@@ -125,16 +150,16 @@ export default function TaskSettingsPage() {
 
   useEffect(() => {
     fetchTemplates()
+    fetchStaff()
   }, [])
 
   useEffect(() => {
     if (selectedAgencyId) {
       fetchManagerSettings()
-      fetchStaff()
     } else {
-      setStaff([])
       setManagerStaffId("")
     }
+    fetchStaff()
   }, [selectedAgencyId])
 
   async function fetchTemplates() {
@@ -154,12 +179,21 @@ export default function TaskSettingsPage() {
   }
 
   async function fetchStaff() {
-    const { data } = await supabase
+    // Las plantillas son globales, así que el personal disponible para asignar
+    // gerente/director se filtra por agencia solo cuando hay una seleccionada.
+    // Siempre se incluye al personal global (is_global) y al asignado a la
+    // agencia vía agency_ids, para que aparezcan puestos como el Director General.
+    let query = supabase
       .from("staff")
-      .select("id, first_name, last_name")
-      .eq("agency_id", selectedAgencyId)
+      .select("id, first_name, last_name, position, is_global")
       .eq("is_active", true)
       .order("first_name")
+    if (selectedAgencyId) {
+      query = query.or(
+        `agency_id.eq.${selectedAgencyId},is_global.eq.true,agency_ids.cs.{${selectedAgencyId}}`,
+      )
+    }
+    const { data } = await query
     setStaff(data || [])
   }
 
@@ -209,6 +243,9 @@ export default function TaskSettingsPage() {
       offset_days: tpl.offset_days,
       offset_minutes: tpl.offset_minutes,
       requires_manager: tpl.requires_manager,
+      requires_director: tpl.requires_director ?? false,
+      manager_staff_id: tpl.manager_staff_id || "",
+      director_staff_id: tpl.director_staff_id || "",
       whatsapp_message: tpl.whatsapp_message || "",
       email_subject: tpl.email_subject || "",
       email_message: tpl.email_message || "",
@@ -234,6 +271,9 @@ export default function TaskSettingsPage() {
             offset_days: formData.offset_days,
             offset_minutes: formData.offset_minutes,
             requires_manager: formData.requires_manager,
+            requires_director: formData.requires_director,
+            manager_staff_id: formData.requires_manager ? formData.manager_staff_id || null : null,
+            director_staff_id: formData.requires_director ? formData.director_staff_id || null : null,
             whatsapp_message: formData.whatsapp_message || null,
             email_subject: formData.email_subject || null,
             email_message: formData.email_message || null,
@@ -252,6 +292,9 @@ export default function TaskSettingsPage() {
           offset_days: formData.offset_days,
           offset_minutes: formData.offset_minutes,
           requires_manager: formData.requires_manager,
+          requires_director: formData.requires_director,
+          manager_staff_id: formData.requires_manager ? formData.manager_staff_id || null : null,
+          director_staff_id: formData.requires_director ? formData.director_staff_id || null : null,
           whatsapp_message: formData.whatsapp_message || null,
           email_subject: formData.email_subject || null,
           email_message: formData.email_message || null,
@@ -439,6 +482,12 @@ export default function TaskSettingsPage() {
                         <Badge className="bg-blue-500 text-white">
                           <UserCog className="h-3 w-3 mr-1" />
                           Gerente
+                        </Badge>
+                      )}
+                      {tpl.requires_director && (
+                        <Badge className="bg-purple-500 text-white">
+                          <UserCog className="h-3 w-3 mr-1" />
+                          Director
                         </Badge>
                       )}
                       {!tpl.is_active && <Badge variant="outline">Inactiva</Badge>}
@@ -645,21 +694,111 @@ export default function TaskSettingsPage() {
               <p className="text-xs text-muted-foreground">{offsetLabel(formData.offset_days, formData.offset_minutes)}</p>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t">
-              <div className="space-y-0.5">
-                <Label htmlFor="requires_manager" className="flex items-center gap-2">
-                  <UserCog className="h-4 w-4 text-blue-500" />
-                  Requiere apoyo del gerente
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  Esta tarea se asignará al gerente en lugar del asesor
-                </p>
+            {/* Apoyo del gerente comercial */}
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="requires_manager" className="flex items-center gap-2">
+                    <UserCog className="h-4 w-4 text-blue-500" />
+                    Requiere apoyo del gerente
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Se generará una tarea para el gerente comercial seleccionado
+                  </p>
+                </div>
+                <Switch
+                  id="requires_manager"
+                  checked={formData.requires_manager}
+                  onCheckedChange={(checked) =>
+                    setFormData({
+                      ...formData,
+                      requires_manager: checked,
+                      manager_staff_id: checked ? formData.manager_staff_id : "",
+                    })
+                  }
+                />
               </div>
-              <Switch
-                id="requires_manager"
-                checked={formData.requires_manager}
-                onCheckedChange={(checked) => setFormData({ ...formData, requires_manager: checked })}
-              />
+              {formData.requires_manager && (
+                <div className="space-y-2 pl-6">
+                  <Label htmlFor="manager_staff_id" className="text-xs text-muted-foreground">
+                    Gerente comercial
+                  </Label>
+                  <Select
+                    value={formData.manager_staff_id}
+                    onValueChange={(value) => setFormData({ ...formData, manager_staff_id: value })}
+                  >
+                    <SelectTrigger id="manager_staff_id">
+                      <SelectValue placeholder="Selecciona un gerente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staff.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.first_name} {s.last_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {staff.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No hay personal disponible{selectedAgency ? ` en ${selectedAgency.name}` : ""}.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Apoyo del director general */}
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="requires_director" className="flex items-center gap-2">
+                    <UserCog className="h-4 w-4 text-purple-500" />
+                    Requiere apoyo del Director General
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Se generará una tarea pendiente para el director general seleccionado
+                  </p>
+                </div>
+                <Switch
+                  id="requires_director"
+                  checked={formData.requires_director}
+                  onCheckedChange={(checked) =>
+                    setFormData({
+                      ...formData,
+                      requires_director: checked,
+                      director_staff_id: checked ? formData.director_staff_id : "",
+                    })
+                  }
+                />
+              </div>
+              {formData.requires_director && (
+                <div className="space-y-2 pl-6">
+                  <Label htmlFor="director_staff_id" className="text-xs text-muted-foreground">
+                    Director General
+                  </Label>
+                  <Select
+                    value={formData.director_staff_id}
+                    onValueChange={(value) => setFormData({ ...formData, director_staff_id: value })}
+                  >
+                    <SelectTrigger id="director_staff_id">
+                      <SelectValue placeholder="Selecciona un director" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {directorStaff.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.first_name} {s.last_name}
+                          {s.position ? ` — ${s.position}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {directorStaff.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No hay puestos de dirección disponibles{selectedAgency ? ` en ${selectedAgency.name}` : ""}.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

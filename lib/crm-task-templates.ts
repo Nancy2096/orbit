@@ -10,6 +10,11 @@ export interface CrmTaskTemplate {
   offset_days: number
   offset_minutes: number
   requires_manager: boolean
+  requires_director: boolean
+  /** Gerente comercial asignado cuando requires_manager está activo. */
+  manager_staff_id: string | null
+  /** Director general asignado cuando requires_director está activo. */
+  director_staff_id: string | null
   is_active: boolean
   whatsapp_message?: string | null
   email_subject?: string | null
@@ -32,8 +37,13 @@ interface ApplyTemplatesArgs {
  *
  * - Calcula la fecha límite de cada tarea a partir del registro del prospecto
  *   más su desfase en días y minutos configurado en la plantilla.
- * - Las tareas marcadas como "requiere gerente" se asignan al gerente configurado
- *   para la agencia del prospecto (crm_task_manager_settings); el resto al asesor.
+ * - Las tareas marcadas como "requiere gerente" se asignan al gerente comercial
+ *   definido en la plantilla (o, en su defecto, al gerente configurado para la
+ *   agencia del prospecto en crm_task_manager_settings).
+ * - Las tareas marcadas como "requiere director" se asignan al director general
+ *   definido en la plantilla.
+ * - Una plantilla puede requerir gerente y director a la vez: en ese caso se
+ *   genera una tarea para cada uno. Si no requiere ninguno, se asigna al asesor.
  * - Es idempotente: no vuelve a crear una tarea de una plantilla que ya exista
  *   para el prospecto (se apoya en crm_tasks.template_id).
  *
@@ -67,30 +77,49 @@ export async function applyTaskTemplatesToProspect(
     managerStaffId = managerRow?.manager_staff_id ?? null
   }
 
-  // 3) Evitar duplicados: plantillas ya cargadas en este prospecto.
+  // 3) Evitar duplicados: pares plantilla+asignado ya cargados en este prospecto.
+  //    (Una plantilla puede generar varias tareas: asesor, gerente y/o director.)
   const { data: existing } = await supabase
     .from("crm_tasks")
-    .select("template_id")
+    .select("template_id, assigned_to")
     .eq("prospect_id", prospectId)
     .not("template_id", "is", null)
 
-  const alreadyLoaded = new Set((existing || []).map((t: { template_id: string }) => t.template_id))
+  const alreadyLoaded = new Set(
+    (existing || []).map((t: { template_id: string; assigned_to: string | null }) => `${t.template_id}:${t.assigned_to ?? ""}`),
+  )
 
   const base = new Date(registeredAt).getTime()
 
-  const rows = (templates as CrmTaskTemplate[])
-    .filter((tpl) => !alreadyLoaded.has(tpl.id))
-    .map((tpl) => {
-      const dueMs = base + tpl.offset_days * 24 * 60 * 60 * 1000 + tpl.offset_minutes * 60 * 1000
-      const assignee = tpl.requires_manager ? managerStaffId : assignedTo
-      return {
+  const rows = (templates as CrmTaskTemplate[]).flatMap((tpl) => {
+    const dueMs = base + tpl.offset_days * 24 * 60 * 60 * 1000 + tpl.offset_minutes * 60 * 1000
+    const dueDate = new Date(dueMs).toISOString()
+
+    // Determinar los responsables de esta plantilla. Puede haber más de uno
+    // cuando la tarea requiere apoyo del gerente y del director a la vez.
+    const assignees: string[] = []
+    if (tpl.requires_manager) {
+      const mgr = tpl.manager_staff_id ?? managerStaffId
+      if (mgr) assignees.push(mgr)
+    }
+    if (tpl.requires_director && tpl.director_staff_id) {
+      assignees.push(tpl.director_staff_id)
+    }
+    // Si no requiere apoyo de nadie, la tarea es para el asesor del prospecto.
+    if (assignees.length === 0 && assignedTo) {
+      assignees.push(assignedTo)
+    }
+
+    return assignees
+      .filter((assignee) => !alreadyLoaded.has(`${tpl.id}:${assignee}`))
+      .map((assignee) => ({
         prospect_id: prospectId,
         agency_id: agencyId,
         title: tpl.title,
         description: tpl.description,
         task_type: tpl.task_type,
         priority: tpl.priority || "medium",
-        due_date: new Date(dueMs).toISOString(),
+        due_date: dueDate,
         assigned_to: assignee,
         template_id: tpl.id,
         created_by: createdBy,
@@ -98,8 +127,8 @@ export async function applyTaskTemplatesToProspect(
         whatsapp_message: tpl.whatsapp_message ?? null,
         email_subject: tpl.email_subject ?? null,
         email_message: tpl.email_message ?? null,
-      }
-    })
+      }))
+  })
 
   if (rows.length === 0) return 0
 
