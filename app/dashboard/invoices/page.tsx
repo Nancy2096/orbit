@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
 import { Plus, Search, FileText, Eye, DollarSign, Clock, AlertCircle, CheckCircle, Settings, Upload, CreditCard, MoreHorizontal, X, RefreshCw, Landmark, Pencil, Trash2 } from "lucide-react"
 import {
@@ -125,6 +126,11 @@ export default function InvoicesPage() {
   // Delete confirmation state
   const [deleteInvoice, setDeleteInvoice] = useState<Invoice | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkProcessing, setBulkProcessing] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
 
   // Stats
   const [stats, setStats] = useState({
@@ -306,6 +312,54 @@ if (agencyId) {
     fetchInvoices()
   }
 
+  // Alterna la selección de una factura individual.
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Cambia el estado de todas las facturas seleccionadas a la vez.
+  const handleBulkStatus = async (status: string) => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkProcessing(true)
+    const { error } = await supabase
+      .from("invoices")
+      .update({ status, updated_at: new Date().toISOString() })
+      .in("id", ids)
+    setBulkProcessing(false)
+    if (error) {
+      toast.error("Error al actualizar: " + error.message)
+      return
+    }
+    toast.success(`${ids.length} ${ids.length === 1 ? "factura actualizada" : "facturas actualizadas"}`)
+    setSelectedIds(new Set())
+    fetchInvoices()
+  }
+
+  // Elimina todas las facturas seleccionadas junto con sus dependencias.
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkProcessing(true)
+    await supabase.from("invoice_items").delete().in("invoice_id", ids)
+    await supabase.from("payments").delete().in("invoice_id", ids)
+    const { error } = await supabase.from("invoices").delete().in("id", ids)
+    setBulkProcessing(false)
+    setBulkDeleteOpen(false)
+    if (error) {
+      toast.error("Error al eliminar: " + error.message)
+      return
+    }
+    toast.success(`${ids.length} ${ids.length === 1 ? "factura eliminada" : "facturas eliminadas"}`)
+    setSelectedIds(new Set())
+    fetchInvoices()
+  }
+
   const handlePaymentSubmit = async () => {
     if (!selectedInvoice) return
 
@@ -439,6 +493,24 @@ setUploading(false)
     )
   })
 
+  // Estado de la casilla "seleccionar todas" según lo que hay filtrado en pantalla.
+  const filteredIds = filteredInvoices.map((i) => i.id)
+  const selectedCount = filteredIds.filter((id) => selectedIds.has(id)).length
+  const allSelected = filteredIds.length > 0 && selectedCount === filteredIds.length
+  const someSelected = selectedCount > 0 && !allSelected
+
+  const toggleAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allSelected) {
+        filteredIds.forEach((id) => next.delete(id))
+      } else {
+        filteredIds.forEach((id) => next.add(id))
+      }
+      return next
+    })
+  }
+
   const formatCurrency = (amount: number, currency?: { symbol: string; code: string } | null) => {
     const symbol = currency?.symbol || "$"
     return `${symbol}${Number(amount).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -571,6 +643,69 @@ setUploading(false)
         </CardContent>
       </Card>
 
+      {/* Bulk actions bar */}
+      {selectedCount > 0 && (
+        <Card className="border-primary/40 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 py-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <span>
+                {selectedCount} {selectedCount === 1 ? "factura seleccionada" : "facturas seleccionadas"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-muted-foreground"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Limpiar
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={bulkProcessing}
+                onClick={() => handleBulkStatus("validated")}
+              >
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Validar
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={bulkProcessing}
+                onClick={() => handleBulkStatus("pending")}
+              >
+                <Clock className="mr-2 h-4 w-4" />
+                Marcar Por Cobrar
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={bulkProcessing}
+                onClick={() => handleBulkStatus("cancelled")}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={bulkProcessing}
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                {bulkProcessing ? (
+                  <Spinner className="mr-2 h-4 w-4" />
+                ) : (
+                  <Trash2 className="mr-2 h-4 w-4" />
+                )}
+                Eliminar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Table */}
       <Card>
         <CardContent className="p-0">
@@ -600,6 +735,13 @@ setUploading(false)
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                      onCheckedChange={toggleAll}
+                      aria-label="Seleccionar todas las facturas"
+                    />
+                  </TableHead>
                   <TableHead>Número</TableHead>
                   <TableHead>Cliente / Cuenta</TableHead>
                   <TableHead>Agencia</TableHead>
@@ -616,7 +758,17 @@ setUploading(false)
                   const status = statusConfig[invoice.status] || statusConfig.draft
                   const StatusIcon = status.icon
                   return (
-                    <TableRow key={invoice.id}>
+                    <TableRow
+                      key={invoice.id}
+                      data-state={selectedIds.has(invoice.id) ? "selected" : undefined}
+                    >
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(invoice.id)}
+                          onCheckedChange={() => toggleOne(invoice.id)}
+                          aria-label={`Seleccionar factura ${invoice.invoice_number}`}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">
                         <Link
                           href={`/dashboard/invoices/${invoice.id}`}
@@ -733,6 +885,32 @@ setUploading(false)
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk delete confirmation */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => !open && setBulkDeleteOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar {selectedCount} {selectedCount === 1 ? "factura" : "facturas"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminarán permanentemente las facturas seleccionadas junto con sus líneas y pagos
+              registrados. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkProcessing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleBulkDelete()
+              }}
+              disabled={bulkProcessing}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkProcessing ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete confirmation */}
       <AlertDialog open={!!deleteInvoice} onOpenChange={(open) => !open && setDeleteInvoice(null)}>
