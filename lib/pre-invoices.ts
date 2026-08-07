@@ -276,13 +276,23 @@ export async function convertPreInvoiceToInvoice(
     .eq("code", pre.currency)
     .maybeSingle()
 
-  // Número de factura consistente con el módulo de facturas.
+  // Número de factura consistente con el módulo de facturas. Se calcula a partir
+  // del MÁXIMO consecutivo existente para la agencia en el año (no del conteo),
+  // de modo que los huecos por facturas eliminadas no generen números duplicados
+  // que violen la restricción UNIQUE (agency_id, invoice_number).
   const year = new Date().getFullYear()
-  const { count } = await supabase
+  const { data: existingNumbers } = await supabase
     .from("invoices")
-    .select("*", { count: "exact", head: true })
+    .select("invoice_number")
     .eq("agency_id", pre.agency_id)
-  const invoiceNumber = `FAC-${year}-${String((count || 0) + 1).padStart(5, "0")}`
+    .like("invoice_number", `FAC-${year}-%`)
+
+  let maxSeq = 0
+  for (const row of existingNumbers || []) {
+    const seq = Number.parseInt(String(row.invoice_number).split("-").pop() || "0", 10)
+    if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq
+  }
+  const invoiceNumber = `FAC-${year}-${String(maxSeq + 1).padStart(5, "0")}`
 
   const { data: invoice, error: invoiceError } = await supabase
     .from("invoices")
