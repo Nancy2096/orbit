@@ -293,7 +293,7 @@ export async function convertPreInvoiceToInvoice(
       project_id: pre.project_id,
       invoice_number: invoiceNumber,
       invoice_type: "standard",
-      status: "draft",
+      status: "pending",
       issue_date: new Date().toISOString().split("T")[0],
       subtotal: totals.subtotal,
       tax_amount: totals.tax,

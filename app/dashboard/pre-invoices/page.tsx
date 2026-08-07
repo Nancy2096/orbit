@@ -25,6 +25,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Plus,
   Search,
   Eye,
@@ -126,14 +136,9 @@ export default function PreInvoicesPage() {
   }
 
   // Factura todas las prefacturas seleccionadas (que aún estén pendientes).
+  // La confirmación se realiza con un AlertDialog en PeriodDetailView.
   async function handleBillSelected(ids: string[]) {
     if (ids.length === 0) return
-    if (
-      !confirm(
-        `¿Facturar ${ids.length} ${ids.length === 1 ? "prefactura" : "prefacturas"} seleccionadas? Se generará una factura por cada una.`,
-      )
-    )
-      return
     setBilling(true)
     let ok = 0
     let failed = 0
@@ -476,6 +481,9 @@ function PeriodDetailView({
   const allSelected = selectableIds.length > 0 && selectedBillable.length === selectableIds.length
   const someSelected = selectedBillable.length > 0 && !allSelected
 
+  // Confirmación de facturación en lote (reemplaza el confirm() nativo).
+  const [confirmBillOpen, setConfirmBillOpen] = useState(false)
+
   const toggleAll = () => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -513,7 +521,7 @@ function PeriodDetailView({
           <div className="ml-auto">
             <Button
               size="sm"
-              onClick={() => onBillSelected(selectedBillable)}
+              onClick={() => setConfirmBillOpen(true)}
               disabled={selectedBillable.length === 0 || billing}
             >
               {billing ? (
@@ -686,6 +694,35 @@ function PeriodDetailView({
           </TableBody>
         </Table>
       )}
+
+      <AlertDialog open={confirmBillOpen} onOpenChange={(open) => !open && setConfirmBillOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              ¿Facturar {selectedBillable.length}{" "}
+              {selectedBillable.length === 1 ? "prefactura" : "prefacturas"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Se generará una factura por cada prefactura seleccionada y pasarán al estado
+              &quot;Facturada&quot;. Las nuevas facturas aparecerán en la sección de Facturas y Pagos
+              como &quot;Por Cobrar&quot;.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={billing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                setConfirmBillOpen(false)
+                onBillSelected(selectedBillable)
+              }}
+              disabled={billing}
+            >
+              Facturar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
