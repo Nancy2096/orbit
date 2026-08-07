@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Select,
@@ -56,6 +58,8 @@ interface DraftGroup {
   agency_id: string | null
   agency_name: string
   currency: string
+  tax_enabled: boolean
+  tax_rate: number
   alreadyExists: boolean
   lines: DraftLine[]
 }
@@ -184,6 +188,8 @@ export default function GeneratePreInvoicesPage() {
         agency_id: acc.agency_id,
         agency_name: agency?.name || "Sin agencia",
         currency: accountCurrency,
+        tax_enabled: accountCurrency === "MXN",
+        tax_rate: IVA_RATE * 100,
         alreadyExists: existingAccounts.has(acc.id),
         lines,
       })
@@ -249,6 +255,8 @@ export default function GeneratePreInvoicesPage() {
         agency_id: account?.agency_id ?? null,
         agency_name: account?.agency?.name || "Sin agencia",
         currency: (services[0]?.currency as string) || "MXN",
+        tax_enabled: ((services[0]?.currency as string) || "MXN") === "MXN",
+        tax_rate: IVA_RATE * 100,
         alreadyExists: existingProjects.has(proj.id),
         lines,
       })
@@ -281,6 +289,39 @@ export default function GeneratePreInvoicesPage() {
     )
   }
 
+  // Actualiza el precio unitario de una línea y recalcula su importe respetando
+  // el descuento y el porcentaje a facturar (proyectos parciales).
+  function updateUnitPrice(groupIdx: number, lineKey: string, value: number) {
+    const unit = Number.isFinite(value) && value >= 0 ? value : 0
+    setGroups((prev) =>
+      prev.map((g, i) =>
+        i !== groupIdx
+          ? g
+          : {
+              ...g,
+              lines: g.lines.map((l) => {
+                if (l.key !== lineKey) return l
+                const base = lineAmount(l.quantity, unit, l.discount)
+                const amount =
+                  l.billing_percentage != null && l.billing_percentage !== 100
+                    ? Math.round(base * (l.billing_percentage / 100) * 100) / 100
+                    : base
+                return { ...l, unit_price: unit, amount }
+              }),
+            },
+      ),
+    )
+  }
+
+  function setGroupTaxEnabled(groupIdx: number, value: boolean) {
+    setGroups((prev) => prev.map((g, i) => (i !== groupIdx ? g : { ...g, tax_enabled: value })))
+  }
+
+  function setGroupTaxRate(groupIdx: number, value: number) {
+    const rate = Number.isFinite(value) && value >= 0 ? value : 0
+    setGroups((prev) => prev.map((g, i) => (i !== groupIdx ? g : { ...g, tax_rate: rate })))
+  }
+
   const generatableGroups = groups.filter(
     (g) => !g.alreadyExists && g.lines.some((l) => l.is_included),
   )
@@ -310,10 +351,9 @@ export default function GeneratePreInvoicesPage() {
     let created = 0
     try {
       for (const group of generatableGroups) {
-        // Por defecto, las prefacturas en moneda distinta a MXN (p. ej. USD de
-        // clientes extranjeros) se generan sin IVA. Puede ajustarse luego.
-        const taxEnabled = group.currency === "MXN"
-        const totals = computeTotals(group.lines, taxEnabled)
+        // El IVA (encendido/apagado y porcentaje) se define por grupo en la UI.
+        const taxEnabled = group.tax_enabled
+        const totals = computeTotals(group.lines, taxEnabled, group.tax_rate)
         const number = `PRE-${year}-${String(seq).padStart(5, "0")}`
         seq++
 
@@ -331,6 +371,7 @@ export default function GeneratePreInvoicesPage() {
             status: "draft",
             currency: group.currency,
             tax_enabled: taxEnabled,
+            tax_rate: group.tax_rate,
             subtotal: totals.subtotal,
             tax: totals.tax,
             total: totals.total,
@@ -453,7 +494,7 @@ export default function GeneratePreInvoicesPage() {
         <>
           <div className="space-y-4">
             {groups.map((group, groupIdx) => {
-              const totals = computeTotals(group.lines)
+              const totals = computeTotals(group.lines, group.tax_enabled, group.tax_rate)
               const allChecked = group.lines.every((l) => l.is_included)
               return (
                 <Card key={`${group.source_type}-${group.source_id}`} className={group.alreadyExists ? "opacity-70" : ""}>
@@ -522,20 +563,76 @@ export default function GeneratePreInvoicesPage() {
                                 : "—"}
                             </TableCell>
                             <TableCell className="text-right">{line.quantity}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(line.unit_price, group.currency)}</TableCell>
+                            <TableCell className="text-right">
+                              {group.alreadyExists ? (
+                                formatCurrency(line.unit_price, group.currency)
+                              ) : (
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={line.unit_price}
+                                  onChange={(e) =>
+                                    updateUnitPrice(groupIdx, line.key, Number.parseFloat(e.target.value) || 0)
+                                  }
+                                  className="ml-auto h-8 w-28 text-right"
+                                  aria-label={`Precio unitario de ${line.description}`}
+                                />
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">{line.discount ? `${line.discount}%` : "-"}</TableCell>
                             <TableCell className="text-right">{formatCurrency(line.amount, group.currency)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
-                    <div className="mt-4 flex flex-col items-end gap-1 text-sm">
+                    <div className="mt-4 flex flex-col items-end gap-2 text-sm">
+                      <div className="flex w-full max-w-xs items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+                        <div className="flex flex-col">
+                          <Label htmlFor={`tax-toggle-${groupIdx}`} className="text-sm font-medium">
+                            Aplicar IVA
+                          </Label>
+                          <span className="text-xs text-muted-foreground">
+                            {group.tax_enabled ? "Se incluye el impuesto" : "Sin impuesto"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {group.tax_enabled && (
+                            <div className="relative w-20">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step="0.01"
+                                value={group.tax_rate}
+                                disabled={group.alreadyExists}
+                                onChange={(e) =>
+                                  setGroupTaxRate(groupIdx, Number.parseFloat(e.target.value) || 0)
+                                }
+                                className="h-8 pr-5 text-right"
+                                aria-label="Porcentaje de IVA"
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+                          )}
+                          <Switch
+                            id={`tax-toggle-${groupIdx}`}
+                            checked={group.tax_enabled}
+                            disabled={group.alreadyExists}
+                            onCheckedChange={(v) => setGroupTaxEnabled(groupIdx, Boolean(v))}
+                          />
+                        </div>
+                      </div>
                       <div className="flex w-full max-w-xs justify-between">
                         <span className="text-muted-foreground">Subtotal</span>
                         <span>{formatCurrency(totals.subtotal, group.currency)}</span>
                       </div>
                       <div className="flex w-full max-w-xs justify-between">
-                        <span className="text-muted-foreground">IVA ({IVA_RATE * 100}%)</span>
+                        <span className="text-muted-foreground">
+                          {group.tax_enabled ? `IVA (${group.tax_rate}%)` : "IVA (exento)"}
+                        </span>
                         <span>{formatCurrency(totals.tax, group.currency)}</span>
                       </div>
                       <div className="flex w-full max-w-xs justify-between font-semibold">
