@@ -78,10 +78,8 @@ interface Agency {
 }
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ComponentType<{ className?: string }> }> = {
-  draft: { label: "Borrador", variant: "secondary", icon: FileText },
-  validated: { label: "Validado", variant: "outline", icon: CheckCircle },
   pending: { label: "Por Cobrar", variant: "default", icon: Clock },
-  paid: { label: "Pagado", variant: "default", icon: CheckCircle },
+  paid: { label: "Cobrado", variant: "default", icon: CheckCircle },
   overdue: { label: "Vencido", variant: "destructive", icon: AlertCircle },
   cancelled: { label: "Cancelado", variant: "secondary", icon: FileText },
 }
@@ -587,12 +585,12 @@ setUploading(false)
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pagado</CardTitle>
+            <CardTitle className="text-sm font-medium">Cobrado</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{formatCurrency(stats.paid)}</div>
-            <p className="text-xs text-muted-foreground">Pagos completados</p>
+            <p className="text-xs text-muted-foreground">Cobros completados</p>
           </CardContent>
         </Card>
       </div>
@@ -661,15 +659,6 @@ setUploading(false)
               </Button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={bulkProcessing}
-                onClick={() => handleBulkStatus("validated")}
-              >
-                <CheckCircle className="mr-2 h-4 w-4" />
-                Validar
-              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -755,7 +744,7 @@ setUploading(false)
               </TableHeader>
               <TableBody>
                 {filteredInvoices.map((invoice) => {
-                  const status = statusConfig[invoice.status] || statusConfig.draft
+                  const status = statusConfig[invoice.status] || statusConfig.pending
                   const StatusIcon = status.icon
                   return (
                     <TableRow
@@ -797,7 +786,7 @@ setUploading(false)
                             {formatCurrency(invoice.balance_due, invoice.currency)}
                           </span>
                         ) : (
-                          <span className="text-green-600">Pagado</span>
+                          <span className="text-green-600">Cobrado</span>
                         )}
                       </TableCell>
                       <TableCell>
@@ -836,18 +825,6 @@ setUploading(false)
                               Cambiar Estado
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            {invoice.status === "draft" && (
-                              <DropdownMenuItem onClick={() => handleStatusChange(invoice.id, "validated")}>
-                                <CheckCircle className="mr-2 h-4 w-4" />
-                                Validar
-                              </DropdownMenuItem>
-                            )}
-                            {invoice.status === "validated" && (
-                              <DropdownMenuItem onClick={() => handleStatusChange(invoice.id, "pending")}>
-                                <Clock className="mr-2 h-4 w-4" />
-                                Marcar Por Cobrar
-                              </DropdownMenuItem>
-                            )}
                             {(invoice.status === "pending" || invoice.status === "overdue") && (
                               <DropdownMenuItem onClick={() => openPaymentModal(invoice)}>
                                 <CreditCard className="mr-2 h-4 w-4" />
@@ -964,7 +941,7 @@ setUploading(false)
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="paid">Pagado</SelectItem>
+                  <SelectItem value="paid">Cobrado</SelectItem>
                   <SelectItem value="pending">Por Cobrar</SelectItem>
                   <SelectItem value="overdue">Vencido</SelectItem>
                 </SelectContent>
@@ -1139,18 +1116,6 @@ setUploading(false)
                   <SelectValue placeholder="Seleccionar estado" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="draft">
-                    <div className="flex items-center">
-                      <FileText className="mr-2 h-4 w-4 text-gray-500" />
-                      Borrador
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="validated">
-                    <div className="flex items-center">
-                      <CheckCircle className="mr-2 h-4 w-4 text-blue-500" />
-                      Validado
-                    </div>
-                  </SelectItem>
                   <SelectItem value="pending">
                     <div className="flex items-center">
                       <Clock className="mr-2 h-4 w-4 text-yellow-500" />
@@ -1160,7 +1125,7 @@ setUploading(false)
                   <SelectItem value="paid">
                     <div className="flex items-center">
                       <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                      Pagado
+                      Cobrado
                     </div>
                   </SelectItem>
                   <SelectItem value="overdue">

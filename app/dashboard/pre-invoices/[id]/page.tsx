@@ -123,8 +123,12 @@ export default function PreInvoiceDetailPage() {
     }
 
     if (pi.account_id) {
-      const { data: acc } = await supabase.from("accounts").select("name").eq("id", pi.account_id).single()
-      info.accountName = acc?.name ?? null
+      const { data: acc } = await supabase
+        .from("accounts")
+        .select("account_name")
+        .eq("id", pi.account_id)
+        .single()
+      info.accountName = acc?.account_name ?? null
     }
     if (pi.project_id) {
       const { data: proj } = await supabase.from("projects").select("name").eq("id", pi.project_id).single()
@@ -133,11 +137,11 @@ export default function PreInvoiceDetailPage() {
     if (pi.client_id) {
       const { data: client } = await supabase
         .from("clients")
-        .select("name, email")
+        .select("company_name, billing_email, primary_contact_email")
         .eq("id", pi.client_id)
         .single()
-      info.clientName = client?.name ?? null
-      info.clientEmail = client?.email ?? null
+      info.clientName = client?.company_name ?? null
+      info.clientEmail = client?.billing_email ?? client?.primary_contact_email ?? null
     }
     if (pi.agency_id) {
       const { data: agency } = await supabase.from("agencies").select("name").eq("id", pi.agency_id).single()
