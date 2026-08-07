@@ -142,6 +142,7 @@ export default function PreInvoicesPage() {
     setBilling(true)
     let ok = 0
     let failed = 0
+    let lastError = ""
     for (const id of ids) {
       try {
         await convertPreInvoiceToInvoice(supabase, id)
@@ -149,13 +150,14 @@ export default function PreInvoicesPage() {
         ok += 1
       } catch (err) {
         failed += 1
+        lastError = err instanceof Error ? err.message : String(err)
         console.log("[v0] Error al facturar prefactura", id, err)
       }
     }
     setBilling(false)
     setSelectedIds(new Set())
     if (ok > 0) toast.success(`${ok} ${ok === 1 ? "prefactura facturada" : "prefacturas facturadas"}`)
-    if (failed > 0) toast.error(`${failed} no se pudieron facturar (revisa que tengan servicios incluidos)`)
+    if (failed > 0) toast.error(`${failed} no se pudieron facturar${lastError ? `: ${lastError}` : ""}`)
   }
 
   // Cambia manualmente el estado de una prefactura. Para "Facturada" se usa la
