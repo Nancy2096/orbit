@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useAgency } from "@/contexts/agency-context"
 import {
   Table,
@@ -54,6 +55,8 @@ import {
   Building2,
   Filter,
   MessageCircle,
+  UserCog,
+  X,
 } from "lucide-react"
 import {
   Tooltip,
@@ -112,6 +115,11 @@ export default function ProspectsPage() {
   const [selectedSalesRep, setSelectedSalesRep] = useState<string>("all")
   const [prospectToDelete, setProspectToDelete] = useState<Prospect | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // Selección múltiple y reasignación en lote
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [reassignTo, setReassignTo] = useState<string>("")
+  const [reassignOpen, setReassignOpen] = useState(false)
+  const [reassigning, setReassigning] = useState(false)
   const supabase = createClient()
 
   const handleDelete = async () => {
@@ -134,6 +142,50 @@ export default function ProspectsPage() {
     setProspects((prev) => prev.filter((p) => p.id !== prospectToDelete.id))
     toast.success("Prospecto eliminado correctamente")
     setProspectToDelete(null)
+  }
+
+  // Alterna la selección de un prospecto individual.
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Reasigna todos los prospectos seleccionados al asesor elegido.
+  const handleReassign = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0 || !reassignTo) return
+    setReassigning(true)
+
+    const newAssignee = reassignTo === "unassigned" ? null : reassignTo
+    const { error } = await supabase
+      .from("crm_prospects")
+      .update({ assigned_to: newAssignee, updated_at: new Date().toISOString() })
+      .in("id", ids)
+
+    setReassigning(false)
+
+    if (error) {
+      console.log("[v0] Error reasignando prospectos:", error)
+      toast.error("No se pudieron reasignar los prospectos")
+      return
+    }
+
+    setProspects((prev) =>
+      prev.map((p) => (selectedIds.has(p.id) ? { ...p, assigned_to: newAssignee } : p)),
+    )
+    const rep = salesReps.find((r) => r.id === reassignTo)
+    const repName =
+      reassignTo === "unassigned" ? "Sin asignar" : rep ? `${rep.first_name} ${rep.last_name}` : ""
+    toast.success(
+      `${ids.length} ${ids.length === 1 ? "prospecto reasignado" : "prospectos reasignados"} a ${repName}`,
+    )
+    setSelectedIds(new Set())
+    setReassignTo("")
+    setReassignOpen(false)
   }
 
   useEffect(() => {
@@ -295,6 +347,24 @@ export default function ProspectsPage() {
     return matchesSearch && matchesStage && matchesSource && matchesSalesRep
   })
 
+  // Estado de la casilla "seleccionar todos" según los prospectos visibles.
+  const filteredIds = filteredProspects.map((p) => p.id)
+  const selectedCount = filteredIds.filter((id) => selectedIds.has(id)).length
+  const allSelected = filteredIds.length > 0 && selectedCount === filteredIds.length
+  const someSelected = selectedCount > 0 && !allSelected
+
+  const toggleAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allSelected) {
+        filteredIds.forEach((id) => next.delete(id))
+      } else {
+        filteredIds.forEach((id) => next.add(id))
+      }
+      return next
+    })
+  }
+
   const getStageColor = (color: string | null) => {
     // If it's a hex color, return inline styles
     if (color && color.startsWith("#")) {
@@ -453,12 +523,60 @@ export default function ProspectsPage() {
         </CardContent>
       </Card>
 
+      {/* Bulk actions bar */}
+      {selectedCount > 0 && (
+        <Card className="border-primary/40 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 py-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <span>
+                {selectedCount} {selectedCount === 1 ? "prospecto seleccionado" : "prospectos seleccionados"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-muted-foreground"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                <X className="mr-1 h-3 w-3" />
+                Limpiar
+              </Button>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Select value={reassignTo} onValueChange={setReassignTo}>
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue placeholder="Reasignar a asesor..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unassigned">Sin asignar</SelectItem>
+                  {salesReps.map((rep) => (
+                    <SelectItem key={rep.id} value={rep.id}>
+                      {rep.first_name} {rep.last_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button disabled={!reassignTo} onClick={() => setReassignOpen(true)}>
+                <UserCog className="mr-2 h-4 w-4" />
+                Reasignar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Table */}
       <Card>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={toggleAll}
+                    aria-label="Seleccionar todos los prospectos"
+                  />
+                </TableHead>
                 <TableHead>Prospecto</TableHead>
                 <TableHead>Contacto</TableHead>
                 <TableHead>Tipo de Cliente</TableHead>
@@ -475,7 +593,7 @@ export default function ProspectsPage() {
             <TableBody>
               {filteredProspects.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-32 text-center">
+                  <TableCell colSpan={12} className="h-32 text-center">
                     <div className="flex flex-col items-center justify-center text-muted-foreground">
                       <UserPlus className="h-8 w-8 mb-2 opacity-50" />
                       <p>No se encontraron prospectos</p>
@@ -497,7 +615,17 @@ export default function ProspectsPage() {
                 </TableRow>
               ) : (
                 filteredProspects.map((prospect) => (
-                  <TableRow key={prospect.id}>
+                  <TableRow
+                    key={prospect.id}
+                    data-state={selectedIds.has(prospect.id) ? "selected" : undefined}
+                  >
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds.has(prospect.id)}
+                        onCheckedChange={() => toggleOne(prospect.id)}
+                        aria-label={`Seleccionar ${prospect.contact_name}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar>
@@ -726,6 +854,40 @@ export default function ProspectsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <AlertDialog open={reassignOpen} onOpenChange={(open) => !open && setReassignOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Reasignar prospectos?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se reasignarán{" "}
+              <span className="font-medium text-foreground">{selectedCount}</span>{" "}
+              {selectedCount === 1 ? "prospecto" : "prospectos"} a{" "}
+              <span className="font-medium text-foreground">
+                {reassignTo === "unassigned"
+                  ? "Sin asignar"
+                  : (() => {
+                      const rep = salesReps.find((r) => r.id === reassignTo)
+                      return rep ? `${rep.first_name} ${rep.last_name}` : ""
+                    })()}
+              </span>
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reassigning}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleReassign()
+              }}
+              disabled={reassigning}
+            >
+              {reassigning ? "Reasignando..." : "Reasignar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!prospectToDelete} onOpenChange={(open) => !open && setProspectToDelete(null)}>
         <AlertDialogContent>
