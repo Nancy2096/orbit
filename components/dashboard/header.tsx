@@ -14,6 +14,7 @@ import {
 import { usePathname } from "next/navigation"
 import type { User } from "@/lib/types"
 import { NotificationBell } from "@/components/dashboard/notification-bell"
+import { GlobalSearch } from "@/components/dashboard/global-search"
 
 interface DashboardHeaderProps {
   user: User | null
@@ -75,6 +76,7 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
       </Breadcrumb>
       
       <div className="ml-auto flex items-center gap-2">
+        <GlobalSearch />
         <NotificationBell />
         {user?.role && (
           <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md">
