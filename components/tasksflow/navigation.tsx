@@ -8,7 +8,6 @@ import {
   FolderKanban,
   ListTodo,
   Calendar,
-  FileCheck,
   Activity,
   FileText,
   UserCog,
@@ -28,7 +27,6 @@ export function TaskFlowNavigation() {
     { href: "/dashboard/tasksflow/projects", icon: FolderKanban, label: "Cuentas y Proyectos", color: "primary" },
     { href: "/dashboard/tasksflow/tasks", icon: ListTodo, label: "Tareas", color: "blue" },
     { href: "/dashboard/tasksflow/calendar", icon: Calendar, label: "Calendario", color: "amber" },
-    { href: "/dashboard/tasksflow/deliverables", icon: FileCheck, label: "Entregables", color: "emerald" },
   ]
 
   const adminModules = [
@@ -43,7 +41,6 @@ export function TaskFlowNavigation() {
     "/dashboard/tasksflow/projects",
     "/dashboard/tasksflow/tasks",
     "/dashboard/tasksflow/calendar",
-    "/dashboard/tasksflow/deliverables",
   ]
   const isOperationalPage = operationalPaths.some(path => pathname.startsWith(path))
 
