@@ -27,8 +27,6 @@ import {
   ChevronRight,
   Rss,
   ClipboardList,
-  Calendar,
-  BarChart3,
   Bell,
   Search,
   Moon,
@@ -39,8 +37,6 @@ import {
   MessageSquare,
   Clock,
   Layers,
-  GanttChart,
-  Activity,
   Wrench,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
@@ -50,10 +46,6 @@ const mainNavItems = [
   { title: "Dashboard", href: "/orbit-tasksflow", icon: LayoutDashboard },
   { title: "Cuentas y Proyectos", href: "/orbit-tasksflow/projects", icon: FolderKanban },
   { title: "Tareas", href: "/orbit-tasksflow/tasks", icon: ListTodo },
-  { title: "Calendario", href: "/orbit-tasksflow/calendar", icon: Calendar },
-  { title: "Gantt", href: "/orbit-tasksflow/gantt", icon: GanttChart },
-  { title: "Carga de Trabajo", href: "/orbit-tasksflow/workload", icon: Activity },
-  { title: "Reportes", href: "/orbit-tasksflow/reports", icon: BarChart3 },
 ]
 
 const adminNavItems = [
