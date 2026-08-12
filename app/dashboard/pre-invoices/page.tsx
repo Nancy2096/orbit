@@ -476,6 +476,15 @@ function PeriodDetailView({
   onBillSelected: (ids: string[]) => void
   billing: boolean
 }) {
+  // Totales del periodo separados por moneda para los indicadores superiores.
+  const totalsByCurrency = rows.reduce<Record<string, number>>((acc, r) => {
+    const cur = r.currency || "MXN"
+    acc[cur] = (acc[cur] || 0) + (r.total || 0)
+    return acc
+  }, {})
+  const totalMXN = totalsByCurrency["MXN"] || 0
+  const totalUSD = totalsByCurrency["USD"] || 0
+
   // Solo se pueden facturar prefacturas que aún no estén facturadas ni canceladas.
   const billableRows = rows.filter((r) => r.status !== "invoiced" && r.status !== "cancelled")
   const selectableIds = billableRows.map((r) => r.id)
@@ -561,6 +570,11 @@ function PeriodDetailView({
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="mb-4 grid gap-4 sm:grid-cols-2">
+        <StatCard icon={DollarSign} label="Total en Pesos (MXN)" value={formatCurrency(totalMXN, "MXN")} />
+        <StatCard icon={DollarSign} label="Total en Dólares (USD)" value={formatCurrency(totalUSD, "USD")} />
       </div>
 
       {rows.length === 0 ? (
@@ -736,7 +750,7 @@ function StatCard({
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
-  value: number
+  value: number | string
 }) {
   return (
     <Card>
