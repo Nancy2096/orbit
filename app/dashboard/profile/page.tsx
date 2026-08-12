@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -65,6 +66,7 @@ interface UserProfile {
 }
 
 export default function ProfilePage() {
+  const [pageTab, setPageTab] = useTabParam("general")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
@@ -363,7 +365,7 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      <Tabs defaultValue="general" className="space-y-6">
+      <Tabs value={pageTab} onValueChange={setPageTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="general" className="gap-2">
             <User className="h-4 w-4" />

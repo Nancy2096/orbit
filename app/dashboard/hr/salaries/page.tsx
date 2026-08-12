@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
@@ -223,7 +224,7 @@ export default function SalariesPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Pestaña activa: compensación actual o evolución en el tiempo.
-  const [activeTab, setActiveTab] = useState("current")
+  const [activeTab, setActiveTab] = useTabParam("current")
 
   // Historial (bitácora) de cambios de sueldo y comisión.
   const [historyLogs, setHistoryLogs] = useState<ChangeLog[]>([])

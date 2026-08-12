@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -28,7 +29,7 @@ import { useAgency } from "@/contexts/agency-context"
 
 export default function CRMIntegrationsPage() {
   const { selectedAgencyId } = useAgency()
-  const [activeTab, setActiveTab] = useState("communication")
+  const [activeTab, setActiveTab] = useTabParam("communication")
 
   // --- Comunicación: Google Workspace (OAuth real por usuario) ---
   const [googleConnection, setGoogleConnection] = useState<{

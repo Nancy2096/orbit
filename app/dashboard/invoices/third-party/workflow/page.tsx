@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -141,7 +141,7 @@ export default function ThirdPartyWorkflowPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [configs, setConfigs] = useState<WorkflowConfig[]>(defaultStatuses)
-  const [activeTab, setActiveTab] = useState("draft")
+  const [activeTab, setActiveTab] = useTabParam("draft")
 
   useEffect(() => {
     fetchWorkflowConfigs()

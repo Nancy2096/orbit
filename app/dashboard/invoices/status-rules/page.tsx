@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -69,6 +70,7 @@ const getColorClass = (color: string) => {
 }
 
 export default function InvoiceStatusRulesPage() {
+  const [pageTab, setPageTab] = useTabParam("general")
   const [statusRules, setStatusRules] = useState<StatusRule[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -206,7 +208,7 @@ export default function InvoiceStatusRulesPage() {
               </div>
             </AccordionTrigger>
             <AccordionContent className="px-4 pb-4">
-              <Tabs defaultValue="general" className="w-full">
+              <Tabs value={pageTab} onValueChange={setPageTab} className="w-full">
                 <TabsList className="mb-4">
                   <TabsTrigger value="general" className="gap-2">
                     <FileText className="h-4 w-4" />

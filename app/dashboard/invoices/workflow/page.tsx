@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -216,6 +217,7 @@ const variablesHelp = [
 ]
 
 export default function InvoiceWorkflowPage() {
+  const [pageTab, setPageTab] = useTabParam("notifications")
   const [configs, setConfigs] = useState<WorkflowConfig[]>(defaultStatuses)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -450,7 +452,7 @@ export default function InvoiceWorkflowPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="notifications" className="w-full">
+            <Tabs value={pageTab} onValueChange={setPageTab} className="w-full">
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="notifications">
                   <Bell className="h-4 w-4 mr-2" />

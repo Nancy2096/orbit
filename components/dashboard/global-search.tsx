@@ -21,6 +21,8 @@ interface SearchItem {
   title: string
   url: string
   group: string
+  // Sección padre a la que pertenece una subsección/pestaña (ej. "Capacitación").
+  parent?: string
   keywords?: string[]
 }
 

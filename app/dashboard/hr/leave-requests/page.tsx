@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -110,6 +111,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function LeaveRequestsOverviewPage() {
+  const [pageTab, setPageTab] = useTabParam("detalle")
   const supabase = createClient()
 
   const currentYear = new Date().getFullYear()
@@ -530,7 +532,7 @@ export default function LeaveRequestsOverviewPage() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="detalle" className="space-y-4">
+      <Tabs value={pageTab} onValueChange={setPageTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="detalle">Detalle</TabsTrigger>
           <TabsTrigger value="saldos">Saldos del Personal</TabsTrigger>

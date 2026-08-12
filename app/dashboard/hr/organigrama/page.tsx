@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -78,7 +79,7 @@ export default function OrganigramaPage() {
   const [orgTree, setOrgTree] = useState<OrgNode[]>([])
   const [workloadData, setWorkloadData] = useState<StaffWorkload[]>([])
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
-  const [activeView, setActiveView] = useState<string>("jerarquica")
+  const [activeView, setActiveView] = useTabParam("jerarquica", "view")
   const supabase = createClient()
 
   useEffect(() => {

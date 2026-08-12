@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -115,6 +116,7 @@ interface StaffRecord {
 }
 
 export default function BonusesPage() {
+  const [pageTab, setPageTab] = useTabParam("training")
   const { selectedAgencyId, loading: agencyLoading } = useAgency()
   const [bonuses, setBonuses] = useState<Bonus[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -414,7 +416,7 @@ export default function BonusesPage() {
               <Spinner className="h-8 w-8" />
             </div>
           ) : (
-            <Tabs defaultValue="training">
+            <Tabs value={pageTab} onValueChange={setPageTab}>
               <TabsList>
                 <TabsTrigger value="training">
                   <GraduationCap className="mr-2 h-4 w-4" />
