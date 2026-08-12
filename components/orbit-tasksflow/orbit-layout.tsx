@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator"
 import {
   LayoutDashboard,
   FolderKanban,
+  Briefcase,
   ListTodo,
   Users,
   Settings,
@@ -44,8 +45,16 @@ import { Badge } from "@/components/ui/badge"
 
 const mainNavItems = [
   { title: "Dashboard", href: "/orbit-tasksflow", icon: LayoutDashboard },
-  { title: "Cuentas y Proyectos", href: "/orbit-tasksflow/projects", icon: FolderKanban },
   { title: "Tareas", href: "/orbit-tasksflow/tasks", icon: ListTodo },
+]
+
+const sidebarProjects = [
+  { id: "1", name: "Campaña Leads Q2", client: "Desarrolladora Horizonte" },
+  { id: "2", name: "Landing Torre Central", client: "Torre Central Living" },
+  { id: "3", name: "Branding Residencial", client: "Residencial Bosques" },
+  { id: "4", name: "SEO Mensual Mayo", client: "Grupo Inmobiliario Altiva" },
+  { id: "5", name: "Renders 3D", client: "Nova Arquitectura" },
+  { id: "6", name: "Campaña Meta Ads Abril", client: "Desarrolladora Horizonte" },
 ]
 
 const adminNavItems = [
@@ -160,6 +169,63 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
                 >
                   <item.icon className="h-4 w-4 flex-shrink-0" />
                   {!isCollapsed && <span>{item.title}</span>}
+                </Link>
+              )
+            })}
+
+            <Separator className="my-3" />
+
+            {!isCollapsed ? (
+              <Link
+                href="/orbit-tasksflow/projects"
+                className={cn(
+                  "flex items-center justify-between px-2 py-1 group",
+                )}
+              >
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground transition-colors">
+                  Cuentas y Proyectos
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+              </Link>
+            ) : (
+              <Link
+                href="/orbit-tasksflow/projects"
+                className="flex justify-center rounded-lg px-2 py-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                title="Cuentas y Proyectos"
+              >
+                <FolderKanban className="h-4 w-4" />
+              </Link>
+            )}
+
+            {sidebarProjects.map((project) => {
+              const href = `/orbit-tasksflow/projects/${project.id}`
+              const isActive = pathname === href
+              return (
+                <Link
+                  key={project.id}
+                  href={href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    isCollapsed && "justify-center px-2"
+                  )}
+                  title={isCollapsed ? `${project.name} · ${project.client}` : undefined}
+                >
+                  {isCollapsed ? (
+                    <Briefcase className="h-4 w-4 flex-shrink-0" />
+                  ) : (
+                    <>
+                      <Briefcase className="h-4 w-4 flex-shrink-0" />
+                      <span className="flex flex-col min-w-0">
+                        <span className="truncate leading-tight">{project.name}</span>
+                        <span className="truncate text-[11px] text-muted-foreground leading-tight">
+                          {project.client}
+                        </span>
+                      </span>
+                    </>
+                  )}
                 </Link>
               )
             })}
