@@ -1,27 +1,31 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 
 /**
  * Sincroniza el valor de una pestaña (Tabs) con el parámetro `?tab=` de la URL.
  *
- * - El valor inicial se lee de la URL (para permitir deep-links desde el buscador
- *   global). La lectura se hace en un efecto tras el montaje para evitar
- *   desajustes de hidratación en recargas de página.
- * - Al cambiar de pestaña se actualiza la URL con `history.replaceState`, sin
- *   provocar navegación, recarga de datos del servidor ni saltos de scroll.
+ * - Lee el valor desde la URL de forma reactiva con `useSearchParams`, de modo
+ *   que funciona tanto al llegar por un deep-link (buscador global) como al
+ *   cambiar de pestaña estando ya en la misma página.
+ * - Al cambiar de pestaña actualiza la URL con `history.replaceState`, sin
+ *   provocar navegación del servidor, recarga de datos ni saltos de scroll.
  *
  * Uso (reemplaza a useState para el estado de pestaña):
  *   const [tab, setTab] = useTabParam("courses")
  *   <Tabs value={tab} onValueChange={setTab}>
  */
 export function useTabParam(defaultValue: string, key = "tab") {
+  const searchParams = useSearchParams()
+  const paramValue = searchParams.get(key)
   const [tab, setTabState] = useState<string>(defaultValue)
 
+  // Sincroniza el estado cuando cambia el parámetro en la URL (deep-link o
+  // navegación dentro de la misma página).
   useEffect(() => {
-    const value = new URLSearchParams(window.location.search).get(key)
-    if (value) setTabState(value)
-  }, [key])
+    if (paramValue) setTabState(paramValue)
+  }, [paramValue])
 
   const setTab = useCallback(
     (value: string) => {

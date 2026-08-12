@@ -86,6 +86,99 @@ const SEARCH_ITEMS: SearchItem[] = [
   { title: "Importar / Exportar", url: "/dashboard/import-export", group: "Configuración", keywords: ["importar", "exportar", "datos", "csv", "excel"] },
   { title: "Configuración", url: "/dashboard/settings", group: "Configuración", keywords: ["configuracion", "ajustes", "settings"] },
   { title: "Mi Perfil", url: "/dashboard/profile", group: "Configuración", keywords: ["perfil", "cuenta", "usuario"] },
+
+  // ---- Subsecciones (pestañas internas de cada página) ----
+  // Administración › Roles y Permisos
+  { title: "Roles", url: "/dashboard/roles?tab=roles", group: "Administración", parent: "Roles y Permisos" },
+  { title: "Permisos", url: "/dashboard/roles?tab=permissions", group: "Administración", parent: "Roles y Permisos" },
+  { title: "Matriz de Permisos", url: "/dashboard/roles?tab=matrix", group: "Administración", parent: "Roles y Permisos", keywords: ["matriz"] },
+
+  // Recursos Humanos › Organigrama
+  { title: "Vista Jerárquica", url: "/dashboard/hr/organigrama?view=jerarquica", group: "Recursos Humanos", parent: "Organigrama", keywords: ["jerarquia"] },
+  { title: "Vista Tarjetas", url: "/dashboard/hr/organigrama?view=tarjetas", group: "Recursos Humanos", parent: "Organigrama", keywords: ["tarjetas"] },
+  { title: "Vista Lista", url: "/dashboard/hr/organigrama?view=lista", group: "Recursos Humanos", parent: "Organigrama", keywords: ["lista"] },
+
+  // Recursos Humanos › Cargas de Trabajo
+  { title: "Cargas de Trabajo", url: "/dashboard/hr/workload?tab=cargas", group: "Recursos Humanos", parent: "Cargas de Trabajo" },
+  { title: "Vista de Lista", url: "/dashboard/hr/workload?tab=lista", group: "Recursos Humanos", parent: "Cargas de Trabajo", keywords: ["lista"] },
+
+  // Recursos Humanos › Evaluaciones
+  { title: "Selección", url: "/dashboard/hr/evaluations?tab=selection", group: "Recursos Humanos", parent: "Evaluaciones", keywords: ["seleccion"] },
+  { title: "Permanencia", url: "/dashboard/hr/evaluations?tab=permanence", group: "Recursos Humanos", parent: "Evaluaciones" },
+  { title: "Objetivos", url: "/dashboard/hr/evaluations?tab=objectives", group: "Recursos Humanos", parent: "Evaluaciones" },
+  { title: "Onboarding", url: "/dashboard/hr/evaluations?tab=onboarding", group: "Recursos Humanos", parent: "Evaluaciones" },
+  { title: "Dashboard de Evaluaciones", url: "/dashboard/hr/evaluations?tab=dashboard", group: "Recursos Humanos", parent: "Evaluaciones" },
+  { title: "Nine Box", url: "/dashboard/hr/evaluations?tab=ninebox", group: "Recursos Humanos", parent: "Evaluaciones", keywords: ["9 box", "ninebox"] },
+  { title: "Clima", url: "/dashboard/hr/evaluations?tab=climate", group: "Recursos Humanos", parent: "Evaluaciones", keywords: ["clima laboral"] },
+
+  // Recursos Humanos › Bonos
+  { title: "Bonos de Capacitación", url: "/dashboard/hr/bonuses?tab=training", group: "Recursos Humanos", parent: "Bonos", keywords: ["capacitacion"] },
+  { title: "Bono fin de año", url: "/dashboard/hr/bonuses?tab=year_end", group: "Recursos Humanos", parent: "Bonos", keywords: ["aguinaldo", "fin de año"] },
+  { title: "Bonos por Personal", url: "/dashboard/hr/bonuses?tab=staff", group: "Recursos Humanos", parent: "Bonos", keywords: ["personal"] },
+
+  // Recursos Humanos › Capacitación
+  { title: "Cursos", url: "/dashboard/hr/training?tab=courses", group: "Recursos Humanos", parent: "Capacitación", keywords: ["curso"] },
+  { title: "Categorías", url: "/dashboard/hr/training?tab=categories", group: "Recursos Humanos", parent: "Capacitación", keywords: ["categoria"] },
+  { title: "Contenido", url: "/dashboard/hr/training?tab=content", group: "Recursos Humanos", parent: "Capacitación" },
+  { title: "Evaluaciones / Certificados", url: "/dashboard/hr/training?tab=evaluations", group: "Recursos Humanos", parent: "Capacitación", keywords: ["certificado", "examen"] },
+  { title: "Procesos", url: "/dashboard/hr/training?tab=processes", group: "Recursos Humanos", parent: "Capacitación", keywords: ["proceso"] },
+  { title: "Equipo", url: "/dashboard/hr/training?tab=team", group: "Recursos Humanos", parent: "Capacitación", keywords: ["equipo"] },
+
+  // Recursos Humanos › Solicitud de Permisos
+  { title: "Solicitudes", url: "/dashboard/hr/vacations?tab=solicitudes", group: "Recursos Humanos", parent: "Solicitud de Permisos" },
+  { title: "Aprobar", url: "/dashboard/hr/vacations?tab=aprobar", group: "Recursos Humanos", parent: "Solicitud de Permisos", keywords: ["aprobacion"] },
+  { title: "Mi Equipo", url: "/dashboard/hr/vacations?tab=equipo", group: "Recursos Humanos", parent: "Solicitud de Permisos" },
+  { title: "Calendario de Permisos", url: "/dashboard/hr/vacations?tab=calendario", group: "Recursos Humanos", parent: "Solicitud de Permisos" },
+
+  // Recursos Humanos › Sueldos y Salarios
+  { title: "Compensación actual", url: "/dashboard/hr/salaries?tab=current", group: "Recursos Humanos", parent: "Sueldos y Salarios", keywords: ["compensacion"] },
+  { title: "Evolución en el tiempo", url: "/dashboard/hr/salaries?tab=evolution", group: "Recursos Humanos", parent: "Sueldos y Salarios", keywords: ["evolucion", "historial"] },
+
+  // Comercial › Métricas
+  { title: "Pipeline", url: "/dashboard/crm/metrics?tab=pipeline", group: "Comercial", parent: "Métricas", keywords: ["embudo"] },
+  { title: "Métricas por Asesores", url: "/dashboard/crm/metrics?tab=asesores", group: "Comercial", parent: "Métricas", keywords: ["asesores"] },
+  { title: "Métricas por Fuentes", url: "/dashboard/crm/metrics?tab=medios", group: "Comercial", parent: "Métricas", keywords: ["medios", "fuentes"] },
+  { title: "Pérdidas", url: "/dashboard/crm/metrics?tab=perdidas", group: "Comercial", parent: "Métricas", keywords: ["perdidas"] },
+
+  // Comercial › Integraciones
+  { title: "Comunicación", url: "/dashboard/crm/integrations?tab=communication", group: "Comercial", parent: "Integraciones", keywords: ["comunicacion"] },
+  { title: "Publicidad", url: "/dashboard/crm/integrations?tab=advertising", group: "Comercial", parent: "Integraciones", keywords: ["ads", "anuncios"] },
+
+  // Finanzas › Gastos
+  { title: "Gastos", url: "/dashboard/expenses?tab=expenses", group: "Finanzas", parent: "Gastos" },
+  { title: "Categorías de Gastos", url: "/dashboard/expenses?tab=categories", group: "Finanzas", parent: "Gastos", keywords: ["categoria"] },
+
+  // Finanzas › Informes Financieros
+  { title: "Balance General", url: "/dashboard/finance/reports?tab=balance", group: "Finanzas", parent: "Informes Financieros", keywords: ["balance"] },
+  { title: "Estado de Resultados", url: "/dashboard/finance/reports?tab=income", group: "Finanzas", parent: "Informes Financieros", keywords: ["resultados", "ingresos"] },
+  { title: "Flujo de Efectivo", url: "/dashboard/finance/reports?tab=cashflow", group: "Finanzas", parent: "Informes Financieros", keywords: ["flujo", "cash flow"] },
+  { title: "Cambios en Patrimonio", url: "/dashboard/finance/reports?tab=equity", group: "Finanzas", parent: "Informes Financieros", keywords: ["patrimonio"] },
+  { title: "EBITDA", url: "/dashboard/finance/reports?tab=ebitda", group: "Finanzas", parent: "Informes Financieros" },
+
+  // Finanzas › Informes de Clientes
+  { title: "Resumen de Cliente", url: "/dashboard/finance/client-reports?tab=overview", group: "Finanzas", parent: "Informes de Clientes", keywords: ["resumen"] },
+  { title: "Facturas del Cliente", url: "/dashboard/finance/client-reports?tab=invoices", group: "Finanzas", parent: "Informes de Clientes", keywords: ["facturas"] },
+  { title: "Pagos del Cliente", url: "/dashboard/finance/client-reports?tab=payments", group: "Finanzas", parent: "Informes de Clientes", keywords: ["pagos"] },
+  { title: "Gastos del Cliente", url: "/dashboard/finance/client-reports?tab=expenses", group: "Finanzas", parent: "Informes de Clientes", keywords: ["gastos"] },
+  { title: "Gráficas del Cliente", url: "/dashboard/finance/client-reports?tab=charts", group: "Finanzas", parent: "Informes de Clientes", keywords: ["graficas"] },
+
+  // Configuración › Importar / Exportar
+  { title: "Exportar", url: "/dashboard/import-export?tab=export", group: "Configuración", parent: "Importar / Exportar", keywords: ["exportar"] },
+  { title: "Importar", url: "/dashboard/import-export?tab=import", group: "Configuración", parent: "Importar / Exportar", keywords: ["importar"] },
+
+  // Configuración › Configuración
+  { title: "Sistema", url: "/dashboard/settings?tab=system", group: "Configuración", parent: "Configuración", keywords: ["sistema"] },
+  { title: "Ajustes Generales", url: "/dashboard/settings?tab=general", group: "Configuración", parent: "Configuración", keywords: ["general"] },
+  { title: "Integraciones del Sistema", url: "/dashboard/settings?tab=integrations", group: "Configuración", parent: "Configuración", keywords: ["integraciones"] },
+  { title: "Auditoría", url: "/dashboard/settings?tab=audit", group: "Configuración", parent: "Configuración", keywords: ["auditoria", "logs"] },
+  { title: "Backup", url: "/dashboard/settings?tab=backup", group: "Configuración", parent: "Configuración", keywords: ["respaldo", "backup"] },
+
+  // Configuración › Mi Perfil
+  { title: "Perfil General", url: "/dashboard/profile?tab=general", group: "Configuración", parent: "Mi Perfil" },
+  { title: "Datos Personales", url: "/dashboard/profile?tab=personal", group: "Configuración", parent: "Mi Perfil", keywords: ["personales"] },
+  { title: "Seguridad", url: "/dashboard/profile?tab=security", group: "Configuración", parent: "Mi Perfil", keywords: ["contraseña", "password"] },
+  { title: "Información", url: "/dashboard/profile?tab=info", group: "Configuración", parent: "Mi Perfil" },
+  { title: "Notificaciones", url: "/dashboard/profile?tab=notifications", group: "Configuración", parent: "Mi Perfil", keywords: ["notificaciones"] },
 ]
 
 export function GlobalSearch() {
@@ -106,8 +199,9 @@ export function GlobalSearch() {
   }, [])
 
   // Solo muestra las secciones a las que el usuario tiene acceso, agrupadas.
+  // Se evalúa el permiso sobre la ruta base (sin el query string ?tab=...).
   const grouped = useMemo(() => {
-    const accessible = SEARCH_ITEMS.filter((item) => canAccessPath(item.url))
+    const accessible = SEARCH_ITEMS.filter((item) => canAccessPath(item.url.split("?")[0]))
     const groups = new Map<string, SearchItem[]>()
     for (const item of accessible) {
       if (!groups.has(item.group)) groups.set(item.group, [])
@@ -150,11 +244,16 @@ export function GlobalSearch() {
               {items.map((item) => (
                 <CommandItem
                   key={item.url}
-                  value={`${item.title} ${item.group} ${(item.keywords || []).join(" ")}`}
+                  value={`${item.title} ${item.parent || ""} ${item.group} ${(item.keywords || []).join(" ")}`}
                   onSelect={() => handleSelect(item.url)}
                 >
                   <Search className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <span>{item.title}</span>
+                  <span>
+                    {item.parent && (
+                      <span className="text-muted-foreground">{item.parent} › </span>
+                    )}
+                    {item.title}
+                  </span>
                   <span className="ml-auto text-xs text-muted-foreground">{item.group}</span>
                 </CommandItem>
               ))}
