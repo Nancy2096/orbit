@@ -1052,55 +1052,6 @@ export default function TaskDetailPage() {
                   </div>
                 </CardContent>
               </Card>
-
-              {/* Progress */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Progreso</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <span className="text-sm text-muted-foreground">Estado</span>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {Object.entries(taskStatusConfig).map(([key, cfg]) => {
-                        const isActive = task.status === key
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setTask(prev => ({ ...prev, status: key }))}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                              isActive
-                                ? `${cfg.color} text-white border-transparent`
-                                : "bg-background text-muted-foreground border-border hover:bg-muted"
-                            }`}
-                          >
-                            {isActive && <Check className="h-3 w-3" />}
-                            {cfg.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-2">
-                    <span className="text-sm text-muted-foreground">Completado</span>
-                    <span className="text-lg font-bold">{task.progress}%</span>
-                  </div>
-                  <Progress value={task.progress} className="h-3" />
-                  
-                  <div className="grid grid-cols-2 gap-4 pt-4">
-                    <div className="text-center p-4 bg-muted/50 rounded-lg">
-                      <p className="text-2xl font-bold">{completedSubtasks}</p>
-                      <p className="text-sm text-muted-foreground">Subtareas completadas</p>
-                    </div>
-                    <div className="text-center p-4 bg-muted/50 rounded-lg">
-                      <p className="text-2xl font-bold">{totalSubtasks - completedSubtasks}</p>
-                      <p className="text-sm text-muted-foreground">Subtareas pendientes</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
             </div>
           </div>
           {/* Comentarios (integrado en Tareas) */}
