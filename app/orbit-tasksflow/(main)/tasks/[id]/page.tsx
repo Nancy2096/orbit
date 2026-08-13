@@ -542,22 +542,6 @@ export default function TaskDetailPage() {
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{completedSubtasks}/{totalSubtasks}</Badge>
           </TabsTrigger>
           <TabsTrigger 
-            value="comments" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-all"
-          >
-            <MessageCircle className="h-5 w-5" />
-            <span>Comentarios</span>
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{task.comments.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="attachments" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-violet-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-violet-50 dark:hover:bg-violet-950 transition-all"
-          >
-            <Paperclip className="h-5 w-5" />
-            <span>Archivos</span>
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{task.attachments.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger 
             value="time" 
             className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
           >
@@ -1027,41 +1011,7 @@ export default function TaskDetailPage() {
               </Card>
             </div>
           </div>
-        </TabsContent>
-
-        {/* Subtasks Tab */}
-        <TabsContent value="subtasks" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Subtareas</CardTitle>
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Nueva Subtarea
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {task.subtasks.map(subtask => (
-                  <div 
-                    key={subtask.id} 
-                    className={`flex items-center gap-3 p-4 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
-                  >
-                    <Checkbox 
-                      checked={subtask.completed} 
-                      onCheckedChange={() => toggleSubtask(subtask.id)}
-                    />
-                    <span className={subtask.completed ? 'line-through text-muted-foreground' : ''}>
-                      {subtask.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Comments Tab */}
-        <TabsContent value="comments" className="space-y-4">
+          {/* Comentarios (integrado en Tareas) */}
           {/* Notify on Complete Card */}
           <Card className="border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20">
             <CardHeader className="pb-3">
@@ -1282,10 +1232,8 @@ export default function TaskDetailPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Attachments Tab */}
-        <TabsContent value="attachments" className="space-y-4">
+          {/* Archivos (integrado en Tareas) */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Archivos Adjuntos</CardTitle>
@@ -1315,6 +1263,37 @@ export default function TaskDetailPage() {
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Subtasks Tab */}
+        <TabsContent value="subtasks" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg">Subtareas</CardTitle>
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-2" />
+                Nueva Subtarea
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {task.subtasks.map(subtask => (
+                  <div 
+                    key={subtask.id} 
+                    className={`flex items-center gap-3 p-4 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
+                  >
+                    <Checkbox 
+                      checked={subtask.completed} 
+                      onCheckedChange={() => toggleSubtask(subtask.id)}
+                    />
+                    <span className={subtask.completed ? 'line-through text-muted-foreground' : ''}>
+                      {subtask.name}
+                    </span>
                   </div>
                 ))}
               </div>
