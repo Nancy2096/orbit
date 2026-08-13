@@ -57,6 +57,7 @@ import {
   StickyNote,
   LayoutGrid,
   ChevronDown,
+  Check,
 } from "lucide-react"
 import {
   Popover,
@@ -223,7 +224,7 @@ const getTaskById = (id: string) => {
       comments: [
         { 
           id: "c1", 
-          author: { id: "user-2", name: "Eduardo Méndez", initials: "EM" }, 
+          author: { id: "user-2", name: "Eduardo M��ndez", initials: "EM" }, 
           text: "Revisemos los requerimientos antes de empezar. @Diana García por favor revisa el brandbook actualizado.", 
           date: "2026-05-02T09:00:00",
           mentions: [{ id: "user-1", name: "Diana García" }],
@@ -872,7 +873,31 @@ export default function TaskDetailPage() {
                   <CardTitle className="text-lg">Progreso</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-muted-foreground">Estado</span>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {Object.entries(taskStatusConfig).map(([key, cfg]) => {
+                        const isActive = task.status === key
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setTask(prev => ({ ...prev, status: key }))}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                              isActive
+                                ? `${cfg.color} text-white border-transparent`
+                                : "bg-background text-muted-foreground border-border hover:bg-muted"
+                            }`}
+                          >
+                            {isActive && <Check className="h-3 w-3" />}
+                            {cfg.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
                     <span className="text-sm text-muted-foreground">Completado</span>
                     <span className="text-lg font-bold">{task.progress}%</span>
                   </div>

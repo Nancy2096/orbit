@@ -21,9 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu"
 import {
   Dialog,
@@ -73,6 +71,7 @@ import {
   Image,
   PieChart,
   CheckSquare,
+  Check,
   Settings,
   Unlink,
   ChevronLeft,
@@ -545,6 +544,112 @@ export default function ProjectDetailPage() {
   // Acción rápida: cambia el estado de una tarea sin abrir el diálogo de edición.
   const changeTaskStatus = (taskId: string, newStatus: string) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
+  }
+
+  // Renderiza una fila de tarea (reutilizada en la tabla de activas y completadas).
+  const renderTaskRow = (task: any) => {
+    const status = statusConfig[task.status as keyof typeof statusConfig]
+    const priority = priorityConfig[task.priority as keyof typeof priorityConfig]
+    const isCompleted = task.status === "completado"
+    return (
+      <TableRow
+        key={task.id}
+        className={`hover:bg-muted/50 transition-colors ${task.status === "vencido" ? "bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50" : ""}`}
+      >
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            checked={isCompleted}
+            onCheckedChange={() => toggleTaskComplete(task.id)}
+          />
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/orbit-tasksflow/tasks/${task.id}`}
+              className={`font-medium text-primary hover:underline ${isCompleted ? "line-through text-muted-foreground" : ""}`}
+            >
+              {task.title}
+            </Link>
+            {task.linkedRequestId && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">
+                Solicitud
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{task.description}</p>
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${status.color}`} />
+            <span className={`text-sm ${status.textColor}`}>{status.label}</span>
+          </div>
+        </TableCell>
+        <TableCell>
+          <Badge variant="outline" className={priority.color}>
+            {priority.label}
+          </Badge>
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center gap-2">
+            <Avatar className="h-6 w-6">
+              <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                {task.assignee}
+              </AvatarFallback>
+            </Avatar>
+            <span className="text-xs text-muted-foreground hidden lg:inline">{task.assigneeName}</span>
+          </div>
+        </TableCell>
+        <TableCell>
+          <div className={task.status === "vencido" ? "text-red-600 font-medium" : ""}>
+            <div className="text-sm">{task.dueDate}</div>
+            <div className="text-xs text-muted-foreground">Creada: {task.createdAt}</div>
+          </div>
+        </TableCell>
+        <TableCell className="text-right">{task.hours}h</TableCell>
+        <TableCell onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem asChild>
+                <Link href={`/orbit-tasksflow/tasks/${task.id}`}>
+                  <Eye className="h-4 w-4 mr-2" />
+                  Ver Detalle
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => {
+                setEditingTask(task)
+                setShowEditTaskDialog(true)
+              }}>
+                <Edit className="h-4 w-4 mr-2" />
+                Editar
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs text-muted-foreground">Cambiar estado</DropdownMenuLabel>
+              {Object.entries(statusConfig).map(([key, cfg]) => (
+                <DropdownMenuItem
+                  key={key}
+                  onSelect={() => changeTaskStatus(task.id, key)}
+                  className={task.status === key ? "bg-muted font-medium" : ""}
+                >
+                  <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
+                  {cfg.label}
+                  {task.status === key && <Check className="h-3.5 w-3.5 ml-auto" />}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-red-600">
+                <Trash className="h-4 w-4 mr-2" />
+                Eliminar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </TableCell>
+      </TableRow>
+    )
   }
   
 const toggleTaskComplete = (taskId: string) => {
@@ -1146,153 +1251,79 @@ const toggleTaskComplete = (taskId: string) => {
               </Button>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8"></TableHead>
-                    <TableHead>Tarea</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Prioridad</TableHead>
-                    <TableHead>Asignado</TableHead>
-                    <TableHead>Vencimiento</TableHead>
-                    <TableHead className="text-right">Horas</TableHead>
-                    <TableHead className="w-8"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {[
-                    ...tasks.filter(t => t.status !== "completado"),
-                    ...(showCompletedTasks ? tasks.filter(t => t.status === "completado") : []),
-                  ].map((task) => {
-                    const status = statusConfig[task.status as keyof typeof statusConfig]
-                    const priority = priorityConfig[task.priority as keyof typeof priorityConfig]
-                    return (
-                      <TableRow 
-                        key={task.id} 
-                        className={`cursor-pointer hover:bg-muted/50 transition-colors ${task.status === "vencido" ? "bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50" : ""}`}
-                      >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Checkbox 
-                            checked={task.status === "completado"} 
-                            onCheckedChange={() => toggleTaskComplete(task.id)}
-                          />
-                        </TableCell>
-<TableCell>
-  <div className="flex items-center gap-2">
-    <Link
-    href={`/orbit-tasksflow/tasks/${task.id}`}
-    className={`font-medium text-primary hover:underline ${task.status === "completado" ? "line-through text-muted-foreground" : ""}`}
-    >
-    {task.title}
-    </Link>
-    {(task as any).linkedRequestId && (
-      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">
-        Solicitud
-      </Badge>
-    )}
-  </div>
-  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{task.description}</p>
-  </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${status.color}`} />
-                            <span className={`text-sm ${status.textColor}`}>{status.label}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={priority.color}>
-                            {priority.label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Avatar className="h-6 w-6">
-                              <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                                {task.assignee}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="text-xs text-muted-foreground hidden lg:inline">{task.assigneeName}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className={task.status === "vencido" ? "text-red-600 font-medium" : ""}>
-                            <div className="text-sm">{task.dueDate}</div>
-                            <div className="text-xs text-muted-foreground">Creada: {task.createdAt}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">{task.hours}h</TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-7 w-7">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem asChild>
-                                <Link href={`/orbit-tasksflow/tasks/${task.id}`}>
-                                  <Eye className="h-4 w-4 mr-2" />
-                                  Ver Detalle
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => {
-                                setEditingTask(task)
-                                setShowEditTaskDialog(true)
-                              }}>
-                                <Edit className="h-4 w-4 mr-2" />
-                                Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>
-                                  <CheckSquare className="h-4 w-4 mr-2" />
-                                  Cambiar estado
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent>
-                                  {Object.entries(statusConfig).map(([key, cfg]) => (
-                                    <DropdownMenuItem
-                                      key={key}
-                                      onSelect={() => changeTaskStatus(task.id, key)}
-                                      className={task.status === key ? "bg-muted" : ""}
-                                    >
-                                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
-                                      {cfg.label}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem className="text-red-600">
-                                <Trash className="h-4 w-4 mr-2" />
-                                Eliminar
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
+              {(() => {
+                const activeTasks = tasks.filter(t => t.status !== "completado")
+                return activeTasks.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-8"></TableHead>
+                        <TableHead>Tarea</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Prioridad</TableHead>
+                        <TableHead>Asignado</TableHead>
+                        <TableHead>Vencimiento</TableHead>
+                        <TableHead className="text-right">Horas</TableHead>
+                        <TableHead className="w-8"></TableHead>
                       </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-
-              {tasks.filter(t => t.status === "completado").length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowCompletedTasks(prev => !prev)}
-                  className="flex items-center gap-2 mt-3 px-2 py-2 w-full text-sm font-medium rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <ChevronRight className={`h-4 w-4 transition-transform ${showCompletedTasks ? "rotate-90" : ""}`} />
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  Tareas completadas
-                  <Badge variant="secondary" className="ml-1">
-                    {tasks.filter(t => t.status === "completado").length}
-                  </Badge>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {showCompletedTasks ? "Ocultar" : "Mostrar"}
-                  </span>
-                </button>
-              )}
+                    </TableHeader>
+                    <TableBody>
+                      {activeTasks.map((task) => renderTaskRow(task))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-center text-sm text-muted-foreground py-8">
+                    No hay tareas pendientes. ¡Buen trabajo!
+                  </p>
+                )
+              })()}
             </CardContent>
           </Card>
+
+          {/* Sección separada de tareas completadas */}
+          {tasks.filter(t => t.status === "completado").length > 0 && (
+            <Card>
+              <CardHeader
+                className="flex flex-row items-center justify-between cursor-pointer"
+                onClick={() => setShowCompletedTasks(prev => !prev)}
+              >
+                <div className="flex items-center gap-2">
+                  <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${showCompletedTasks ? "rotate-90" : ""}`} />
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <div>
+                    <CardTitle>Tareas completadas</CardTitle>
+                    <CardDescription>
+                      {tasks.filter(t => t.status === "completado").length} tareas finalizadas
+                    </CardDescription>
+                  </div>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {showCompletedTasks ? "Ocultar" : "Mostrar"}
+                </span>
+              </CardHeader>
+              {showCompletedTasks && (
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-8"></TableHead>
+                        <TableHead>Tarea</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Prioridad</TableHead>
+                        <TableHead>Asignado</TableHead>
+                        <TableHead>Vencimiento</TableHead>
+                        <TableHead className="text-right">Horas</TableHead>
+                        <TableHead className="w-8"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tasks.filter(t => t.status === "completado").map((task) => renderTaskRow(task))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              )}
+            </Card>
+          )}
         </TabsContent>
 
         {/* Deliverables Tab */}
