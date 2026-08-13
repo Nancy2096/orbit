@@ -310,10 +310,11 @@ export default function AccountsPage() {
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((a) => {
+      const term = searchTerm.toLowerCase()
       const matchesSearch =
-        a.account_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        a.client?.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        a.agency?.name.toLowerCase().includes(searchTerm.toLowerCase())
+        (a.account_name?.toLowerCase().includes(term) ?? false) ||
+        (a.client?.company_name?.toLowerCase().includes(term) ?? false) ||
+        (a.agency?.name?.toLowerCase().includes(term) ?? false)
 
       const matchesStatus = !filters.status || filters.status === "all" || a.status === filters.status
       const matchesAgency = !filters.agency_id || filters.agency_id === "all" || a.agency_id === filters.agency_id
@@ -412,7 +413,7 @@ export default function AccountsPage() {
                     )}
                     {column.key === "total_contracted" && (
                       <div className="text-sm font-medium tabular-nums">
-                        ${account.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${(account.total_contracted ?? 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                     )}
                     {column.key === "currency_code" && (

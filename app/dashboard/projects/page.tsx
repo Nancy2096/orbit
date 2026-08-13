@@ -338,10 +338,11 @@ export default function ProjectsPage() {
 
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
+      const term = searchTerm.toLowerCase()
       const matchesSearch =
-        p.account_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.account_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.client?.company_name.toLowerCase().includes(searchTerm.toLowerCase())
+        (p.account_name?.toLowerCase().includes(term) ?? false) ||
+        (p.account_code?.toLowerCase().includes(term) ?? false) ||
+        (p.client?.company_name?.toLowerCase().includes(term) ?? false)
 
       const matchesStatus = !filters.status || filters.status === "all" || p.status === filters.status
       const matchesAgency = !filters.agency_id || filters.agency_id === "all" || p.agency_id === filters.agency_id
@@ -446,7 +447,7 @@ export default function ProjectsPage() {
                     )}
                     {column.key === "total_contracted" && (
                       <span className="text-sm font-medium tabular-nums">
-                        ${project.total_contracted.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${(project.total_contracted ?? 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     )}
                     {column.key === "currency_code" && (
