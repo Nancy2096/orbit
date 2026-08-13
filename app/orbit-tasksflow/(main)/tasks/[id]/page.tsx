@@ -404,6 +404,13 @@ export default function TaskDetailPage() {
     }))
   }
 
+  const deleteComment = (commentId: string) => {
+    setTask(prev => ({
+      ...prev,
+      comments: prev.comments.filter((c: any) => c.id !== commentId)
+    }))
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -851,55 +858,6 @@ export default function TaskDetailPage() {
                 </CardContent>
               </Card>
 
-              {/* Progress */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Progreso</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <span className="text-sm text-muted-foreground">Estado</span>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {Object.entries(taskStatusConfig).map(([key, cfg]) => {
-                        const isActive = task.status === key
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setTask(prev => ({ ...prev, status: key }))}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                              isActive
-                                ? `${cfg.color} text-white border-transparent`
-                                : "bg-background text-muted-foreground border-border hover:bg-muted"
-                            }`}
-                          >
-                            {isActive && <Check className="h-3 w-3" />}
-                            {cfg.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-2">
-                    <span className="text-sm text-muted-foreground">Completado</span>
-                    <span className="text-lg font-bold">{task.progress}%</span>
-                  </div>
-                  <Progress value={task.progress} className="h-3" />
-                  
-                  <div className="grid grid-cols-2 gap-4 pt-4">
-                    <div className="text-center p-4 bg-muted/50 rounded-lg">
-                      <p className="text-2xl font-bold">{completedSubtasks}</p>
-                      <p className="text-sm text-muted-foreground">Subtareas completadas</p>
-                    </div>
-                    <div className="text-center p-4 bg-muted/50 rounded-lg">
-                      <p className="text-2xl font-bold">{totalSubtasks - completedSubtasks}</p>
-                      <p className="text-sm text-muted-foreground">Subtareas pendientes</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Related Tasks */}
               <Card>
                 <CardHeader>
@@ -1006,6 +964,55 @@ export default function TaskDetailPage() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Actualizada</span>
                     <span className="text-sm">{formatDateTime(task.updatedAt)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Progress */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Progreso</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <span className="text-sm text-muted-foreground">Estado</span>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {Object.entries(taskStatusConfig).map(([key, cfg]) => {
+                        const isActive = task.status === key
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setTask(prev => ({ ...prev, status: key }))}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                              isActive
+                                ? `${cfg.color} text-white border-transparent`
+                                : "bg-background text-muted-foreground border-border hover:bg-muted"
+                            }`}
+                          >
+                            {isActive && <Check className="h-3 w-3" />}
+                            {cfg.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-sm text-muted-foreground">Completado</span>
+                    <span className="text-lg font-bold">{task.progress}%</span>
+                  </div>
+                  <Progress value={task.progress} className="h-3" />
+                  
+                  <div className="grid grid-cols-2 gap-4 pt-4">
+                    <div className="text-center p-4 bg-muted/50 rounded-lg">
+                      <p className="text-2xl font-bold">{completedSubtasks}</p>
+                      <p className="text-sm text-muted-foreground">Subtareas completadas</p>
+                    </div>
+                    <div className="text-center p-4 bg-muted/50 rounded-lg">
+                      <p className="text-2xl font-bold">{totalSubtasks - completedSubtasks}</p>
+                      <p className="text-sm text-muted-foreground">Subtareas pendientes</p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -1190,6 +1197,22 @@ export default function TaskDetailPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{comment.author.name}</span>
                         <span className="text-xs text-muted-foreground">{formatDateTime(comment.date)}</span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto text-muted-foreground">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => deleteComment(comment.id)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Eliminar comentario
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                       <p className="text-sm">
                         {comment.text.split(/(@\w+\s\w+)/g).map((part: string, i: number) => 
