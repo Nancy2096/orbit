@@ -17,7 +17,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import {
   ArrowLeft,
-  Clock,
   Calendar,
   User,
   Users,
@@ -481,27 +480,64 @@ export default function TaskDetailPage() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Prioridad:</span>
-              <Badge variant="outline" className={priority.textColor}>
-                <Flag className="h-3 w-3 mr-1" />
-                {priority.label}
-              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="focus:outline-none">
+                    <Badge variant="outline" className={`${priority.textColor} cursor-pointer hover:bg-muted transition-colors`}>
+                      <Flag className="h-3 w-3 mr-1" />
+                      {priority.label}
+                      <ChevronDown className="h-3 w-3 ml-1" />
+                    </Badge>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                  {Object.entries(priorityConfig).map(([key, cfg]) => (
+                    <DropdownMenuItem
+                      key={key}
+                      onSelect={() => setTask(prev => ({ ...prev, priority: key }))}
+                      className={task.priority === key ? "bg-muted" : ""}
+                    >
+                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
+                      {cfg.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Asignado:</span>
-              <div className="flex items-center gap-2">
-                <Avatar className="h-6 w-6">
-                  <AvatarFallback className="text-xs">{task.assignee.initials}</AvatarFallback>
-                </Avatar>
-                <span className="text-sm font-medium">{task.assignee.name}</span>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted transition-colors focus:outline-none">
+                    <Avatar className="h-6 w-6">
+                      <AvatarFallback className="text-xs">{task.assignee.initials}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium">{task.assignee.name}</span>
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                  {task.projectTeam.map((member: any) => (
+                    <DropdownMenuItem
+                      key={member.id}
+                      onSelect={() => setTask(prev => ({ ...prev, assignee: { ...prev.assignee, ...member } }))}
+                      className={task.assignee.id === member.id ? "bg-muted" : ""}
+                    >
+                      <Avatar className="h-6 w-6 mr-2">
+                        <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex flex-col">
+                        <span className="text-sm">{member.name}</span>
+                        {member.role && <span className="text-xs text-muted-foreground">{member.role}</span>}
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm">Vence: {formatDate(task.dueDate)}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">{task.workedHours}h / {task.estimatedHours}h</span>
             </div>
             <div className="flex items-center gap-2">
               {task.isClientVisible ? (
