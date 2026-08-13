@@ -78,6 +78,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  useCatalog,
+  TASK_TYPES_STORAGE_KEY,
+  TASK_FORMATS_STORAGE_KEY,
+  defaultTaskTypes,
+  defaultTaskFormats,
+} from "@/lib/orbit-tasksflow/catalogs"
 
 
 const taskStatusConfig: Record<string, { label: string; color: string }> = {
@@ -351,6 +358,10 @@ export default function TaskDetailPage() {
   const [newComment, setNewComment] = useState("")
   const [isTracking, setIsTracking] = useState(false)
   const [task, setTask] = useState(() => getTaskById(taskId))
+  const { items: taskTypes } = useCatalog(TASK_TYPES_STORAGE_KEY, defaultTaskTypes)
+  const { items: taskFormats } = useCatalog(TASK_FORMATS_STORAGE_KEY, defaultTaskFormats)
+  const [selectedTypeId, setSelectedTypeId] = useState<string>("")
+  const [selectedFormatId, setSelectedFormatId] = useState<string>("")
   const [commentAttachments, setCommentAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
   const [showMentions, setShowMentions] = useState(false)
   const [mentionSearch, setMentionSearch] = useState("")
@@ -1055,15 +1066,35 @@ export default function TaskDetailPage() {
                   <CardTitle className="text-lg">Detalles</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Proyecto</span>
-                    <Link href={`/orbit-tasksflow/projects/${task.project.id}`} className="font-medium text-primary hover:underline">
-                      {task.project.name}
-                    </Link>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Tipo</span>
+                    <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
+                      <SelectTrigger className="h-8 w-[180px]">
+                        <SelectValue placeholder="Selecciona tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskTypes.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Cliente</span>
-                    <span className="font-medium">{task.client}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Formato</span>
+                    <Select value={selectedFormatId} onValueChange={setSelectedFormatId}>
+                      <SelectTrigger className="h-8 w-[180px]">
+                        <SelectValue placeholder="Selecciona formato" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskFormats.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Área</span>
