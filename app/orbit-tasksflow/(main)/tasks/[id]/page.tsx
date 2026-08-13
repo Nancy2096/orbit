@@ -42,7 +42,6 @@ import {
   Flag,
   Tag,
   CheckSquare,
-  Upload,
   Download,
   Trash2,
   ExternalLink,
@@ -362,7 +361,31 @@ export default function TaskDetailPage() {
   const [showAddDriveLink, setShowAddDriveLink] = useState(false)
   const [newDriveLinkName, setNewDriveLinkName] = useState("")
   const [newDriveLinkUrl, setNewDriveLinkUrl] = useState("")
+  const [deliverables, setDeliverables] = useState<{ id: string; name: string; url: string }[]>([])
+  const [showAddDeliverable, setShowAddDeliverable] = useState(false)
+  const [newDeliverableName, setNewDeliverableName] = useState("")
+  const [newDeliverableUrl, setNewDeliverableUrl] = useState("")
   const [showEditDialog, setShowEditDialog] = useState(false)
+
+  const addDeliverable = () => {
+    if (!newDeliverableUrl.trim()) return
+    setDeliverables(prev => [
+      ...prev,
+      {
+        id: `del-${Date.now()}`,
+        name: newDeliverableName.trim() || "Entregable de Google Drive",
+        url: newDeliverableUrl.trim(),
+      },
+    ])
+    setNewDeliverableName("")
+    setNewDeliverableUrl("")
+    setShowAddDeliverable(false)
+  }
+
+  const removeDeliverable = (id: string) => {
+    setDeliverables(prev => prev.filter(d => d.id !== id))
+  }
+
   const [editedTask, setEditedTask] = useState({
     title: task.title,
     description: task.description,
@@ -1318,39 +1341,98 @@ export default function TaskDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Archivos (integrado en Tareas) */}
+          {/* Entregables (links a Google Drive) */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Archivos Adjuntos</CardTitle>
-              <Button size="sm">
-                <Upload className="h-4 w-4 mr-2" />
-                Subir Archivo
+              <div>
+                <CardTitle className="text-lg">Entregables</CardTitle>
+                <CardDescription>Enlaces a los entregables en Google Drive</CardDescription>
+              </div>
+              <Button size="sm" onClick={() => setShowAddDeliverable(prev => !prev)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Agregar link
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {task.attachments.map(file => (
-                  <div key={file.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded bg-muted flex items-center justify-center">
-                        <FileText className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{file.name}</p>
-                        <p className="text-xs text-muted-foreground">{file.size} - Subido por {file.uploadedBy} el {file.date}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="icon">
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon">
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+              {showAddDeliverable && (
+                <div className="mb-4 p-4 border rounded-lg space-y-3 bg-muted/30">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="deliverable-name" className="text-xs">Nombre (opcional)</Label>
+                    <Input
+                      id="deliverable-name"
+                      placeholder="Ej. Diseños finales, Presentación..."
+                      value={newDeliverableName}
+                      onChange={(e) => setNewDeliverableName(e.target.value)}
+                    />
                   </div>
-                ))}
-              </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="deliverable-url" className="text-xs">Link de Google Drive</Label>
+                    <Input
+                      id="deliverable-url"
+                      type="url"
+                      placeholder="https://drive.google.com/..."
+                      value={newDeliverableUrl}
+                      onChange={(e) => setNewDeliverableUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setShowAddDeliverable(false)
+                        setNewDeliverableName("")
+                        setNewDeliverableUrl("")
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button size="sm" onClick={addDeliverable} disabled={!newDeliverableUrl.trim()}>
+                      Agregar
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {deliverables.length > 0 ? (
+                <div className="space-y-3">
+                  {deliverables.map(link => (
+                    <div key={link.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 min-w-0 flex-1"
+                      >
+                        <div className="h-10 w-10 rounded bg-blue-50 flex items-center justify-center flex-shrink-0">
+                          <Link2 className="h-5 w-5 text-blue-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{link.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{link.url}</p>
+                        </div>
+                      </a>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Button variant="ghost" size="icon" asChild>
+                          <a href={link.url} target="_blank" rel="noopener noreferrer" aria-label="Abrir entregable">
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => removeDeliverable(link.id)} aria-label="Eliminar entregable">
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !showAddDeliverable && (
+                  <div className="text-center py-8">
+                    <Link2 className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">Aún no hay entregables. Agrega un link de Google Drive.</p>
+                  </div>
+                )
+              )}
             </CardContent>
           </Card>
         </TabsContent>
