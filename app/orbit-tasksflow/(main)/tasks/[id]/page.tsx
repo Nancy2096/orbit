@@ -63,6 +63,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Calendar as CalendarPicker } from "@/components/ui/calendar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -223,7 +224,7 @@ const getTaskById = (id: string) => {
       comments: [
         { 
           id: "c1", 
-          author: { id: "user-2", name: "Eduardo M��ndez", initials: "EM" }, 
+          author: { id: "user-2", name: "Eduardo M����ndez", initials: "EM" }, 
           text: "Revisemos los requerimientos antes de empezar. @Diana García por favor revisa el brandbook actualizado.", 
           date: "2026-05-02T09:00:00",
           mentions: [{ id: "user-1", name: "Diana García" }],
@@ -537,7 +538,32 @@ export default function TaskDetailPage() {
             </div>
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">Vence: {formatDate(task.dueDate)}</span>
+              <span className="text-sm">Vence:</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-sm font-medium hover:bg-muted transition-colors focus:outline-none"
+                  >
+                    {formatDate(task.dueDate)}
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarPicker
+                    mode="single"
+                    selected={task.dueDate ? new Date(`${task.dueDate}T00:00:00`) : undefined}
+                    onSelect={(date) => {
+                      if (!date) return
+                      const y = date.getFullYear()
+                      const m = String(date.getMonth() + 1).padStart(2, "0")
+                      const d = String(date.getDate()).padStart(2, "0")
+                      setTask(prev => ({ ...prev, dueDate: `${y}-${m}-${d}` }))
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="flex items-center gap-2">
               {task.isClientVisible ? (
