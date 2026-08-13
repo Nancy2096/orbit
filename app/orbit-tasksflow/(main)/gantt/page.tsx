@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Building2,
   Briefcase,
+  User,
   ZoomIn,
   ZoomOut,
   AlertTriangle,
@@ -34,6 +35,16 @@ const projectHealthConfig = {
   riesgo: { color: "bg-orange-500", border: "border-orange-500" },
   critico: { color: "bg-red-500", border: "border-red-500" },
 }
+
+// Team members for filter (initials match task assignees)
+const teamMembers = [
+  { id: "user-1", name: "Diana García", initials: "DG" },
+  { id: "user-2", name: "Eduardo Méndez", initials: "EM" },
+  { id: "user-3", name: "María López", initials: "ML" },
+  { id: "user-4", name: "Carlos Ruiz", initials: "CR" },
+  { id: "user-5", name: "Roberto Sánchez", initials: "RS" },
+  { id: "user-6", name: "Ana Torres", initials: "AT" },
+]
 
 // Gantt data - projects with tasks
 const ganttData = [
@@ -135,8 +146,21 @@ const TODAY = new Date(2026, 4, 11) // May 11, 2026
 export default function GanttPage() {
   const [loading, setLoading] = useState(true)
   const [selectedAgency, setSelectedAgency] = useState("all")
+  const [filterPerson, setFilterPerson] = useState("all")
+  const [filterProject, setFilterProject] = useState("all")
   const [agencies, setAgencies] = useState<any[]>([])
   const [expandedProjects, setExpandedProjects] = useState<string[]>(ganttData.map(p => p.id))
+
+  // Filtra por proyecto y por persona. Al filtrar por persona, solo se muestran
+  // los proyectos que tienen tareas asignadas a esa persona, y dentro de ellos
+  // únicamente esas tareas.
+  const filteredData = ganttData
+    .filter(project => filterProject === "all" || project.id === filterProject)
+    .map(project => {
+      if (filterPerson === "all") return project
+      return { ...project, tasks: project.tasks.filter(t => t.assignee === filterPerson) }
+    })
+    .filter(project => filterPerson === "all" || project.tasks.length > 0)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -207,6 +231,57 @@ export default function GanttPage() {
             </SelectContent>
           </Select>
 
+          <Select value={filterPerson} onValueChange={setFilterPerson}>
+            <SelectTrigger className="w-44">
+              <User className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Persona" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las personas</SelectItem>
+              {teamMembers.map(member => (
+                <SelectItem key={member.id} value={member.initials}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-medium bg-muted rounded-full h-5 w-5 flex items-center justify-center">
+                      {member.initials}
+                    </span>
+                    {member.name}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={filterProject} onValueChange={setFilterProject}>
+            <SelectTrigger className="w-52">
+              <Briefcase className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Proyecto" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los proyectos</SelectItem>
+              {ganttData.map(project => (
+                <SelectItem key={project.id} value={project.id}>
+                  <div className="flex items-center gap-2">
+                    <span>{project.name}</span>
+                    <span className="text-xs text-muted-foreground">({project.client})</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {(filterPerson !== "all" || filterProject !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setFilterPerson("all")
+                setFilterProject("all")
+              }}
+            >
+              Limpiar filtros
+            </Button>
+          )}
+
           <div className="flex border rounded-md">
             <Button variant="ghost" size="icon">
               <ZoomOut className="h-4 w-4" />
@@ -245,7 +320,7 @@ export default function GanttPage() {
               </div>
               
               {/* Project rows */}
-              {ganttData.map(project => {
+              {filteredData.map(project => {
                 const health = projectHealthConfig[project.health as keyof typeof projectHealthConfig]
                 const isExpanded = expandedProjects.includes(project.id)
                 
@@ -298,7 +373,7 @@ export default function GanttPage() {
                 </div>
 
                 {/* Project bars */}
-                {ganttData.map(project => {
+                {filteredData.map(project => {
                   const health = projectHealthConfig[project.health as keyof typeof projectHealthConfig]
                   const isExpanded = expandedProjects.includes(project.id)
                   const projectBar = getBarPosition(project.startDate, project.endDate)

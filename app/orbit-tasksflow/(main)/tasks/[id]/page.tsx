@@ -17,7 +17,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import {
   ArrowLeft,
-  Clock,
   Calendar,
   User,
   Users,
@@ -43,7 +42,6 @@ import {
   Flag,
   Tag,
   CheckSquare,
-  Upload,
   Download,
   Trash2,
   ExternalLink,
@@ -56,12 +54,15 @@ import {
   X,
   StickyNote,
   LayoutGrid,
+  ChevronDown,
+  Check,
 } from "lucide-react"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Calendar as CalendarPicker } from "@/components/ui/calendar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -222,7 +223,7 @@ const getTaskById = (id: string) => {
       comments: [
         { 
           id: "c1", 
-          author: { id: "user-2", name: "Eduardo Méndez", initials: "EM" }, 
+          author: { id: "user-2", name: "Eduardo M����ndez", initials: "EM" }, 
           text: "Revisemos los requerimientos antes de empezar. @Diana García por favor revisa el brandbook actualizado.", 
           date: "2026-05-02T09:00:00",
           mentions: [{ id: "user-1", name: "Diana García" }],
@@ -360,7 +361,31 @@ export default function TaskDetailPage() {
   const [showAddDriveLink, setShowAddDriveLink] = useState(false)
   const [newDriveLinkName, setNewDriveLinkName] = useState("")
   const [newDriveLinkUrl, setNewDriveLinkUrl] = useState("")
+  const [deliverables, setDeliverables] = useState<{ id: string; name: string; url: string }[]>([])
+  const [showAddDeliverable, setShowAddDeliverable] = useState(false)
+  const [newDeliverableName, setNewDeliverableName] = useState("")
+  const [newDeliverableUrl, setNewDeliverableUrl] = useState("")
   const [showEditDialog, setShowEditDialog] = useState(false)
+
+  const addDeliverable = () => {
+    if (!newDeliverableUrl.trim()) return
+    setDeliverables(prev => [
+      ...prev,
+      {
+        id: `del-${Date.now()}`,
+        name: newDeliverableName.trim() || "Entregable de Google Drive",
+        url: newDeliverableUrl.trim(),
+      },
+    ])
+    setNewDeliverableName("")
+    setNewDeliverableUrl("")
+    setShowAddDeliverable(false)
+  }
+
+  const removeDeliverable = (id: string) => {
+    setDeliverables(prev => prev.filter(d => d.id !== id))
+  }
+
   const [editedTask, setEditedTask] = useState({
     title: task.title,
     description: task.description,
@@ -399,6 +424,13 @@ export default function TaskDetailPage() {
       subtasks: prev.subtasks.map(s => 
         s.id === subtaskId ? { ...s, completed: !s.completed } : s
       )
+    }))
+  }
+
+  const deleteComment = (commentId: string) => {
+    setTask(prev => ({
+      ...prev,
+      comments: prev.comments.filter((c: any) => c.id !== commentId)
     }))
   }
 
@@ -447,31 +479,114 @@ export default function TaskDetailPage() {
           <div className="flex flex-wrap items-center gap-6">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Estado:</span>
-              <Badge className={`${status.color} text-white`}>{status.label}</Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="focus:outline-none">
+                    <Badge className={`${status.color} text-white cursor-pointer hover:opacity-90 transition-opacity`}>
+                      {status.label}
+                      <ChevronDown className="h-3 w-3 ml-1" />
+                    </Badge>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                  {Object.entries(taskStatusConfig).map(([key, cfg]) => (
+                    <DropdownMenuItem
+                      key={key}
+                      onSelect={() => setTask(prev => ({ ...prev, status: key }))}
+                      className={task.status === key ? "bg-muted" : ""}
+                    >
+                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
+                      {cfg.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Prioridad:</span>
-              <Badge variant="outline" className={priority.textColor}>
-                <Flag className="h-3 w-3 mr-1" />
-                {priority.label}
-              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="focus:outline-none">
+                    <Badge variant="outline" className={`${priority.textColor} cursor-pointer hover:bg-muted transition-colors`}>
+                      <Flag className="h-3 w-3 mr-1" />
+                      {priority.label}
+                      <ChevronDown className="h-3 w-3 ml-1" />
+                    </Badge>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                  {Object.entries(priorityConfig).map(([key, cfg]) => (
+                    <DropdownMenuItem
+                      key={key}
+                      onSelect={() => setTask(prev => ({ ...prev, priority: key }))}
+                      className={task.priority === key ? "bg-muted" : ""}
+                    >
+                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
+                      {cfg.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Asignado:</span>
-              <div className="flex items-center gap-2">
-                <Avatar className="h-6 w-6">
-                  <AvatarFallback className="text-xs">{task.assignee.initials}</AvatarFallback>
-                </Avatar>
-                <span className="text-sm font-medium">{task.assignee.name}</span>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted transition-colors focus:outline-none">
+                    <Avatar className="h-6 w-6">
+                      <AvatarFallback className="text-xs">{task.assignee.initials}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium">{task.assignee.name}</span>
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                  {task.projectTeam.map((member: any) => (
+                    <DropdownMenuItem
+                      key={member.id}
+                      onSelect={() => setTask(prev => ({ ...prev, assignee: { ...prev.assignee, ...member } }))}
+                      className={task.assignee.id === member.id ? "bg-muted" : ""}
+                    >
+                      <Avatar className="h-6 w-6 mr-2">
+                        <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex flex-col">
+                        <span className="text-sm">{member.name}</span>
+                        {member.role && <span className="text-xs text-muted-foreground">{member.role}</span>}
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">Vence: {formatDate(task.dueDate)}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">{task.workedHours}h / {task.estimatedHours}h</span>
+              <span className="text-sm">Vence:</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-sm font-medium hover:bg-muted transition-colors focus:outline-none"
+                  >
+                    {formatDate(task.dueDate)}
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarPicker
+                    mode="single"
+                    selected={task.dueDate ? new Date(`${task.dueDate}T00:00:00`) : undefined}
+                    onSelect={(date) => {
+                      if (!date) return
+                      const y = date.getFullYear()
+                      const m = String(date.getMonth() + 1).padStart(2, "0")
+                      const d = String(date.getDate()).padStart(2, "0")
+                      setTask(prev => ({ ...prev, dueDate: `${y}-${m}-${d}` }))
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="flex items-center gap-2">
               {task.isClientVisible ? (
@@ -485,6 +600,52 @@ export default function TaskDetailPage() {
                   Interna
                 </Badge>
               )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground flex items-center gap-1">
+                <BellRing className="h-4 w-4 text-amber-600" />
+                Notificar:
+              </span>
+              <div className="flex items-center flex-wrap gap-1.5">
+                {task.notifyOnComplete?.map((person: any) => (
+                  <Badge key={person.id} variant="secondary" className="flex items-center gap-1.5 pl-1 pr-1.5 py-1">
+                    <Avatar className="h-4 w-4">
+                      <AvatarFallback className="text-[9px]">{person.initials}</AvatarFallback>
+                    </Avatar>
+                    {person.name}
+                    <button className="ml-0.5 hover:text-destructive" aria-label={`Quitar a ${person.name}`}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 px-2">
+                      <Plus className="h-3.5 w-3.5" />
+                      Agregar
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-2" align="start">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium px-2 py-1">Equipo del Proyecto</p>
+                      {task.projectTeam?.filter((m: any) => !task.notifyOnComplete?.some((n: any) => n.id === m.id)).map((member: any) => (
+                        <button
+                          key={member.id}
+                          className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
+                        >
+                          <Avatar className="h-7 w-7">
+                            <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="text-sm font-medium">{member.name}</p>
+                            <p className="text-xs text-muted-foreground">{member.role}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -517,22 +678,6 @@ export default function TaskDetailPage() {
             <CheckSquare className="h-5 w-5" />
             <span>Subtareas</span>
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{completedSubtasks}/{totalSubtasks}</Badge>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="comments" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-all"
-          >
-            <MessageCircle className="h-5 w-5" />
-            <span>Comentarios</span>
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{task.comments.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="attachments" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-violet-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-violet-50 dark:hover:bg-violet-950 transition-all"
-          >
-            <Paperclip className="h-5 w-5" />
-            <span>Archivos</span>
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{task.attachments.length}</Badge>
           </TabsTrigger>
           <TabsTrigger 
             value="time" 
@@ -844,31 +989,6 @@ export default function TaskDetailPage() {
                 </CardContent>
               </Card>
 
-              {/* Progress */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Progreso</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Completado</span>
-                    <span className="text-lg font-bold">{task.progress}%</span>
-                  </div>
-                  <Progress value={task.progress} className="h-3" />
-                  
-                  <div className="grid grid-cols-2 gap-4 pt-4">
-                    <div className="text-center p-4 bg-muted/50 rounded-lg">
-                      <p className="text-2xl font-bold">{completedSubtasks}</p>
-                      <p className="text-sm text-muted-foreground">Subtareas completadas</p>
-                    </div>
-                    <div className="text-center p-4 bg-muted/50 rounded-lg">
-                      <p className="text-2xl font-bold">{totalSubtasks - completedSubtasks}</p>
-                      <p className="text-sm text-muted-foreground">Subtareas pendientes</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Related Tasks */}
               <Card>
                 <CardHeader>
@@ -980,94 +1100,6 @@ export default function TaskDetailPage() {
               </Card>
             </div>
           </div>
-        </TabsContent>
-
-        {/* Subtasks Tab */}
-        <TabsContent value="subtasks" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Subtareas</CardTitle>
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Nueva Subtarea
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {task.subtasks.map(subtask => (
-                  <div 
-                    key={subtask.id} 
-                    className={`flex items-center gap-3 p-4 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
-                  >
-                    <Checkbox 
-                      checked={subtask.completed} 
-                      onCheckedChange={() => toggleSubtask(subtask.id)}
-                    />
-                    <span className={subtask.completed ? 'line-through text-muted-foreground' : ''}>
-                      {subtask.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Comments Tab */}
-        <TabsContent value="comments" className="space-y-4">
-          {/* Notify on Complete Card */}
-          <Card className="border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <BellRing className="h-5 w-5 text-amber-600" />
-                Notificar al Completar
-              </CardTitle>
-              <CardDescription>Estas personas recibirán una notificación cuando la tarea se complete</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {task.notifyOnComplete?.map((person: any) => (
-                  <Badge key={person.id} variant="secondary" className="flex items-center gap-2 px-3 py-1.5">
-                    <Avatar className="h-5 w-5">
-                      <AvatarFallback className="text-[10px]">{person.initials}</AvatarFallback>
-                    </Avatar>
-                    {person.name}
-                    <button className="ml-1 hover:text-destructive">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-2">
-                      <Plus className="h-4 w-4" />
-                      Agregar
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-64 p-2">
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium px-2 py-1">Equipo del Proyecto</p>
-                      {task.projectTeam?.filter((m: any) => !task.notifyOnComplete?.some((n: any) => n.id === m.id)).map((member: any) => (
-                        <button
-                          key={member.id}
-                          className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
-                        >
-                          <Avatar className="h-7 w-7">
-                            <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="text-sm font-medium">{member.name}</p>
-                            <p className="text-xs text-muted-foreground">{member.role}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Comments Card */}
           <Card>
             <CardHeader>
@@ -1193,6 +1225,22 @@ export default function TaskDetailPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{comment.author.name}</span>
                         <span className="text-xs text-muted-foreground">{formatDateTime(comment.date)}</span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto text-muted-foreground">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => deleteComment(comment.id)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Eliminar comentario
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                       <p className="text-sm">
                         {comment.text.split(/(@\w+\s\w+)/g).map((part: string, i: number) => 
@@ -1235,39 +1283,127 @@ export default function TaskDetailPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Attachments Tab */}
-        <TabsContent value="attachments" className="space-y-4">
+          {/* Entregables (links a Google Drive) */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Archivos Adjuntos</CardTitle>
+              <div>
+                <CardTitle className="text-lg">Editables</CardTitle>
+                <CardDescription>Enlaces a los editables en Google Drive</CardDescription>
+              </div>
+              <Button size="sm" onClick={() => setShowAddDeliverable(prev => !prev)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Agregar link
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {showAddDeliverable && (
+                <div className="mb-4 p-4 border rounded-lg space-y-3 bg-muted/30">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="deliverable-name" className="text-xs">Nombre (opcional)</Label>
+                    <Input
+                      id="deliverable-name"
+                      placeholder="Ej. Diseños finales, Presentación..."
+                      value={newDeliverableName}
+                      onChange={(e) => setNewDeliverableName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="deliverable-url" className="text-xs">Link de Google Drive</Label>
+                    <Input
+                      id="deliverable-url"
+                      type="url"
+                      placeholder="https://drive.google.com/..."
+                      value={newDeliverableUrl}
+                      onChange={(e) => setNewDeliverableUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setShowAddDeliverable(false)
+                        setNewDeliverableName("")
+                        setNewDeliverableUrl("")
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button size="sm" onClick={addDeliverable} disabled={!newDeliverableUrl.trim()}>
+                      Agregar
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {deliverables.length > 0 ? (
+                <div className="space-y-3">
+                  {deliverables.map(link => (
+                    <div key={link.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 min-w-0 flex-1"
+                      >
+                        <div className="h-10 w-10 rounded bg-blue-50 flex items-center justify-center flex-shrink-0">
+                          <Link2 className="h-5 w-5 text-blue-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{link.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{link.url}</p>
+                        </div>
+                      </a>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Button variant="ghost" size="icon" asChild>
+                          <a href={link.url} target="_blank" rel="noopener noreferrer" aria-label="Abrir entregable">
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => removeDeliverable(link.id)} aria-label="Eliminar entregable">
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !showAddDeliverable && (
+                  <div className="text-center py-8">
+                    <Link2 className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">Aún no hay entregables. Agrega un link de Google Drive.</p>
+                  </div>
+                )
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Subtasks Tab */}
+        <TabsContent value="subtasks" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg">Subtareas</CardTitle>
               <Button size="sm">
-                <Upload className="h-4 w-4 mr-2" />
-                Subir Archivo
+                <Plus className="h-4 w-4 mr-2" />
+                Nueva Subtarea
               </Button>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {task.attachments.map(file => (
-                  <div key={file.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded bg-muted flex items-center justify-center">
-                        <FileText className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{file.name}</p>
-                        <p className="text-xs text-muted-foreground">{file.size} - Subido por {file.uploadedBy} el {file.date}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="icon">
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon">
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                {task.subtasks.map(subtask => (
+                  <div 
+                    key={subtask.id} 
+                    className={`flex items-center gap-3 p-4 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
+                  >
+                    <Checkbox 
+                      checked={subtask.completed} 
+                      onCheckedChange={() => toggleSubtask(subtask.id)}
+                    />
+                    <span className={subtask.completed ? 'line-through text-muted-foreground' : ''}>
+                      {subtask.name}
+                    </span>
                   </div>
                 ))}
               </div>

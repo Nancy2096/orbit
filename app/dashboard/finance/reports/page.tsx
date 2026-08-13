@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -85,6 +86,7 @@ const formatPercent = (value: number) => {
 }
 
 export default function FinancialReportsPage() {
+  const [pageTab, setPageTab] = useTabParam("balance")
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
   const [selectedPeriod, setSelectedPeriod] = useState<string>("current_month")
@@ -504,7 +506,7 @@ export default function FinancialReportsPage() {
       </div>
 
       {/* Tabs de Informes */}
-      <Tabs defaultValue="balance" className="space-y-4">
+      <Tabs value={pageTab} onValueChange={setPageTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="balance">Balance General</TabsTrigger>
           <TabsTrigger value="income">Estado de Resultados</TabsTrigger>

@@ -17,6 +17,9 @@ import {
   ArrowUpRight,
   MoreHorizontal,
   Plus,
+  GanttChart,
+  Activity,
+  BarChart3,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -56,6 +59,41 @@ const stats = [
     icon: Clock,
     color: "text-purple-600",
     bgColor: "bg-purple-100",
+  },
+]
+
+const quickTools = [
+  {
+    title: "Calendario",
+    description: "Vista de tareas y eventos por fecha",
+    href: "/orbit-tasksflow/calendar",
+    icon: Calendar,
+    color: "text-amber-600",
+    bgColor: "bg-amber-100",
+  },
+  {
+    title: "Gantt",
+    description: "Cronograma y dependencias de proyectos",
+    href: "/orbit-tasksflow/gantt",
+    icon: GanttChart,
+    color: "text-violet-600",
+    bgColor: "bg-violet-100",
+  },
+  {
+    title: "Carga de Trabajo",
+    description: "Distribución de tareas por persona",
+    href: "/orbit-tasksflow/workload",
+    icon: Activity,
+    color: "text-cyan-600",
+    bgColor: "bg-cyan-100",
+  },
+  {
+    title: "Reportes",
+    description: "Métricas y análisis de desempeño",
+    href: "/orbit-tasksflow/reports",
+    icon: BarChart3,
+    color: "text-emerald-600",
+    bgColor: "bg-emerald-100",
   },
 ]
 
@@ -215,6 +253,31 @@ export default function OrbitDashboardPage() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Herramientas */}
+      <div>
+        <h2 className="text-lg font-semibold mb-3">Herramientas</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {quickTools.map((tool) => (
+            <Link key={tool.href} href={tool.href}>
+              <Card className="h-full hover:border-primary/50 hover:shadow-sm transition-all">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className={`p-2 rounded-lg ${tool.bgColor}`}>
+                      <tool.icon className={`h-5 w-5 ${tool.color}`} />
+                    </div>
+                    <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="mt-3">
+                    <p className="font-medium">{tool.title}</p>
+                    <p className="text-sm text-muted-foreground">{tool.description}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* Main Content Grid */}

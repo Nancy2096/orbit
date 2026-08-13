@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -100,6 +101,7 @@ interface UserRole {
 }
 
 export default function RolesPage() {
+  const [pageTab, setPageTab] = useTabParam("roles")
   const supabase = createClient()
   const [roles, setRoles] = useState<Role[]>([])
   const [permissions, setPermissions] = useState<Permission[]>([])
@@ -672,7 +674,7 @@ export default function RolesPage() {
         </div>
       )}
 
-      <Tabs defaultValue="roles">
+      <Tabs value={pageTab} onValueChange={setPageTab}>
         <TabsList>
           <TabsTrigger value="roles" className="flex items-center gap-2">
             <UserCog className="h-4 w-4" />

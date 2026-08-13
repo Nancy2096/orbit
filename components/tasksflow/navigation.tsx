@@ -7,9 +7,7 @@ import {
   LayoutDashboard,
   FolderKanban,
   ListTodo,
-  Kanban,
   Calendar,
-  FileCheck,
   Activity,
   FileText,
   UserCog,
@@ -28,9 +26,7 @@ export function TaskFlowNavigation() {
   const operationalModules = [
     { href: "/dashboard/tasksflow/projects", icon: FolderKanban, label: "Cuentas y Proyectos", color: "primary" },
     { href: "/dashboard/tasksflow/tasks", icon: ListTodo, label: "Tareas", color: "blue" },
-    { href: "/dashboard/tasksflow/kanban", icon: Kanban, label: "Kanban", color: "violet" },
     { href: "/dashboard/tasksflow/calendar", icon: Calendar, label: "Calendario", color: "amber" },
-    { href: "/dashboard/tasksflow/deliverables", icon: FileCheck, label: "Entregables", color: "emerald" },
   ]
 
   const adminModules = [
@@ -44,9 +40,7 @@ export function TaskFlowNavigation() {
   const operationalPaths = [
     "/dashboard/tasksflow/projects",
     "/dashboard/tasksflow/tasks",
-    "/dashboard/tasksflow/kanban",
     "/dashboard/tasksflow/calendar",
-    "/dashboard/tasksflow/deliverables",
   ]
   const isOperationalPage = operationalPaths.some(path => pathname.startsWith(path))
 

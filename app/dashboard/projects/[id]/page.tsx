@@ -1483,7 +1483,7 @@ async function fetchAgencyServices(agencyId: string) {
                       <SelectContent>
                         {bankAccounts.map((bank) => (
                           <SelectItem key={bank.id} value={bank.id}>
-                            {bank.bank_name} - {bank.account_name} (*{bank.account_number.slice(-4)})
+                            {bank.bank_name} - {bank.account_name}{bank.account_number ? ` (*${bank.account_number.slice(-4)})` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>

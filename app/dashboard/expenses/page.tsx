@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { upload } from "@vercel/blob/client"
@@ -172,7 +173,7 @@ export default function ExpensesPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
   const [selectedApprovalStatus, setSelectedApprovalStatus] = useState<string>("all")
-  const [activeTab, setActiveTab] = useState("expenses")
+  const [activeTab, setActiveTab] = useTabParam("expenses")
   
   // Approval dialog
   const [showApprovalDialog, setShowApprovalDialog] = useState(false)

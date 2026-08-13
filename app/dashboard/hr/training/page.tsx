@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -149,7 +150,7 @@ interface Enrollment {
 }
 
 export default function TrainingPage() {
-  const [activeTab, setActiveTab] = useState("courses")
+  const [activeTab, setActiveTab] = useTabParam("courses")
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("")
   const [loading, setLoading] = useState(true)
@@ -725,7 +726,7 @@ export default function TrainingPage() {
   }
 
   // Auto-inscripción del usuario actual desde la tarjeta del curso. Queda
-  // registrado en Equipo con la fecha de inscripción y en estado "en progreso".
+  // registrado en Equipo con la fecha de inscripci��n y en estado "en progreso".
   const handleSelfEnroll = async (course: Course) => {
     if (!currentStaffId) {
       alert("Tu usuario no está vinculado a un registro de personal, por lo que no puedes inscribirte.")

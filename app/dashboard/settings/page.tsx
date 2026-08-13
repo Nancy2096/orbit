@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -207,6 +208,7 @@ const integrationProviders = [
 ]
 
 export default function SettingsPage() {
+  const [pageTab, setPageTab] = useTabParam("system")
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -754,7 +756,7 @@ useEffect(() => {
         </Select>
       </div>
 
-      <Tabs defaultValue="system" className="space-y-6">
+      <Tabs value={pageTab} onValueChange={setPageTab} className="space-y-6">
 <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="system" className="flex items-center gap-2">
               <Settings2 className="h-4 w-4" />

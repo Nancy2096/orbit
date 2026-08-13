@@ -92,6 +92,11 @@ export default function InvoicesPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
+  // Filtro por fecha de emisión: preset (mes/rango) + valores personalizados.
+  const [datePreset, setDatePreset] = useState<string>("all")
+  const [selectedMonth, setSelectedMonth] = useState<string>("")
+  const [customStart, setCustomStart] = useState<string>("")
+  const [customEnd, setCustomEnd] = useState<string>("")
   const supabase = createClient()
 
   // Payment modal state
@@ -482,14 +487,65 @@ setUploading(false)
     setLoading(false)
   }
 
+  // Calcula el rango [inicio, fin] activo según el preset de fecha seleccionado.
+  const getDateRange = (): { start: Date | null; end: Date | null } => {
+    const now = new Date()
+    if (datePreset === "this_month") {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1)
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+      return { start, end }
+    }
+    if (datePreset === "last_month") {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      const end = new Date(now.getFullYear(), now.getMonth(), 0)
+      return { start, end }
+    }
+    if (datePreset === "month" && selectedMonth) {
+      const [y, m] = selectedMonth.split("-").map(Number)
+      const start = new Date(y, m - 1, 1)
+      const end = new Date(y, m, 0)
+      return { start, end }
+    }
+    if (datePreset === "custom") {
+      return {
+        start: customStart ? new Date(customStart + "T00:00:00") : null,
+        end: customEnd ? new Date(customEnd + "T23:59:59") : null,
+      }
+    }
+    return { start: null, end: null }
+  }
+  const dateRange = getDateRange()
+
   const filteredInvoices = invoices.filter((invoice) => {
     const searchLower = searchTerm.toLowerCase()
-    return (
+    const matchesSearch =
       invoice.invoice_number.toLowerCase().includes(searchLower) ||
       invoice.client?.company_name?.toLowerCase().includes(searchLower) ||
       invoice.account?.account_name?.toLowerCase().includes(searchLower)
-    )
+
+    let matchesDate = true
+    if (dateRange.start || dateRange.end) {
+      const issued = invoice.issue_date ? new Date(invoice.issue_date) : null
+      if (!issued) {
+        matchesDate = false
+      } else {
+        if (dateRange.start && issued < dateRange.start) matchesDate = false
+        if (dateRange.end && issued > dateRange.end) matchesDate = false
+      }
+    }
+
+    return matchesSearch && matchesDate
   })
+
+  // Totales facturados separados por moneda (para los indicadores superiores).
+  const totalsByCurrency = filteredInvoices.reduce<Record<string, number>>((acc, inv) => {
+    const code = inv.currency?.code || "MXN"
+    acc[code] = (acc[code] || 0) + Number(inv.total_amount)
+    return acc
+  }, {})
+  const totalMXN = totalsByCurrency["MXN"] || 0
+  const totalUSD = totalsByCurrency["USD"] || 0
+  const hasDateFilter = datePreset !== "all"
 
   // Estado de la casilla "seleccionar todas" según lo que hay filtrado en pantalla.
   const filteredIds = filteredInvoices.map((i) => i.id)
@@ -559,8 +615,21 @@ setUploading(false)
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats.total)}</div>
-            <p className="text-xs text-muted-foreground">{invoices.length} facturas</p>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-bold">
+                  ${Number(totalMXN).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className="text-xs font-medium text-muted-foreground">MXN</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-lg font-semibold text-muted-foreground">
+                  ${Number(totalUSD).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className="text-xs font-medium text-muted-foreground">USD</span>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{filteredInvoices.length} facturas</p>
           </CardContent>
         </Card>
         <Card>
@@ -637,7 +706,66 @@ setUploading(false)
                 ))}
               </SelectContent>
             </Select>
+            <Select value={datePreset} onValueChange={setDatePreset}>
+              <SelectTrigger className="w-full md:w-[180px]">
+                <SelectValue placeholder="Periodo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todo el tiempo</SelectItem>
+                <SelectItem value="this_month">Este mes</SelectItem>
+                <SelectItem value="last_month">Mes anterior</SelectItem>
+                <SelectItem value="month">Mes específico</SelectItem>
+                <SelectItem value="custom">Rango personalizado</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+
+          {(datePreset === "month" || datePreset === "custom") && (
+            <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-end">
+              {datePreset === "month" && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="filter-month" className="text-xs text-muted-foreground">
+                    Mes
+                  </Label>
+                  <Input
+                    id="filter-month"
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="w-full md:w-[200px]"
+                  />
+                </div>
+              )}
+              {datePreset === "custom" && (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="filter-start" className="text-xs text-muted-foreground">
+                      Desde
+                    </Label>
+                    <Input
+                      id="filter-start"
+                      type="date"
+                      value={customStart}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                      className="w-full md:w-[180px]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="filter-end" className="text-xs text-muted-foreground">
+                      Hasta
+                    </Label>
+                    <Input
+                      id="filter-end"
+                      type="date"
+                      value={customEnd}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                      className="w-full md:w-[180px]"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -707,7 +835,7 @@ setUploading(false)
               <FileText className="h-12 w-12 text-muted-foreground/50 mb-4" />
               <h3 className="text-lg font-medium">No hay facturas</h3>
               <p className="text-muted-foreground mt-1">
-                {searchTerm || selectedAgency !== "all" || selectedStatus !== "all"
+                {searchTerm || selectedAgency !== "all" || selectedStatus !== "all" || hasDateFilter
                   ? "No se encontraron facturas con los filtros seleccionados"
                   : "Comienza creando tu primera factura"}
               </p>

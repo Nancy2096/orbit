@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -133,6 +134,7 @@ function departmentOrderIndex(name: string): number {
 }
 
 export default function WorkloadPage() {
+  const [pageTab, setPageTab] = useTabParam("cargas")
   const [mounted, setMounted] = useState(false)
   const [loading, setLoading] = useState(true)
   const [agencies, setAgencies] = useState<Agency[]>([])
@@ -1354,7 +1356,7 @@ function getWorkloadStatus(staff: StaffWorkload): "under" | "optimal" | "over" |
             </Card>
           </div>
 
-          <Tabs defaultValue="cargas" className="space-y-4">
+          <Tabs value={pageTab} onValueChange={setPageTab} className="space-y-4">
             <TabsList>
               <TabsTrigger value="cargas">Cargas de Trabajo</TabsTrigger>
               <TabsTrigger value="lista">Vista de Lista</TabsTrigger>

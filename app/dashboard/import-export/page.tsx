@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { createClient } from "@/lib/supabase/client"
 import * as XLSX from "xlsx"
 import { Button } from "@/components/ui/button"
@@ -782,6 +783,7 @@ const templateColumns: Record<string, { field: string; required: boolean; descri
 }
 
 export default function ImportExportPage() {
+  const [pageTab, setPageTab] = useTabParam("export")
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
   const [selectedTables, setSelectedTables] = useState<string[]>([])
@@ -2516,7 +2518,7 @@ if (isTemplateFormat) {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="export" className="space-y-4">
+      <Tabs value={pageTab} onValueChange={setPageTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-2 max-w-md">
           <TabsTrigger value="export" className="flex items-center gap-2">
             <FileDown className="h-4 w-4" />

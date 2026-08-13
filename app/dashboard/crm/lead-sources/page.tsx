@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -115,6 +116,7 @@ const colorOptions = [
 ]
 
 export default function LeadSourcesSettingsPage() {
+  const [pageTab, setPageTab] = useTabParam("sources")
   const { selectedAgencyId, loading: agencyLoading } = useAgency()
   const [sources, setSources] = useState<LeadSource[]>([])
   const [loading, setLoading] = useState(true)
@@ -462,7 +464,7 @@ export default function LeadSourcesSettingsPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="sources" className="space-y-4">
+      <Tabs value={pageTab} onValueChange={setPageTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="sources">Fuentes Manuales</TabsTrigger>
           <TabsTrigger value="integrations">Integraciones</TabsTrigger>

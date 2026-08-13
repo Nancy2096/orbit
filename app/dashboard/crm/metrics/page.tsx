@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useTabParam } from "@/hooks/use-tab-param"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAgency } from "@/contexts/agency-context"
@@ -94,7 +95,7 @@ export default function MetricsPage() {
   const [period, setPeriod] = useState<string>("all")
   const [selectedSalesRep, setSelectedSalesRep] = useState<string>("all")
   const [salesReps, setSalesReps] = useState<SalesRep[]>([])
-  const [activeTab, setActiveTab] = useState("pipeline")
+  const [activeTab, setActiveTab] = useTabParam("pipeline")
   const [hasData, setHasData] = useState(false)
 
   const [metrics, setMetrics] = useState({
