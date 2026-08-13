@@ -56,6 +56,7 @@ import {
   X,
   StickyNote,
   LayoutGrid,
+  ChevronDown,
 } from "lucide-react"
 import {
   Popover,
@@ -447,7 +448,28 @@ export default function TaskDetailPage() {
           <div className="flex flex-wrap items-center gap-6">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Estado:</span>
-              <Badge className={`${status.color} text-white`}>{status.label}</Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="focus:outline-none">
+                    <Badge className={`${status.color} text-white cursor-pointer hover:opacity-90 transition-opacity`}>
+                      {status.label}
+                      <ChevronDown className="h-3 w-3 ml-1" />
+                    </Badge>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                  {Object.entries(taskStatusConfig).map(([key, cfg]) => (
+                    <DropdownMenuItem
+                      key={key}
+                      onSelect={() => setTask(prev => ({ ...prev, status: key }))}
+                      className={task.status === key ? "bg-muted" : ""}
+                    >
+                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
+                      {cfg.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Prioridad:</span>

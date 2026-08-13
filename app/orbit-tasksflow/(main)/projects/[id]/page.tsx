@@ -21,6 +21,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu"
 import {
   Dialog,
@@ -537,6 +540,12 @@ export default function ProjectDetailPage() {
   const [showRequestDetailDialog, setShowRequestDetailDialog] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState<any>(null)
   const [clientRequests, setClientRequests] = useState(mockProject.clientRequests)
+  const [showCompletedTasks, setShowCompletedTasks] = useState(false)
+
+  // Acción rápida: cambia el estado de una tarea sin abrir el diálogo de edición.
+  const changeTaskStatus = (taskId: string, newStatus: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
+  }
   
 const toggleTaskComplete = (taskId: string) => {
   const task = tasks.find(t => t.id === taskId)
@@ -1151,7 +1160,10 @@ const toggleTaskComplete = (taskId: string) => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {tasks.map((task) => {
+                  {[
+                    ...tasks.filter(t => t.status !== "completado"),
+                    ...(showCompletedTasks ? tasks.filter(t => t.status === "completado") : []),
+                  ].map((task) => {
                     const status = statusConfig[task.status as keyof typeof statusConfig]
                     const priority = priorityConfig[task.priority as keyof typeof priorityConfig]
                     return (
@@ -1169,7 +1181,7 @@ const toggleTaskComplete = (taskId: string) => {
   <div className="flex items-center gap-2">
     <Link
     href={`/orbit-tasksflow/tasks/${task.id}`}
-    className="font-medium text-primary hover:underline"
+    className={`font-medium text-primary hover:underline ${task.status === "completado" ? "line-through text-muted-foreground" : ""}`}
     >
     {task.title}
     </Link>
@@ -1230,6 +1242,24 @@ const toggleTaskComplete = (taskId: string) => {
                                 <Edit className="h-4 w-4 mr-2" />
                                 Editar
                               </DropdownMenuItem>
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
+                                  <CheckSquare className="h-4 w-4 mr-2" />
+                                  Cambiar estado
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  {Object.entries(statusConfig).map(([key, cfg]) => (
+                                    <DropdownMenuItem
+                                      key={key}
+                                      onSelect={() => changeTaskStatus(task.id, key)}
+                                      className={task.status === key ? "bg-muted" : ""}
+                                    >
+                                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
+                                      {cfg.label}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem className="text-red-600">
                                 <Trash className="h-4 w-4 mr-2" />
@@ -1243,6 +1273,24 @@ const toggleTaskComplete = (taskId: string) => {
                   })}
                 </TableBody>
               </Table>
+
+              {tasks.filter(t => t.status === "completado").length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowCompletedTasks(prev => !prev)}
+                  className="flex items-center gap-2 mt-3 px-2 py-2 w-full text-sm font-medium rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <ChevronRight className={`h-4 w-4 transition-transform ${showCompletedTasks ? "rotate-90" : ""}`} />
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  Tareas completadas
+                  <Badge variant="secondary" className="ml-1">
+                    {tasks.filter(t => t.status === "completado").length}
+                  </Badge>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {showCompletedTasks ? "Ocultar" : "Mostrar"}
+                  </span>
+                </button>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
