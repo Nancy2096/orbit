@@ -686,13 +686,6 @@ export default function TaskDetailPage() {
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{completedSubtasks}/{totalSubtasks}</Badge>
           </TabsTrigger>
           <TabsTrigger 
-            value="time" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
-          >
-            <Timer className="h-5 w-5" />
-            <span>Tiempo</span>
-          </TabsTrigger>
-          <TabsTrigger 
             value="history" 
             className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-slate-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-slate-50 dark:hover:bg-slate-950 transition-all"
           >
@@ -1483,46 +1476,6 @@ export default function TaskDetailPage() {
                     </span>
                   </div>
                 ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Time Tab */}
-        <TabsContent value="time" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Registro de Tiempo</CardTitle>
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Agregar Entrada
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {task.timeEntries.map(entry => (
-                  <div key={entry.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="text-center">
-                        <p className="text-lg font-bold">{entry.hours}h</p>
-                      </div>
-                      <div>
-                        <p className="font-medium">{entry.description}</p>
-                        <p className="text-sm text-muted-foreground">{formatDate(entry.date)}</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="icon">
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-              
-              <Separator className="my-4" />
-              
-              <div className="flex justify-between text-lg font-bold">
-                <span>Total</span>
-                <span>{task.workedHours}h</span>
               </div>
             </CardContent>
           </Card>
