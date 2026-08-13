@@ -25,8 +25,6 @@ import {
   FileText,
   Plus,
   MoreHorizontal,
-  Play,
-  Pause,
   Edit,
   Briefcase,
   FolderKanban,
@@ -356,12 +354,16 @@ export default function TaskDetailPage() {
   const taskId = params.id as string
   const [activeTab, setActiveTab] = useState("overview")
   const [newComment, setNewComment] = useState("")
-  const [isTracking, setIsTracking] = useState(false)
   const [task, setTask] = useState(() => getTaskById(taskId))
   const { items: taskTypes } = useCatalog(TASK_TYPES_STORAGE_KEY, defaultTaskTypes)
   const { items: taskFormats } = useCatalog(TASK_FORMATS_STORAGE_KEY, defaultTaskFormats)
   const [selectedTypeId, setSelectedTypeId] = useState<string>("")
   const [selectedFormatId, setSelectedFormatId] = useState<string>("")
+  const [workedHoursInput, setWorkedHoursInput] = useState<number>(() => Math.floor(task.workedHours))
+  const [workedMinutesInput, setWorkedMinutesInput] = useState<number>(() => Math.round((task.workedHours % 1) * 60))
+  const [proposalsCount, setProposalsCount] = useState<number>(0)
+  const [adjustmentsCount, setAdjustmentsCount] = useState<number>(0)
+  const [deliverablesCount, setDeliverablesCount] = useState<number>(0)
   const [commentAttachments, setCommentAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
   const [showMentions, setShowMentions] = useState(false)
   const [mentionSearch, setMentionSearch] = useState("")
@@ -467,13 +469,6 @@ export default function TaskDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button 
-            variant={isTracking ? "destructive" : "default"}
-            onClick={() => setIsTracking(!isTracking)}
-          >
-            {isTracking ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
-            {isTracking ? "Detener" : "Iniciar Tiempo"}
-          </Button>
           <Button variant="outline" onClick={() => setShowEditDialog(true)}>
             <Edit className="h-4 w-4 mr-2" />
             Editar
@@ -1035,28 +1030,79 @@ export default function TaskDetailPage() {
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {/* Time Summary */}
+              {/* Time & Tasks Summary */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Timer className="h-5 w-5" />
-                    Tiempo
+                    Tiempo y Tareas
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Estimado</span>
-                    <span className="font-medium">{task.estimatedHours}h</span>
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Trabajado</Label>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          value={workedHoursInput}
+                          onChange={(e) => setWorkedHoursInput(Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-20"
+                          aria-label="Horas trabajadas"
+                        />
+                        <span className="text-sm text-muted-foreground">h</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={59}
+                          value={workedMinutesInput}
+                          onChange={(e) => setWorkedMinutesInput(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
+                          className="w-20"
+                          aria-label="Minutos trabajados"
+                        />
+                        <span className="text-sm text-muted-foreground">min</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Trabajado</span>
-                    <span className="font-medium">{task.workedHours}h</span>
+
+                  <div className="border-t pt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="proposals-count" className="text-muted-foreground">Propuestas</Label>
+                      <Input
+                        id="proposals-count"
+                        type="number"
+                        min={0}
+                        value={proposalsCount}
+                        onChange={(e) => setProposalsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="adjustments-count" className="text-muted-foreground">Ajustes</Label>
+                      <Input
+                        id="adjustments-count"
+                        type="number"
+                        min={0}
+                        value={adjustmentsCount}
+                        onChange={(e) => setAdjustmentsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="deliverables-count" className="text-muted-foreground">Entregables</Label>
+                      <Input
+                        id="deliverables-count"
+                        type="number"
+                        min={0}
+                        value={deliverablesCount}
+                        onChange={(e) => setDeliverablesCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Restante</span>
-                    <span className="font-medium text-amber-600">{(task.estimatedHours - task.workedHours).toFixed(1)}h</span>
-                  </div>
-                  <Progress value={(task.workedHours / task.estimatedHours) * 100} className="h-2" />
                 </CardContent>
               </Card>
 
