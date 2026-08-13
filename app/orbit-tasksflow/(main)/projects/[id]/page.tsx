@@ -519,7 +519,7 @@ export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
   const projectId = params.id as string
-  const [activeTab, setActiveTab] = useState("overview")
+  const [activeTab, setActiveTab] = useState("tasks")
   const [showLinkFolderDialog, setShowLinkFolderDialog] = useState(false)
   const [editingFolder, setEditingFolder] = useState<any>(null)
   const [newFolderName, setNewFolderName] = useState("")
