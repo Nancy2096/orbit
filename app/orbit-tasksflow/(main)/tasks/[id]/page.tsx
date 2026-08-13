@@ -1345,8 +1345,8 @@ export default function TaskDetailPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-lg">Entregables</CardTitle>
-                <CardDescription>Enlaces a los entregables en Google Drive</CardDescription>
+                <CardTitle className="text-lg">Editables</CardTitle>
+                <CardDescription>Enlaces a los editables en Google Drive</CardDescription>
               </div>
               <Button size="sm" onClick={() => setShowAddDeliverable(prev => !prev)}>
                 <Plus className="h-4 w-4 mr-2" />
