@@ -601,6 +601,52 @@ export default function TaskDetailPage() {
                 </Badge>
               )}
             </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground flex items-center gap-1">
+                <BellRing className="h-4 w-4 text-amber-600" />
+                Notificar:
+              </span>
+              <div className="flex items-center flex-wrap gap-1.5">
+                {task.notifyOnComplete?.map((person: any) => (
+                  <Badge key={person.id} variant="secondary" className="flex items-center gap-1.5 pl-1 pr-1.5 py-1">
+                    <Avatar className="h-4 w-4">
+                      <AvatarFallback className="text-[9px]">{person.initials}</AvatarFallback>
+                    </Avatar>
+                    {person.name}
+                    <button className="ml-0.5 hover:text-destructive" aria-label={`Quitar a ${person.name}`}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 px-2">
+                      <Plus className="h-3.5 w-3.5" />
+                      Agregar
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-2" align="start">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium px-2 py-1">Equipo del Proyecto</p>
+                      {task.projectTeam?.filter((m: any) => !task.notifyOnComplete?.some((n: any) => n.id === m.id)).map((member: any) => (
+                        <button
+                          key={member.id}
+                          className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
+                        >
+                          <Avatar className="h-7 w-7">
+                            <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="text-sm font-medium">{member.name}</p>
+                            <p className="text-xs text-muted-foreground">{member.role}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1054,60 +1100,6 @@ export default function TaskDetailPage() {
               </Card>
             </div>
           </div>
-          {/* Comentarios (integrado en Tareas) */}
-          {/* Notify on Complete Card */}
-          <Card className="border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <BellRing className="h-5 w-5 text-amber-600" />
-                Notificar al Completar
-              </CardTitle>
-              <CardDescription>Estas personas recibirán una notificación cuando la tarea se complete</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {task.notifyOnComplete?.map((person: any) => (
-                  <Badge key={person.id} variant="secondary" className="flex items-center gap-2 px-3 py-1.5">
-                    <Avatar className="h-5 w-5">
-                      <AvatarFallback className="text-[10px]">{person.initials}</AvatarFallback>
-                    </Avatar>
-                    {person.name}
-                    <button className="ml-1 hover:text-destructive">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-2">
-                      <Plus className="h-4 w-4" />
-                      Agregar
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-64 p-2">
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium px-2 py-1">Equipo del Proyecto</p>
-                      {task.projectTeam?.filter((m: any) => !task.notifyOnComplete?.some((n: any) => n.id === m.id)).map((member: any) => (
-                        <button
-                          key={member.id}
-                          className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
-                        >
-                          <Avatar className="h-7 w-7">
-                            <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="text-sm font-medium">{member.name}</p>
-                            <p className="text-xs text-muted-foreground">{member.role}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Comments Card */}
           <Card>
             <CardHeader>
