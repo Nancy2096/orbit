@@ -25,6 +25,7 @@ interface CatalogManagerProps {
   storageKey: string
   defaults: CatalogItem[]
   itemNoun: string
+  embedded?: boolean
 }
 
 export function CatalogManager({
@@ -34,6 +35,7 @@ export function CatalogManager({
   storageKey,
   defaults,
   itemNoun,
+  embedded = false,
 }: CatalogManagerProps) {
   const { items, addItem, updateItem, removeItem } = useCatalog(storageKey, defaults)
 
@@ -62,22 +64,24 @@ export function CatalogManager({
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={embedded ? "space-y-6" : "p-6 space-y-6"}>
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/orbit-tasksflow">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Icon className="h-6 w-6" />
-            {title}
-          </h1>
-          <p className="text-muted-foreground">{description}</p>
+      {!embedded && (
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" asChild>
+            <Link href="/orbit-tasksflow">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Icon className="h-6 w-6" />
+              {title}
+            </h1>
+            <p className="text-muted-foreground">{description}</p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Add form */}

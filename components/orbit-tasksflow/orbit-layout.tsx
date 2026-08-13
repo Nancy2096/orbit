@@ -39,8 +39,7 @@ import {
   Clock,
   Layers,
   Wrench,
-  Tag,
-  LayoutTemplate,
+  Library,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -61,8 +60,7 @@ const sidebarProjects = [
 
 const adminNavItems = [
   { title: "Administración", href: "/orbit-tasksflow/admin", icon: Wrench },
-  { title: "Tipo", href: "/orbit-tasksflow/types", icon: Tag },
-  { title: "Formato", href: "/orbit-tasksflow/formats", icon: LayoutTemplate },
+  { title: "Catálogos", href: "/orbit-tasksflow/catalogs", icon: Library },
   { title: "Usuarios", href: "/orbit-tasksflow/users", icon: Users },
   { title: "Configuración", href: "/orbit-tasksflow/settings", icon: Settings },
 ]
