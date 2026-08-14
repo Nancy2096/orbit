@@ -369,7 +369,7 @@ const mockProject = {
       status: "en_revision",
       priority: "media",
       type: "adicional",
-      requestedBy: { name: "Laura Martínez", position: "Brand Manager" },
+      requestedBy: { name: "Laura Mart��nez", position: "Brand Manager" },
       createdAt: "2024-04-03T14:15:00",
       dueDate: "2024-04-10",
       attachments: 0,
@@ -762,10 +762,6 @@ const toggleTaskComplete = (taskId: string) => {
               <Settings className="h-4 w-4 mr-2" />
               Configurar
             </Link>
-          </Button>
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Nueva Tarea
           </Button>
         </div>
       </div>
