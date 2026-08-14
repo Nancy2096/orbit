@@ -551,10 +551,12 @@ export function TaskDetailView({
       style={
         {
           // Acento morado local: vuelve morados los botones de acción (primary)
-          // sin alterar el tema global del resto de Orbit.
+          // y los estados hover (accent) sin alterar el tema global del resto de Orbit.
           "--primary": "oklch(0.55 0.22 293)",
           "--primary-foreground": "oklch(0.985 0 0)",
           "--ring": "oklch(0.55 0.22 293)",
+          "--accent": "oklch(0.96 0.03 293)",
+          "--accent-foreground": "oklch(0.45 0.2 293)",
         } as React.CSSProperties
       }
     >
@@ -619,7 +621,7 @@ export function TaskDetailView({
       </div>
 
       {/* Quick Info Bar */}
-      <Card className="shadow-sm">
+      <Card className="shadow-sm border-b-2 border-b-purple-500">
         <CardContent className="p-5">
           <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
             {/* Estado */}
@@ -812,11 +814,11 @@ export function TaskDetailView({
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className={embedded ? "space-y-6" : "grid gap-6 md:grid-cols-3"}>
             {/* Main Content */}
-            <div className="md:col-span-2 space-y-6">
+            <div className={embedded ? "space-y-6" : "md:col-span-2 space-y-6"}>
               {/* Description */}
-              <Card>
+              <Card className="border-b-2 border-b-purple-500">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-lg">Descripción</CardTitle>
                   {!isEditingDescription && (
@@ -878,7 +880,7 @@ export function TaskDetailView({
               </Card>
 
               {/* Notes */}
-              <Card>
+              <Card className="border-b-2 border-b-purple-500">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <StickyNote className="h-5 w-5" />
@@ -991,8 +993,8 @@ export function TaskDetailView({
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
                         <label className="flex items-center gap-2 text-sm">
                           <Checkbox 
                             checked={noteIsPrivate}
@@ -1146,7 +1148,7 @@ export function TaskDetailView({
               </Card>
 
               {/* Related Tasks */}
-              <Card>
+              <Card className="border-b-2 border-b-purple-500">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Link2 className="h-5 w-5" />
@@ -1247,7 +1249,7 @@ export function TaskDetailView({
             {/* Sidebar */}
             <div className="space-y-6">
               {/* Time & Tasks Summary */}
-              <Card>
+              <Card className="border-b-2 border-b-purple-500">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Timer className="h-5 w-5" />
@@ -1323,15 +1325,15 @@ export function TaskDetailView({
               </Card>
 
               {/* Details */}
-              <Card>
+              <Card className="border-b-2 border-b-purple-500">
                 <CardHeader>
                   <CardTitle className="text-lg">Detalles</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Tipo</span>
+                <CardContent className="space-y-3.5 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Tipo</span>
                     <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
-                      <SelectTrigger className="h-8 w-[150px]">
+                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
                         <SelectValue placeholder="Selecciona tipo" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1343,10 +1345,10 @@ export function TaskDetailView({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Formato</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Formato</span>
                     <Select value={selectedFormatId} onValueChange={setSelectedFormatId}>
-                      <SelectTrigger className="h-8 w-[150px]">
+                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
                         <SelectValue placeholder="Selecciona formato" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1358,43 +1360,43 @@ export function TaskDetailView({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Área</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Área</span>
                     <Badge variant="outline">{task.area}</Badge>
                   </div>
                   <Separator />
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Fecha inicio</span>
-                    <span className="font-medium">{formatDate(task.startDate)}</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Fecha inicio</span>
+                    <span className="font-medium text-right">{formatDate(task.startDate)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Fecha límite</span>
-                    <span className="font-medium">{formatDate(task.dueDate)}</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Fecha límite</span>
+                    <span className="font-medium text-right">{formatDate(task.dueDate)}</span>
                   </div>
                   <Separator />
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Creada por</span>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-5 w-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Creada por</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar className="h-5 w-5 shrink-0">
                         <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
                       </Avatar>
-                      <span className="text-sm">{task.createdBy.name}</span>
+                      <span className="truncate">{task.createdBy.name}</span>
                     </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Creada</span>
-                    <span className="text-sm">{formatDateTime(task.createdAt)}</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Creada</span>
+                    <span className="text-right">{formatDateTime(task.createdAt)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Actualizada</span>
-                    <span className="text-sm">{formatDateTime(task.updatedAt)}</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Actualizada</span>
+                    <span className="text-right">{formatDateTime(task.updatedAt)}</span>
                   </div>
                 </CardContent>
               </Card>
             </div>
           </div>
           {/* Comments Card */}
-          <Card>
+          <Card className="border-b-2 border-b-purple-500">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <MessageCircle className="h-5 w-5" />
@@ -1578,7 +1580,7 @@ export function TaskDetailView({
           </Card>
 
           {/* Entregables (links a Google Drive) */}
-          <Card>
+          <Card className="border-b-2 border-b-purple-500">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-lg">Editables</CardTitle>
@@ -1673,7 +1675,7 @@ export function TaskDetailView({
           </Card>
 
           {/* Subtareas (integrado en Tareas) */}
-          <Card>
+          <Card className="border-b-2 border-b-purple-500">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Subtareas</CardTitle>
               <Button size="sm">
@@ -1702,7 +1704,7 @@ export function TaskDetailView({
           </Card>
 
           {/* Historial (integrado en Tareas) */}
-          <Card>
+          <Card className="border-b-2 border-b-purple-500">
             <CardHeader>
               <CardTitle className="text-lg">Historial de Actividad</CardTitle>
             </CardHeader>
