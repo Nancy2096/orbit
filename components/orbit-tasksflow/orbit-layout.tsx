@@ -338,7 +338,7 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
               variant="ghost"
               size="icon"
               onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-              aria-label={resolvedTheme === "dark" ? "Activar modo día" : "Activar modo noche"}
+              aria-label={mounted && resolvedTheme === "dark" ? "Activar modo día" : "Activar modo noche"}
             >
               {mounted && resolvedTheme === "dark" ? (
                 <Sun className="h-4 w-4" />

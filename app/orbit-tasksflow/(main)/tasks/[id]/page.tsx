@@ -52,8 +52,8 @@ import {
   File,
   X,
   StickyNote,
-  LayoutGrid,
   ChevronDown,
+  ChevronRight,
   Check,
 } from "lucide-react"
 import {
@@ -548,45 +548,69 @@ export function TaskDetailView({
   return (
     <div className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          {embedded ? (
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Cerrar detalle">
-              <X className="h-5 w-5" />
-            </Button>
-          ) : (
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/orbit-tasksflow/tasks">
-                <ArrowLeft className="h-5 w-5" />
-              </Link>
-            </Button>
-          )}
-          <div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-              <Link href="/orbit-tasksflow/projects" className="hover:underline">Proyectos</Link>
-              <span>/</span>
-              <Link href={`/orbit-tasksflow/projects/${task.project.id}`} className="hover:underline">{task.project.name}</Link>
-              <span>/</span>
-              <span>Tarea</span>
+      <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-700 p-5 text-white shadow-lg">
+        {/* Halo decorativo */}
+        <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-white/10 blur-2xl" aria-hidden="true" />
+        <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full bg-fuchsia-400/20 blur-2xl" aria-hidden="true" />
+
+        <div className="relative flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            {embedded ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClose}
+                aria-label="Cerrar detalle"
+                className="shrink-0 text-white hover:bg-white/15 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="icon"
+                asChild
+                className="shrink-0 text-white hover:bg-white/15 hover:text-white"
+              >
+                <Link href="/orbit-tasksflow/tasks">
+                  <ArrowLeft className="h-5 w-5" />
+                </Link>
+              </Button>
+            )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs text-white/70 mb-2">
+                <Link href="/orbit-tasksflow/projects" className="hover:text-white transition-colors">Proyectos</Link>
+                <ChevronRight className="h-3 w-3" />
+                <Link href={`/orbit-tasksflow/projects/${task.project.id}`} className="hover:text-white transition-colors truncate">{task.project.name}</Link>
+                <ChevronRight className="h-3 w-3" />
+                <span className="text-white/90">Tarea</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={`h-3 w-3 shrink-0 rounded-full ring-4 ring-white/20 ${status.color}`} aria-hidden="true" />
+                <h1 className="text-2xl font-bold leading-tight text-balance">{task.name}</h1>
+              </div>
             </div>
-            <h1 className="text-2xl font-bold">{task.name}</h1>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowEditDialog(true)}>
-            <Edit className="h-4 w-4 mr-2" />
-            Editar
-          </Button>
-          <Button variant="ghost" size="icon">
-            <MoreHorizontal className="h-5 w-5" />
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setShowEditDialog(true)}
+              className="bg-white text-purple-700 hover:bg-white/90"
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Editar
+            </Button>
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white">
+              <MoreHorizontal className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Quick Info Bar */}
-      <Card>
+      <Card className="border-t-2 border-t-purple-500 shadow-sm">
         <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-6">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Estado:</span>
               <DropdownMenu>
@@ -763,27 +787,6 @@ export function TaskDetailView({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <div className="flex flex-wrap h-auto gap-2 p-2 bg-muted/50 rounded-xl">
-          {/* Link to Project Summary */}
-          <Link 
-            href={`/orbit-tasksflow/projects/${task.project.id}`}
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg bg-primary text-primary-foreground shadow-md hover:bg-primary/90 transition-all"
-          >
-            <LayoutGrid className="h-5 w-5" />
-            <span>Resumen</span>
-          </Link>
-          
-          <TabsList className="flex flex-wrap h-auto gap-2 p-0 bg-transparent">
-          <TabsTrigger 
-            value="overview" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-cyan-50 dark:hover:bg-cyan-950 transition-all"
-          >
-            <ListTodo className="h-5 w-5" />
-            <span>Tareas</span>
-          </TabsTrigger>
-        </TabsList>
-        </div>
-
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
           <div className="grid gap-6 md:grid-cols-3">
