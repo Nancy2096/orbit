@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -33,6 +33,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useCatalog, AREAS_STORAGE_KEY, defaultAreas } from "@/lib/orbit-tasksflow/catalogs"
+import { getProjectSummary } from "@/lib/orbit-tasksflow/projects-data"
 import {
   ArrowLeft,
   FolderKanban,
@@ -369,7 +370,7 @@ const mockProject = {
       status: "en_revision",
       priority: "media",
       type: "adicional",
-      requestedBy: { name: "Laura Mart��nez", position: "Brand Manager" },
+      requestedBy: { name: "Laura Mart����nez", position: "Brand Manager" },
       createdAt: "2024-04-03T14:15:00",
       dueDate: "2024-04-10",
       attachments: 0,
@@ -526,7 +527,12 @@ export default function ProjectDetailPage() {
   const [contactPermissions, setContactPermissions] = useState<Record<string, string>>({})
   const [showEditTaskDialog, setShowEditTaskDialog] = useState(false)
   const [editingTask, setEditingTask] = useState<any>(null)
-  const [tasks, setTasks] = useState(mockTasks)
+  const [tasks, setTasks] = useState(() => getProjectSummary(projectId)?.tasks ?? mockTasks)
+
+  // Al cambiar de cuenta en el menú, recarga las tareas de esa cuenta.
+  useEffect(() => {
+    setTasks(getProjectSummary(projectId)?.tasks ?? mockTasks)
+  }, [projectId])
   const [showGoogleCalendarDialog, setShowGoogleCalendarDialog] = useState(false)
   const [calendarConnected, setCalendarConnected] = useState(mockProject.calendarConnected)
   const [connectingCalendar, setConnectingCalendar] = useState(false)
@@ -726,7 +732,12 @@ const toggleTaskComplete = (taskId: string) => {
     { key: "parrilla_rss", label: "Parrilla RSS", icon: Rss, description: "Calendario de publicaciones" },
   ]
   
-  const project = mockProject
+  // Combina los datos base de demostración con la identidad de la cuenta
+  // seleccionada, para que el encabezado y los datos reflejen la cuenta activa.
+  const summary = getProjectSummary(projectId)
+  const project = summary
+    ? { ...mockProject, id: summary.id, name: summary.name, client: summary.client, account: summary.account }
+    : mockProject
   const hoursOverBudget = project.hoursWorked > project.hoursBudget
   const budgetOverspent = project.spent > project.budget
 
