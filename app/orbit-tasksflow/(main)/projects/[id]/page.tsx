@@ -1319,9 +1319,9 @@ const toggleTaskComplete = (taskId: string) => {
           {selectedTaskId && (
             <div
               key={selectedTaskId}
-              className="absolute top-0 right-0 z-30 h-[calc(100vh-8rem)] min-h-[600px] w-full max-w-3xl animate-in slide-in-from-right-6 fade-in duration-200"
+              className="fixed top-14 bottom-0 right-0 z-30 w-full max-w-3xl animate-in slide-in-from-right-6 fade-in duration-200"
             >
-              <Card className="flex h-full flex-col overflow-hidden rounded-l-xl rounded-r-none border-l shadow-2xl">
+              <Card className="flex h-full flex-col overflow-hidden rounded-l-xl rounded-r-none rounded-b-none border-l shadow-2xl">
                 <div className="flex-1 overflow-y-auto overscroll-contain">
                   <TaskDetailView
                     taskId={selectedTaskId}
