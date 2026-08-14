@@ -546,7 +546,18 @@ export function TaskDetailView({
   }
 
   return (
-    <div className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}>
+    <div
+      className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}
+      style={
+        {
+          // Acento morado local: vuelve morados los botones de acción (primary)
+          // sin alterar el tema global del resto de Orbit.
+          "--primary": "oklch(0.55 0.22 293)",
+          "--primary-foreground": "oklch(0.985 0 0)",
+          "--ring": "oklch(0.55 0.22 293)",
+        } as React.CSSProperties
+      }
+    >
       {/* Header */}
       <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-700 p-5 text-white shadow-lg">
         {/* Halo decorativo */}
@@ -608,11 +619,12 @@ export function TaskDetailView({
       </div>
 
       {/* Quick Info Bar */}
-      <Card className="border-t-2 border-t-purple-500 shadow-sm">
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Estado:</span>
+      <Card className="shadow-sm">
+        <CardContent className="p-5">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
+            {/* Estado */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Estado</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button type="button" className="focus:outline-none">
@@ -636,8 +648,10 @@ export function TaskDetailView({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Prioridad:</span>
+
+            {/* Prioridad */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Prioridad</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button type="button" className="focus:outline-none">
@@ -662,16 +676,18 @@ export function TaskDetailView({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Asignado:</span>
+
+            {/* Asignado */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Asignado</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted transition-colors focus:outline-none">
-                    <Avatar className="h-6 w-6">
+                  <button type="button" className="flex items-center gap-2 rounded-md -ml-1.5 px-1.5 py-1 hover:bg-muted transition-colors focus:outline-none max-w-full">
+                    <Avatar className="h-6 w-6 shrink-0">
                       <AvatarFallback className="text-xs">{task.assignee.initials}</AvatarFallback>
                     </Avatar>
-                    <span className="text-sm font-medium">{task.assignee.name}</span>
-                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-sm font-medium truncate">{task.assignee.name}</span>
+                    <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
@@ -693,17 +709,19 @@ export function TaskDetailView({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">Vence:</span>
+
+            {/* Vencimiento */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Vencimiento</span>
               <Popover>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-sm font-medium hover:bg-muted transition-colors focus:outline-none"
+                    className="flex items-center gap-1.5 rounded-md -ml-1.5 px-1.5 py-1 text-sm font-medium hover:bg-muted transition-colors focus:outline-none"
                   >
+                    <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
                     {formatDate(task.dueDate)}
-                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
                   </button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -722,7 +740,10 @@ export function TaskDetailView({
                 </PopoverContent>
               </Popover>
             </div>
-            <div className="flex items-center gap-2">
+
+            {/* Visibilidad */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Visibilidad</span>
               {task.isClientVisible ? (
                 <Badge variant="outline" className="text-emerald-600">
                   <Eye className="h-3 w-3 mr-1" />
@@ -735,10 +756,12 @@ export function TaskDetailView({
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground flex items-center gap-1">
-                <BellRing className="h-4 w-4 text-amber-600" />
-                Notificar:
+
+            {/* Notificar al completar */}
+            <div className="col-span-2 flex flex-col items-start gap-1.5 sm:col-span-3">
+              <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <BellRing className="h-3.5 w-3.5 text-amber-600" />
+                Notificar al completar
               </span>
               <div className="flex items-center flex-wrap gap-1.5">
                 {task.notifyOnComplete?.map((person: any) => (
@@ -1308,7 +1331,7 @@ export function TaskDetailView({
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">Tipo</span>
                     <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
-                      <SelectTrigger className="h-8 w-[180px]">
+                      <SelectTrigger className="h-8 w-[150px]">
                         <SelectValue placeholder="Selecciona tipo" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1323,7 +1346,7 @@ export function TaskDetailView({
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">Formato</span>
                     <Select value={selectedFormatId} onValueChange={setSelectedFormatId}>
-                      <SelectTrigger className="h-8 w-[180px]">
+                      <SelectTrigger className="h-8 w-[150px]">
                         <SelectValue placeholder="Selecciona formato" />
                       </SelectTrigger>
                       <SelectContent>
