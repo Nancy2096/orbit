@@ -520,7 +520,7 @@ export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
   const projectId = params.id as string
-  const [activeTab, setActiveTab] = useState("panel")
+  const [activeTab, setActiveTab] = useState("tasks")
   const [showLinkFolderDialog, setShowLinkFolderDialog] = useState(false)
   const [editingFolder, setEditingFolder] = useState<any>(null)
   const [newFolderName, setNewFolderName] = useState("")
@@ -821,20 +821,6 @@ const toggleTaskComplete = (taskId: string) => {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex h-auto w-full flex-nowrap gap-1 overflow-x-auto p-2 bg-muted/50 rounded-xl justify-start">
           <TabsTrigger 
-            value="panel" 
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-violet-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-violet-50 dark:hover:bg-violet-950 transition-all"
-          >
-            <LayoutDashboard className="h-4 w-4 shrink-0" />
-            <span>Panel</span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="overview" 
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-muted transition-all"
-          >
-            <BarChart3 className="h-4 w-4 shrink-0" />
-            <span>Resumen</span>
-          </TabsTrigger>
-          <TabsTrigger 
             value="tasks" 
             className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-blue-50 dark:hover:bg-blue-950 transition-all"
           >
@@ -843,11 +829,11 @@ const toggleTaskComplete = (taskId: string) => {
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs data-[state=active]:bg-blue-400/30 data-[state=active]:text-white">{project.tasks.total}</Badge>
           </TabsTrigger>
           <TabsTrigger 
-            value="gantt" 
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all"
+            value="overview" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-muted transition-all"
           >
-            <GanttChartSquare className="h-4 w-4 shrink-0" />
-            <span>Cronograma</span>
+            <BarChart3 className="h-4 w-4 shrink-0" />
+            <span>Resumen</span>
           </TabsTrigger>
           <TabsTrigger 
             value="deliverables" 
@@ -858,11 +844,12 @@ const toggleTaskComplete = (taskId: string) => {
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{reports.length}</Badge>
           </TabsTrigger>
           <TabsTrigger 
-            value="documents" 
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
+            value="requests" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-cyan-50 dark:hover:bg-cyan-950 transition-all"
           >
-            <FolderOpen className="h-4 w-4 shrink-0" />
-            <span>Documentos</span>
+            <MessageSquarePlus className="h-4 w-4 shrink-0" />
+            <span>Solicitudes</span>
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{project.clientRequests.length}</Badge>
           </TabsTrigger>
           <TabsTrigger 
             value="calendar" 
@@ -872,12 +859,25 @@ const toggleTaskComplete = (taskId: string) => {
             <span>Calendario</span>
           </TabsTrigger>
           <TabsTrigger 
-            value="requests" 
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-cyan-50 dark:hover:bg-cyan-950 transition-all"
+            value="gantt" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all"
           >
-            <MessageSquarePlus className="h-4 w-4 shrink-0" />
-            <span>Solicitudes</span>
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{project.clientRequests.length}</Badge>
+            <GanttChartSquare className="h-4 w-4 shrink-0" />
+            <span>Cronograma</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="documents" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
+          >
+            <FolderOpen className="h-4 w-4 shrink-0" />
+            <span>Documentos</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="panel" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-violet-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-violet-50 dark:hover:bg-violet-950 transition-all"
+          >
+            <LayoutDashboard className="h-4 w-4 shrink-0" />
+            <span>Panel</span>
           </TabsTrigger>
           <TabsTrigger 
             value="rss" 
