@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useTheme } from "next-themes"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -72,10 +73,16 @@ const defaultProfile = {
 
 export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const [isDarkMode, setIsDarkMode] = useState(false)
   const [userProfile, setUserProfile] = useState(defaultProfile)
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+
+  // Evita desajustes de hidratación con el ícono del tema.
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Mantiene resaltada la cuenta seleccionada en el menú, incluso al abrir
   // el detalle de una tarea (/orbit-tasksflow/tasks/[id]).
@@ -330,9 +337,14 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setIsDarkMode(!isDarkMode)}
+              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+              aria-label={resolvedTheme === "dark" ? "Activar modo día" : "Activar modo noche"}
             >
-              {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {mounted && resolvedTheme === "dark" ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
             </Button>
 
 {/* User Menu */}
