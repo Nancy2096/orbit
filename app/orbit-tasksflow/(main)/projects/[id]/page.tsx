@@ -847,7 +847,7 @@ const toggleTaskComplete = (taskId: string) => {
             className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all"
           >
             <GanttChartSquare className="h-4 w-4 shrink-0" />
-            <span>Gantt</span>
+            <span>Cronograma</span>
           </TabsTrigger>
           <TabsTrigger 
             value="deliverables" 
