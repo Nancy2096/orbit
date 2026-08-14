@@ -165,7 +165,7 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
         </div>
 
         {/* Navigation */}
-        <ScrollArea className="flex-1 py-2">
+        <ScrollArea className="min-h-0 flex-1 py-2">
           <nav className="space-y-1 px-2">
             {!isCollapsed && (
               <span className="px-2 text-xs font-semibold text-white/50 uppercase tracking-wider">
