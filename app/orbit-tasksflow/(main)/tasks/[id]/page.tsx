@@ -26,6 +26,8 @@ import {
   Plus,
   MoreHorizontal,
   Edit,
+  Save,
+  Clock,
   Briefcase,
   FolderKanban,
   MessageCircle,
@@ -83,6 +85,7 @@ import {
   defaultTaskTypes,
   defaultTaskFormats,
 } from "@/lib/orbit-tasksflow/catalogs"
+import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
 
 
 const taskStatusConfig: Record<string, { label: string; color: string }> = {
@@ -447,6 +450,96 @@ export default function TaskDetailPage() {
     }))
   }
 
+  // --- Descripción editable con registro de guardado ---
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [descriptionDraft, setDescriptionDraft] = useState(task.description)
+  const [descriptionUpdatedAt, setDescriptionUpdatedAt] = useState<string | null>(null)
+
+  const saveDescription = () => {
+    setTask(prev => ({ ...prev, description: descriptionDraft }))
+    setDescriptionUpdatedAt(new Date().toISOString())
+    setIsEditingDescription(false)
+  }
+
+  const cancelEditDescription = () => {
+    setDescriptionDraft(task.description)
+    setIsEditingDescription(false)
+  }
+
+  // --- Vincular tareas de cualquier cuenta ---
+  const [showLinkTaskDialog, setShowLinkTaskDialog] = useState(false)
+  const [linkTaskSearch, setLinkTaskSearch] = useState("")
+
+  // Mapea los estados del catálogo de proyectos a las claves de taskStatusConfig.
+  const projectStatusMap: Record<string, string> = {
+    en_progreso: "en_proceso",
+    pendiente: "por_asignar",
+    vencido: "vencida",
+    completado: "entregada",
+  }
+
+  // Todas las tareas de todas las cuentas, aptas para vincular.
+  const linkableTasks = projectsData.flatMap(project =>
+    project.tasks.map(t => ({
+      id: t.id,
+      name: t.title,
+      status: projectStatusMap[t.status] || t.status,
+      assignee: t.assigneeName,
+      account: project.account,
+      projectName: project.name,
+    }))
+  )
+
+  const linkTask = (t: { id: string; name: string; status: string; assignee: string }) => {
+    setTask(prev => {
+      if (prev.relatedTasks.some((r: any) => r.id === t.id)) return prev
+      return { ...prev, relatedTasks: [...prev.relatedTasks, t] }
+    })
+    setShowLinkTaskDialog(false)
+    setLinkTaskSearch("")
+  }
+
+  const unlinkTask = (id: string) => {
+    setTask(prev => ({
+      ...prev,
+      relatedTasks: prev.relatedTasks.filter((r: any) => r.id !== id),
+    }))
+  }
+
+  const filteredLinkableTasks = linkableTasks.filter(t => {
+    const alreadyLinked = task.relatedTasks.some((r: any) => r.id === t.id)
+    const isSelf = t.id === task.id
+    const term = linkTaskSearch.toLowerCase()
+    const matches =
+      t.name.toLowerCase().includes(term) ||
+      t.account.toLowerCase().includes(term) ||
+      t.assignee.toLowerCase().includes(term)
+    return !alreadyLinked && !isSelf && matches
+  })
+
+  // --- Comentarios funcionales ---
+  const currentUser = { id: "user-1", name: "Diana García", initials: "DG" }
+
+  const addComment = () => {
+    if (!newComment.trim()) return
+    // Detecta menciones a partir de los nombres del equipo presentes en el texto.
+    const mentions = (task.projectTeam || [])
+      .filter((m: any) => newComment.includes(m.name))
+      .map((m: any) => ({ id: m.id, name: m.name }))
+    const comment = {
+      id: `c-${Date.now()}`,
+      author: currentUser,
+      text: newComment.trim(),
+      date: new Date().toISOString(),
+      mentions,
+      attachments: commentAttachments,
+    }
+    setTask(prev => ({ ...prev, comments: [...(prev.comments || []), comment] }))
+    setNewComment("")
+    setCommentAttachments([])
+    setShowMentions(false)
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -702,11 +795,53 @@ export default function TaskDetailPage() {
             <div className="md:col-span-2 space-y-6">
               {/* Description */}
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-lg">Descripción</CardTitle>
+                  {!isEditingDescription && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => {
+                        setDescriptionDraft(task.description)
+                        setIsEditingDescription(true)
+                      }}
+                    >
+                      <Edit className="h-4 w-4" />
+                      Editar
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
-                  <p className="text-muted-foreground">{task.description}</p>
+                  {isEditingDescription ? (
+                    <div className="space-y-3">
+                      <Textarea
+                        value={descriptionDraft}
+                        onChange={(e) => setDescriptionDraft(e.target.value)}
+                        className="min-h-[120px]"
+                        placeholder="Describe la tarea..."
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={cancelEditDescription}>
+                          Cancelar
+                        </Button>
+                        <Button size="sm" onClick={saveDescription}>
+                          <Save className="h-4 w-4 mr-2" />
+                          Guardar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground whitespace-pre-wrap">{task.description}</p>
+                      {descriptionUpdatedAt && (
+                        <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          Última edición: {formatDateTime(descriptionUpdatedAt)}
+                        </p>
+                      )}
+                    </>
+                  )}
                   
                   {/* Tags */}
                   <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
@@ -998,27 +1133,93 @@ export default function TaskDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {task.relatedTasks.map(relTask => (
+                    {task.relatedTasks.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No hay tareas vinculadas todavía.
+                      </p>
+                    )}
+                    {task.relatedTasks.map((relTask: any) => (
                       <div key={relTask.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <ListTodo className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{relTask.name}</span>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ListTodo className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            <span className="font-medium block truncate">{relTask.name}</span>
+                            {relTask.account && (
+                              <span className="text-xs text-muted-foreground">{relTask.account}</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm text-muted-foreground">{relTask.assignee}</span>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-sm text-muted-foreground hidden sm:inline">{relTask.assignee}</span>
                           <Badge className={`${taskStatusConfig[relTask.status]?.color || 'bg-gray-500'} text-white text-xs`}>
                             {taskStatusConfig[relTask.status]?.label || relTask.status}
                           </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => unlinkTask(relTask.id)}
+                            aria-label="Desvincular tarea"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     ))}
-                    <Button variant="outline" size="sm" className="w-full mt-2">
+                    <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => setShowLinkTaskDialog(true)}>
                       <Plus className="h-4 w-4 mr-2" />
                       Vincular Tarea
                     </Button>
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Dialog: Vincular Tarea */}
+              <Dialog open={showLinkTaskDialog} onOpenChange={(open) => { setShowLinkTaskDialog(open); if (!open) setLinkTaskSearch("") }}>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Vincular Tarea</DialogTitle>
+                    <DialogDescription>
+                      Selecciona una tarea de esta cuenta o de cualquier otra cuenta para vincularla.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <Input
+                      placeholder="Buscar por tarea, cuenta o responsable..."
+                      value={linkTaskSearch}
+                      onChange={(e) => setLinkTaskSearch(e.target.value)}
+                    />
+                    <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                      {filteredLinkableTasks.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-6">
+                          No se encontraron tareas para vincular.
+                        </p>
+                      ) : (
+                        filteredLinkableTasks.map(t => (
+                          <button
+                            key={t.id}
+                            onClick={() => linkTask(t)}
+                            className="flex items-center justify-between gap-3 w-full p-3 border rounded-lg hover:bg-muted/50 transition-colors text-left"
+                          >
+                            <div className="min-w-0">
+                              <span className="font-medium block truncate">{t.name}</span>
+                              <span className="text-xs text-muted-foreground">{t.account} · {t.assignee}</span>
+                            </div>
+                            <Badge className={`${taskStatusConfig[t.status]?.color || 'bg-gray-500'} text-white text-xs shrink-0`}>
+                              {taskStatusConfig[t.status]?.label || t.status}
+                            </Badge>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => { setShowLinkTaskDialog(false); setLinkTaskSearch("") }}>
+                      Cerrar
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
 
             {/* Sidebar */}
@@ -1274,7 +1475,7 @@ export default function TaskDetailPage() {
                         Adjuntar
                       </Button>
                     </div>
-                    <Button size="sm" disabled={!newComment.trim()}>
+                    <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
                       <Send className="h-4 w-4 mr-2" />
                       Enviar
                     </Button>
