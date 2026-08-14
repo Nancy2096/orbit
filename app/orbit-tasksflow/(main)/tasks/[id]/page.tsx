@@ -37,7 +37,6 @@ import {
   EyeOff,
   Timer,
   ListTodo,
-  History,
   Link2,
   Flag,
   Tag,
@@ -414,8 +413,6 @@ export default function TaskDetailPage() {
   const status = taskStatusConfig[task.status] || { label: task.status, color: "bg-gray-500" }
   const priority = priorityConfig[task.priority] || { label: task.priority, color: "bg-gray-400", textColor: "text-gray-600" }
 
-  const completedSubtasks = task.subtasks.filter(s => s.completed).length
-  const totalSubtasks = task.subtasks.length
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString("es-MX", {
@@ -769,21 +766,6 @@ export default function TaskDetailPage() {
           >
             <ListTodo className="h-5 w-5" />
             <span>Tareas</span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="subtasks" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-blue-50 dark:hover:bg-blue-950 transition-all"
-          >
-            <CheckSquare className="h-5 w-5" />
-            <span>Subtareas</span>
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{completedSubtasks}/{totalSubtasks}</Badge>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="history" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-slate-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-slate-50 dark:hover:bg-slate-950 transition-all"
-          >
-            <History className="h-5 w-5" />
-            <span>Historial</span>
           </TabsTrigger>
         </TabsList>
         </div>
@@ -1649,10 +1631,8 @@ export default function TaskDetailPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Subtasks Tab */}
-        <TabsContent value="subtasks" className="space-y-4">
+          {/* Subtareas (integrado en Tareas) */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Subtareas</CardTitle>
@@ -1680,10 +1660,8 @@ export default function TaskDetailPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* History Tab */}
-        <TabsContent value="history" className="space-y-4">
+          {/* Historial (integrado en Tareas) */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Historial de Actividad</CardTitle>
