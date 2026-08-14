@@ -53,8 +53,10 @@ import {
   X,
   StickyNote,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Check,
+  History,
 } from "lucide-react"
 import {
   Popover,
@@ -389,17 +391,22 @@ export function TaskDetailView({
   const [newDeliverableName, setNewDeliverableName] = useState("")
   const [newDeliverableUrl, setNewDeliverableUrl] = useState("")
   const [showEditDialog, setShowEditDialog] = useState(false)
+  // Panel de comentarios (desplegable) y vista de historial (cambia de "ventana").
+  const [showComments, setShowComments] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
 
   const addDeliverable = () => {
     if (!newDeliverableUrl.trim()) return
+    const name = newDeliverableName.trim() || "Entregable de Google Drive"
     setDeliverables(prev => [
       ...prev,
       {
         id: `del-${Date.now()}`,
-        name: newDeliverableName.trim() || "Entregable de Google Drive",
+        name,
         url: newDeliverableUrl.trim(),
       },
     ])
+    logActivity(`Editable agregado: "${name}"`)
     setNewDeliverableName("")
     setNewDeliverableUrl("")
     setShowAddDeliverable(false)
@@ -407,6 +414,7 @@ export function TaskDetailView({
 
   const removeDeliverable = (id: string) => {
     setDeliverables(prev => prev.filter(d => d.id !== id))
+    logActivity("Editable eliminado")
   }
 
   const [editedTask, setEditedTask] = useState({
@@ -440,12 +448,22 @@ export function TaskDetailView({
   }
 
   const toggleSubtask = (subtaskId: string) => {
-    setTask(prev => ({
-      ...prev,
-      subtasks: prev.subtasks.map(s => 
-        s.id === subtaskId ? { ...s, completed: !s.completed } : s
-      )
-    }))
+    setTask(prev => {
+      const target = prev.subtasks.find(s => s.id === subtaskId)
+      const action = target
+        ? `Subtarea "${target.name}" marcada como ${target.completed ? "pendiente" : "completada"}`
+        : "Subtarea actualizada"
+      return {
+        ...prev,
+        subtasks: prev.subtasks.map(s =>
+          s.id === subtaskId ? { ...s, completed: !s.completed } : s
+        ),
+        history: [
+          ...prev.history,
+          { id: `h-${Date.now()}`, action, user: currentUser.name, date: new Date().toISOString() },
+        ],
+      }
+    })
   }
 
   const deleteComment = (commentId: string) => {
@@ -453,6 +471,7 @@ export function TaskDetailView({
       ...prev,
       comments: prev.comments.filter((c: any) => c.id !== commentId)
     }))
+    logActivity("Comentario eliminado")
   }
 
   // --- Descripción editable con registro de guardado ---
@@ -464,6 +483,7 @@ export function TaskDetailView({
     setTask(prev => ({ ...prev, description: descriptionDraft }))
     setDescriptionUpdatedAt(new Date().toISOString())
     setIsEditingDescription(false)
+    logActivity("Descripción actualizada")
   }
 
   const cancelEditDescription = () => {
@@ -498,17 +518,31 @@ export function TaskDetailView({
   const linkTask = (t: { id: string; name: string; status: string; assignee: string }) => {
     setTask(prev => {
       if (prev.relatedTasks.some((r: any) => r.id === t.id)) return prev
-      return { ...prev, relatedTasks: [...prev.relatedTasks, t] }
+      return {
+        ...prev,
+        relatedTasks: [...prev.relatedTasks, t],
+        history: [
+          ...prev.history,
+          { id: `h-${Date.now()}`, action: `Tarea vinculada: "${t.name}"`, user: currentUser.name, date: new Date().toISOString() },
+        ],
+      }
     })
     setShowLinkTaskDialog(false)
     setLinkTaskSearch("")
   }
 
   const unlinkTask = (id: string) => {
-    setTask(prev => ({
-      ...prev,
-      relatedTasks: prev.relatedTasks.filter((r: any) => r.id !== id),
-    }))
+    setTask(prev => {
+      const target = prev.relatedTasks.find((r: any) => r.id === id)
+      return {
+        ...prev,
+        relatedTasks: prev.relatedTasks.filter((r: any) => r.id !== id),
+        history: [
+          ...prev.history,
+          { id: `h-${Date.now()}`, action: `Tarea desvinculada${target ? `: "${target.name}"` : ""}`, user: currentUser.name, date: new Date().toISOString() },
+        ],
+      }
+    })
   }
 
   const filteredLinkableTasks = linkableTasks.filter(t => {
@@ -525,6 +559,17 @@ export function TaskDetailView({
   // --- Comentarios funcionales ---
   const currentUser = { id: "user-1", name: "Diana García", initials: "DG" }
 
+  // Registra en el historial de actividad cualquier ajuste hecho en la tarea.
+  const logActivity = (action: string) => {
+    setTask(prev => ({
+      ...prev,
+      history: [
+        ...prev.history,
+        { id: `h-${Date.now()}`, action, user: currentUser.name, date: new Date().toISOString() },
+      ],
+    }))
+  }
+
   const addComment = () => {
     if (!newComment.trim()) return
     // Detecta menciones a partir de los nombres del equipo presentes en el texto.
@@ -540,6 +585,7 @@ export function TaskDetailView({
       attachments: commentAttachments,
     }
     setTask(prev => ({ ...prev, comments: [...(prev.comments || []), comment] }))
+    logActivity("Comentario agregado")
     setNewComment("")
     setCommentAttachments([])
     setShowMentions(false)
@@ -640,7 +686,10 @@ export function TaskDetailView({
                   {Object.entries(taskStatusConfig).map(([key, cfg]) => (
                     <DropdownMenuItem
                       key={key}
-                      onSelect={() => setTask(prev => ({ ...prev, status: key }))}
+                      onSelect={() => {
+                        if (task.status !== key) logActivity(`Estado cambiado a ${cfg.label}`)
+                        setTask(prev => ({ ...prev, status: key }))
+                      }}
                       className={task.status === key ? "bg-muted" : ""}
                     >
                       <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
@@ -668,7 +717,10 @@ export function TaskDetailView({
                   {Object.entries(priorityConfig).map(([key, cfg]) => (
                     <DropdownMenuItem
                       key={key}
-                      onSelect={() => setTask(prev => ({ ...prev, priority: key }))}
+                      onSelect={() => {
+                        if (task.priority !== key) logActivity(`Prioridad cambiada a ${cfg.label}`)
+                        setTask(prev => ({ ...prev, priority: key }))
+                      }}
                       className={task.priority === key ? "bg-muted" : ""}
                     >
                       <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
@@ -696,7 +748,10 @@ export function TaskDetailView({
                   {task.projectTeam.map((member: any) => (
                     <DropdownMenuItem
                       key={member.id}
-                      onSelect={() => setTask(prev => ({ ...prev, assignee: { ...prev.assignee, ...member } }))}
+                      onSelect={() => {
+                        if (task.assignee.id !== member.id) logActivity(`Asignada a ${member.name}`)
+                        setTask(prev => ({ ...prev, assignee: { ...prev.assignee, ...member } }))
+                      }}
                       className={task.assignee.id === member.id ? "bg-muted" : ""}
                     >
                       <Avatar className="h-6 w-6 mr-2">
@@ -735,7 +790,9 @@ export function TaskDetailView({
                       const y = date.getFullYear()
                       const m = String(date.getMonth() + 1).padStart(2, "0")
                       const d = String(date.getDate()).padStart(2, "0")
-                      setTask(prev => ({ ...prev, dueDate: `${y}-${m}-${d}` }))
+                      const next = `${y}-${m}-${d}`
+                      if (task.dueDate !== next) logActivity(`Fecha límite cambiada a ${formatDate(next)}`)
+                      setTask(prev => ({ ...prev, dueDate: next }))
                     }}
                     initialFocus
                   />
@@ -760,7 +817,7 @@ export function TaskDetailView({
             </div>
 
             {/* Notificar al completar */}
-            <div className="col-span-2 flex flex-col items-start gap-1.5 sm:col-span-3">
+            <div className="col-span-2 flex flex-col items-start gap-1.5 sm:col-span-2">
               <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <BellRing className="h-3.5 w-3.5 text-amber-600" />
                 Notificar al completar
@@ -806,11 +863,275 @@ export function TaskDetailView({
                 </Popover>
               </div>
             </div>
+
+            {/* Acciones: Comentarios e Historial (debajo de Vencimiento, a la derecha de Notificar) */}
+            <div className="col-span-2 flex flex-col items-stretch justify-start gap-2 sm:col-span-1">
+              <Button
+                type="button"
+                variant={showComments && !showHistory ? "default" : "outline"}
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => {
+                  setShowHistory(false)
+                  setShowComments(v => !v)
+                }}
+              >
+                <MessageCircle className="h-4 w-4" />
+                <span className="flex-1 text-left">Comentarios</span>
+                {showComments && !showHistory ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant={showHistory ? "default" : "outline"}
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => setShowHistory(v => !v)}
+              >
+                <History className="h-4 w-4" />
+                <span className="flex-1 text-left">Historial</span>
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* Panel de Comentarios (desplegable, respeta los dos cuadros de arriba) */}
+      {showComments && !showHistory && (
+        <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <MessageCircle className="h-5 w-5" />
+              Comentarios ({task.comments?.length || 0})
+            </CardTitle>
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowComments(false)}>
+              <ChevronUp className="h-4 w-4" />
+              Ocultar
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Comment Input */}
+            <div className="flex gap-3">
+              <Avatar className="h-10 w-10 shrink-0">
+                <AvatarFallback>DG</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 space-y-3">
+                <div className="relative">
+                  <Textarea
+                    placeholder="Escribe un comentario... Usa @ para mencionar a alguien"
+                    value={newComment}
+                    onChange={(e) => {
+                      setNewComment(e.target.value)
+                      const lastChar = e.target.value.slice(-1)
+                      if (lastChar === '@') {
+                        setShowMentions(true)
+                      }
+                    }}
+                    className="min-h-[100px]"
+                  />
+                  {showMentions && (
+                    <Card className="absolute bottom-full left-0 mb-2 w-64 z-10 shadow-lg">
+                      <CardContent className="p-2">
+                        <p className="text-xs font-medium text-muted-foreground px-2 py-1 mb-1">Mencionar a:</p>
+                        {task.projectTeam?.map((member: any) => (
+                          <button
+                            key={member.id}
+                            onClick={() => {
+                              setNewComment(prev => prev + member.name + ' ')
+                              setShowMentions(false)
+                            }}
+                            className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
+                          >
+                            <Avatar className="h-6 w-6">
+                              <AvatarFallback className="text-[10px]">{member.initials}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="text-sm font-medium">{member.name}</p>
+                              <p className="text-xs text-muted-foreground">{member.role}</p>
+                            </div>
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => setShowMentions(false)}
+                          className="w-full text-xs text-muted-foreground mt-2 hover:text-foreground"
+                        >
+                          Cerrar
+                        </button>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+
+                {/* Attachments Preview */}
+                {commentAttachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
+                    {commentAttachments.map((file) => (
+                      <Badge key={file.id} variant="secondary" className="flex items-center gap-2 px-3 py-1.5">
+                        {file.type === 'image' ? <FileImage className="h-4 w-4" /> : <File className="h-4 w-4" />}
+                        <span className="max-w-32 truncate">{file.name}</span>
+                        <span className="text-xs text-muted-foreground">{file.size}</span>
+                        <button
+                          onClick={() => setCommentAttachments(prev => prev.filter(f => f.id !== file.id))}
+                          className="ml-1 hover:text-destructive"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowMentions(!showMentions)}
+                      className="gap-2"
+                    >
+                      <AtSign className="h-4 w-4" />
+                      Mencionar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const newFile = { id: `temp-${Date.now()}`, name: 'Archivo_ejemplo.pdf', type: 'pdf', size: '1.2 MB' }
+                        setCommentAttachments(prev => [...prev, newFile])
+                      }}
+                      className="gap-2"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      Adjuntar
+                    </Button>
+                  </div>
+                  <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
+                    <Send className="h-4 w-4 mr-2" />
+                    Enviar
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Comments List */}
+            <div className="space-y-6">
+              {task.comments?.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">Aún no hay comentarios.</p>
+              )}
+              {task.comments?.map((comment: any) => (
+                <div key={comment.id} className="flex gap-3">
+                  <Avatar className="h-10 w-10 shrink-0">
+                    <AvatarFallback>{comment.author.initials}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{comment.author.name}</span>
+                      <span className="text-xs text-muted-foreground">{formatDateTime(comment.date)}</span>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto text-muted-foreground">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => deleteComment(comment.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Eliminar comentario
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <p className="text-sm">
+                      {comment.text.split(/(@\w+\s\w+)/g).map((part: string, i: number) =>
+                        part.startsWith('@') ? (
+                          <span key={i} className="text-primary font-medium bg-primary/10 px-1 rounded">{part}</span>
+                        ) : (
+                          <span key={i}>{part}</span>
+                        )
+                      )}
+                    </p>
+
+                    {/* Comment Attachments */}
+                    {comment.attachments?.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {comment.attachments.map((file: any) => (
+                          <div key={file.id} className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer">
+                            {file.type === 'image' ? (
+                              <FileImage className="h-4 w-4 text-blue-500" />
+                            ) : (
+                              <FileText className="h-4 w-4 text-orange-500" />
+                            )}
+                            <span className="text-sm font-medium">{file.name}</span>
+                            <span className="text-xs text-muted-foreground">{file.size}</span>
+                            <Download className="h-3 w-3 text-muted-foreground" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Mentions indicator */}
+                    {comment.mentions?.length > 0 && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Bell className="h-3 w-3" />
+                        Notificó a: {comment.mentions.map((m: any) => m.name).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Vista de Historial (cambia de ventana, respeta los dos cuadros de arriba) */}
+      {showHistory && (
+        <Card className="border-b-2 border-b-purple-500 animate-in fade-in duration-200">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Historial de Actividad
+            </CardTitle>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowHistory(false)}>
+              <ArrowLeft className="h-4 w-4" />
+              Volver
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {task.history.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Sin actividad registrada.</p>
+            ) : (
+              <div className="relative">
+                <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
+                <div className="space-y-6">
+                  {[...task.history].reverse().map((event) => (
+                    <div key={event.id} className="relative flex gap-4 pl-10">
+                      <div className="absolute left-2 w-4 h-4 rounded-full bg-background border-2 border-primary" />
+                      <div>
+                        <p className="font-medium">{event.action}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {event.user} - {formatDateTime(event.date)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tabs */}
+      {!showHistory && (
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
@@ -1395,189 +1716,6 @@ export function TaskDetailView({
               </Card>
             </div>
           </div>
-          {/* Comments Card */}
-          <Card className="border-b-2 border-b-purple-500">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <MessageCircle className="h-5 w-5" />
-                Comentarios ({task.comments?.length || 0})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Comment Input */}
-              <div className="flex gap-3">
-                <Avatar className="h-10 w-10 shrink-0">
-                  <AvatarFallback>DG</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 space-y-3">
-                  <div className="relative">
-                    <Textarea 
-                      placeholder="Escribe un comentario... Usa @ para mencionar a alguien" 
-                      value={newComment}
-                      onChange={(e) => {
-                        setNewComment(e.target.value)
-                        const lastChar = e.target.value.slice(-1)
-                        if (lastChar === '@') {
-                          setShowMentions(true)
-                        }
-                      }}
-                      className="min-h-[100px]"
-                    />
-                    {showMentions && (
-                      <Card className="absolute bottom-full left-0 mb-2 w-64 z-10 shadow-lg">
-                        <CardContent className="p-2">
-                          <p className="text-xs font-medium text-muted-foreground px-2 py-1 mb-1">Mencionar a:</p>
-                          {task.projectTeam?.map((member: any) => (
-                            <button
-                              key={member.id}
-                              onClick={() => {
-                                setNewComment(prev => prev + member.name + ' ')
-                                setShowMentions(false)
-                              }}
-                              className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
-                            >
-                              <Avatar className="h-6 w-6">
-                                <AvatarFallback className="text-[10px]">{member.initials}</AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="text-sm font-medium">{member.name}</p>
-                                <p className="text-xs text-muted-foreground">{member.role}</p>
-                              </div>
-                            </button>
-                          ))}
-                          <button 
-                            onClick={() => setShowMentions(false)}
-                            className="w-full text-xs text-muted-foreground mt-2 hover:text-foreground"
-                          >
-                            Cerrar
-                          </button>
-                        </CardContent>
-                      </Card>
-                    )}
-                  </div>
-                  
-                  {/* Attachments Preview */}
-                  {commentAttachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
-                      {commentAttachments.map((file) => (
-                        <Badge key={file.id} variant="secondary" className="flex items-center gap-2 px-3 py-1.5">
-                          {file.type === 'image' ? <FileImage className="h-4 w-4" /> : <File className="h-4 w-4" />}
-                          <span className="max-w-32 truncate">{file.name}</span>
-                          <span className="text-xs text-muted-foreground">{file.size}</span>
-                          <button 
-                            onClick={() => setCommentAttachments(prev => prev.filter(f => f.id !== file.id))}
-                            className="ml-1 hover:text-destructive"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => setShowMentions(!showMentions)}
-                        className="gap-2"
-                      >
-                        <AtSign className="h-4 w-4" />
-                        Mencionar
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => {
-                          const newFile = { id: `temp-${Date.now()}`, name: 'Archivo_ejemplo.pdf', type: 'pdf', size: '1.2 MB' }
-                          setCommentAttachments(prev => [...prev, newFile])
-                        }}
-                        className="gap-2"
-                      >
-                        <Paperclip className="h-4 w-4" />
-                        Adjuntar
-                      </Button>
-                    </div>
-                    <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
-                      <Send className="h-4 w-4 mr-2" />
-                      Enviar
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              {/* Comments List */}
-              <div className="space-y-6">
-                {task.comments?.map((comment: any) => (
-                  <div key={comment.id} className="flex gap-3">
-                    <Avatar className="h-10 w-10 shrink-0">
-                      <AvatarFallback>{comment.author.initials}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{comment.author.name}</span>
-                        <span className="text-xs text-muted-foreground">{formatDateTime(comment.date)}</span>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto text-muted-foreground">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onSelect={() => deleteComment(comment.id)}
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Eliminar comentario
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                      <p className="text-sm">
-                        {comment.text.split(/(@\w+\s\w+)/g).map((part: string, i: number) => 
-                          part.startsWith('@') ? (
-                            <span key={i} className="text-primary font-medium bg-primary/10 px-1 rounded">{part}</span>
-                          ) : (
-                            <span key={i}>{part}</span>
-                          )
-                        )}
-                      </p>
-                      
-                      {/* Comment Attachments */}
-                      {comment.attachments?.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {comment.attachments.map((file: any) => (
-                            <div key={file.id} className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer">
-                              {file.type === 'image' ? (
-                                <FileImage className="h-4 w-4 text-blue-500" />
-                              ) : (
-                                <FileText className="h-4 w-4 text-orange-500" />
-                              )}
-                              <span className="text-sm font-medium">{file.name}</span>
-                              <span className="text-xs text-muted-foreground">{file.size}</span>
-                              <Download className="h-3 w-3 text-muted-foreground" />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {/* Mentions indicator */}
-                      {comment.mentions?.length > 0 && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Bell className="h-3 w-3" />
-                          Notificó a: {comment.mentions.map((m: any) => m.name).join(', ')}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
 
           {/* Entregables (links a Google Drive) */}
           <Card className="border-b-2 border-b-purple-500">
@@ -1702,33 +1840,9 @@ export function TaskDetailView({
               </div>
             </CardContent>
           </Card>
-
-          {/* Historial (integrado en Tareas) */}
-          <Card className="border-b-2 border-b-purple-500">
-            <CardHeader>
-              <CardTitle className="text-lg">Historial de Actividad</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="relative">
-                <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
-                <div className="space-y-6">
-                  {task.history.map((event, index) => (
-                    <div key={event.id} className="relative flex gap-4 pl-10">
-                      <div className="absolute left-2 w-4 h-4 rounded-full bg-background border-2 border-primary" />
-                      <div>
-                        <p className="font-medium">{event.action}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {event.user} - {formatDateTime(event.date)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
+      )}
 
       {/* Edit Task Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
