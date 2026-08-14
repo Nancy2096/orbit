@@ -354,10 +354,12 @@ const getTaskById = (id: string) => {
 
 export function TaskDetailView({
   taskId: taskIdProp,
+  taskName,
   embedded = false,
   onClose,
 }: {
   taskId?: string
+  taskName?: string
   embedded?: boolean
   onClose?: () => void
 } = {}) {
@@ -365,7 +367,11 @@ export function TaskDetailView({
   const taskId = (taskIdProp ?? (params.id as string))
   const [activeTab, setActiveTab] = useState("overview")
   const [newComment, setNewComment] = useState("")
-  const [task, setTask] = useState(() => getTaskById(taskId))
+  const [task, setTask] = useState(() => {
+    const base = getTaskById(taskId)
+    // Si el id no está en la base local, usa el nombre real recibido en lugar de "Tarea <id>".
+    return taskName && base.name === `Tarea ${taskId}` ? { ...base, name: taskName } : base
+  })
   const { items: taskTypes } = useCatalog(TASK_TYPES_STORAGE_KEY, defaultTaskTypes)
   const { items: taskFormats } = useCatalog(TASK_FORMATS_STORAGE_KEY, defaultTaskFormats)
   const [selectedTypeId, setSelectedTypeId] = useState<string>("")
@@ -1167,15 +1173,6 @@ export function TaskDetailView({
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground shrink-0">Área</span>
                     <Badge variant="outline">{task.area}</Badge>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Fecha inicio</span>
-                    <span className="font-medium text-right">{formatDate(task.startDate)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Fecha límite</span>
-                    <span className="font-medium text-right">{formatDate(task.dueDate)}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between gap-3">

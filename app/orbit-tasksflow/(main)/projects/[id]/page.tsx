@@ -1325,6 +1325,7 @@ const toggleTaskComplete = (taskId: string) => {
                 <div className="flex-1 overflow-y-auto overscroll-contain">
                   <TaskDetailView
                     taskId={selectedTaskId}
+                    taskName={tasks.find((t: any) => t.id === selectedTaskId)?.title}
                     embedded
                     onClose={() => setSelectedTaskId(null)}
                   />
