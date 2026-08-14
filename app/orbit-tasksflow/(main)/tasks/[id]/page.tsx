@@ -54,7 +54,6 @@ import {
   StickyNote,
   ChevronDown,
   ChevronUp,
-  ChevronRight,
   Check,
   History,
 } from "lucide-react"
@@ -636,18 +635,9 @@ export function TaskDetailView({
                 </Link>
               </Button>
             )}
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-xs text-white/70 mb-2">
-                <Link href="/orbit-tasksflow/projects" className="hover:text-white transition-colors">Proyectos</Link>
-                <ChevronRight className="h-3 w-3" />
-                <Link href={`/orbit-tasksflow/projects/${task.project.id}`} className="hover:text-white transition-colors truncate">{task.project.name}</Link>
-                <ChevronRight className="h-3 w-3" />
-                <span className="text-white/90">Tarea</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className={`h-3 w-3 shrink-0 rounded-full ring-4 ring-white/20 ${status.color}`} aria-hidden="true" />
-                <h1 className="text-2xl font-bold leading-tight text-balance">{task.name}</h1>
-              </div>
+            <div className="min-w-0 flex items-center gap-3">
+              <span className={`h-3 w-3 shrink-0 rounded-full ring-4 ring-white/20 ${status.color}`} aria-hidden="true" />
+              <h1 className="text-2xl font-bold leading-tight text-balance">{task.name}</h1>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -1135,10 +1125,157 @@ export function TaskDetailView({
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          <div className={embedded ? "space-y-6" : "grid gap-6 md:grid-cols-3"}>
-            {/* Main Content */}
-            <div className={embedded ? "space-y-6" : "md:col-span-2 space-y-6"}>
-              {/* Description */}
+          <div className="space-y-6">
+            {/* Detalles + Tiempo y Tareas (2 columnas, arriba de Descripción) */}
+            <div className="grid gap-6 md:grid-cols-2 items-start">
+              {/* Details */}
+              <Card className="border-b-2 border-b-purple-500">
+                <CardHeader>
+                  <CardTitle className="text-lg">Detalles</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3.5 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Tipo</span>
+                    <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
+                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
+                        <SelectValue placeholder="Selecciona tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskTypes.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Formato</span>
+                    <Select value={selectedFormatId} onValueChange={setSelectedFormatId}>
+                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
+                        <SelectValue placeholder="Selecciona formato" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskFormats.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Área</span>
+                    <Badge variant="outline">{task.area}</Badge>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Fecha inicio</span>
+                    <span className="font-medium text-right">{formatDate(task.startDate)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Fecha límite</span>
+                    <span className="font-medium text-right">{formatDate(task.dueDate)}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Creada por</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar className="h-5 w-5 shrink-0">
+                        <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
+                      </Avatar>
+                      <span className="truncate">{task.createdBy.name}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Creada</span>
+                    <span className="text-right">{formatDateTime(task.createdAt)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Actualizada</span>
+                    <span className="text-right">{formatDateTime(task.updatedAt)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Time & Tasks Summary */}
+              <Card className="border-b-2 border-b-purple-500">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Timer className="h-5 w-5" />
+                    Tiempo y Tareas
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Trabajado</Label>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          value={workedHoursInput}
+                          onChange={(e) => setWorkedHoursInput(Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-20"
+                          aria-label="Horas trabajadas"
+                        />
+                        <span className="text-sm text-muted-foreground">h</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={59}
+                          value={workedMinutesInput}
+                          onChange={(e) => setWorkedMinutesInput(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
+                          className="w-20"
+                          aria-label="Minutos trabajados"
+                        />
+                        <span className="text-sm text-muted-foreground">min</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="proposals-count" className="text-muted-foreground">Propuestas</Label>
+                      <Input
+                        id="proposals-count"
+                        type="number"
+                        min={0}
+                        value={proposalsCount}
+                        onChange={(e) => setProposalsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="adjustments-count" className="text-muted-foreground">Ajustes</Label>
+                      <Input
+                        id="adjustments-count"
+                        type="number"
+                        min={0}
+                        value={adjustmentsCount}
+                        onChange={(e) => setAdjustmentsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="deliverables-count" className="text-muted-foreground">Entregables</Label>
+                      <Input
+                        id="deliverables-count"
+                        type="number"
+                        min={0}
+                        value={deliverablesCount}
+                        onChange={(e) => setDeliverablesCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Description */}
               <Card className="border-b-2 border-b-purple-500">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-lg">Descripción</CardTitle>
@@ -1566,156 +1703,6 @@ export function TaskDetailView({
                 </DialogContent>
               </Dialog>
             </div>
-
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Time & Tasks Summary */}
-              <Card className="border-b-2 border-b-purple-500">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Timer className="h-5 w-5" />
-                    Tiempo y Tareas
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground">Trabajado</Label>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={workedHoursInput}
-                          onChange={(e) => setWorkedHoursInput(Math.max(0, parseInt(e.target.value) || 0))}
-                          className="w-20"
-                          aria-label="Horas trabajadas"
-                        />
-                        <span className="text-sm text-muted-foreground">h</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          type="number"
-                          min={0}
-                          max={59}
-                          value={workedMinutesInput}
-                          onChange={(e) => setWorkedMinutesInput(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
-                          className="w-20"
-                          aria-label="Minutos trabajados"
-                        />
-                        <span className="text-sm text-muted-foreground">min</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="border-t pt-4 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="proposals-count" className="text-muted-foreground">Propuestas</Label>
-                      <Input
-                        id="proposals-count"
-                        type="number"
-                        min={0}
-                        value={proposalsCount}
-                        onChange={(e) => setProposalsCount(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-24"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="adjustments-count" className="text-muted-foreground">Ajustes</Label>
-                      <Input
-                        id="adjustments-count"
-                        type="number"
-                        min={0}
-                        value={adjustmentsCount}
-                        onChange={(e) => setAdjustmentsCount(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-24"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="deliverables-count" className="text-muted-foreground">Entregables</Label>
-                      <Input
-                        id="deliverables-count"
-                        type="number"
-                        min={0}
-                        value={deliverablesCount}
-                        onChange={(e) => setDeliverablesCount(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-24"
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Details */}
-              <Card className="border-b-2 border-b-purple-500">
-                <CardHeader>
-                  <CardTitle className="text-lg">Detalles</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3.5 text-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Tipo</span>
-                    <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
-                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
-                        <SelectValue placeholder="Selecciona tipo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {taskTypes.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Formato</span>
-                    <Select value={selectedFormatId} onValueChange={setSelectedFormatId}>
-                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
-                        <SelectValue placeholder="Selecciona formato" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {taskFormats.map((f) => (
-                          <SelectItem key={f.id} value={f.id}>
-                            {f.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Área</span>
-                    <Badge variant="outline">{task.area}</Badge>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Fecha inicio</span>
-                    <span className="font-medium text-right">{formatDate(task.startDate)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Fecha límite</span>
-                    <span className="font-medium text-right">{formatDate(task.dueDate)}</span>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Creada por</span>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className="h-5 w-5 shrink-0">
-                        <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
-                      </Avatar>
-                      <span className="truncate">{task.createdBy.name}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Creada</span>
-                    <span className="text-right">{formatDateTime(task.createdAt)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Actualizada</span>
-                    <span className="text-right">{formatDateTime(task.updatedAt)}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
 
           {/* Entregables (links a Google Drive) */}
           <Card className="border-b-2 border-b-purple-500">
