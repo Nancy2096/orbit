@@ -1,3 +1,8 @@
+export const metadata = {
+  title: "Orbit TasksFlow",
+  description: "Gestión de tareas, proyectos y cuentas.",
+}
+
 export default function OrbitTasksFlowRootLayout({
   children,
 }: {

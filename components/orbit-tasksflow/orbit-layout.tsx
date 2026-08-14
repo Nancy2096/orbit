@@ -132,25 +132,25 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
       {/* Sidebar */}
       <aside
         className={cn(
-          "flex flex-col border-r bg-card transition-all duration-300",
+          "flex flex-col border-r border-white/10 bg-gradient-to-b from-indigo-700 via-purple-700 to-indigo-900 text-white transition-all duration-300",
           isCollapsed ? "w-16" : "w-60"
         )}
       >
         {/* Logo */}
-        <div className="flex h-14 items-center border-b px-3">
+        <div className="flex h-14 items-center border-b border-white/10 px-3">
           {!isCollapsed ? (
             <Link href="/orbit-tasksflow" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20 backdrop-blur-sm">
                 <Layers className="h-5 w-5 text-white" />
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-sm">Orbit</span>
-                <span className="text-[10px] text-muted-foreground -mt-0.5">TasksFlow</span>
+                <span className="font-bold text-sm text-white">Orbit</span>
+                <span className="text-[10px] text-white/60 -mt-0.5">TasksFlow</span>
               </div>
             </Link>
           ) : (
             <Link href="/orbit-tasksflow" className="mx-auto">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20 backdrop-blur-sm">
                 <Layers className="h-5 w-5 text-white" />
               </div>
             </Link>
@@ -161,7 +161,7 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
         <ScrollArea className="flex-1 py-2">
           <nav className="space-y-1 px-2">
             {!isCollapsed && (
-              <span className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <span className="px-2 text-xs font-semibold text-white/50 uppercase tracking-wider">
                 Principal
               </span>
             )}
@@ -180,8 +180,8 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      ? "bg-white text-purple-700 font-medium shadow-sm"
+                      : "text-white/70 hover:bg-white/10 hover:text-white",
                     isCollapsed && "justify-center px-2"
                   )}
                   title={isCollapsed ? item.title : undefined}
@@ -192,7 +192,7 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
               )
             })}
 
-            <Separator className="my-3" />
+            <Separator className="my-3 bg-white/10" />
 
             {!isCollapsed ? (
               <Link
@@ -201,15 +201,15 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
                   "flex items-center justify-between px-2 py-1 group",
                 )}
               >
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground transition-colors">
+                <span className="text-xs font-semibold text-white/50 uppercase tracking-wider group-hover:text-white transition-colors">
                   Cuentas y Proyectos
                 </span>
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                <ChevronRight className="h-3.5 w-3.5 text-white/50 group-hover:text-white transition-colors" />
               </Link>
             ) : (
               <Link
                 href="/orbit-tasksflow/projects"
-                className="flex justify-center rounded-lg px-2 py-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                className="flex justify-center rounded-lg px-2 py-2 text-white/70 hover:bg-white/10 hover:text-white transition-colors"
                 title="Cuentas y Proyectos"
               >
                 <FolderKanban className="h-4 w-4" />
@@ -229,8 +229,8 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      ? "bg-white text-purple-700 font-medium shadow-sm"
+                      : "text-white/70 hover:bg-white/10 hover:text-white",
                     isCollapsed && "justify-center px-2"
                   )}
                   title={isCollapsed ? `${project.name} · ${project.client}` : undefined}
@@ -242,7 +242,7 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
                       <Briefcase className="h-4 w-4 flex-shrink-0" />
                       <span className="flex flex-col min-w-0">
                         <span className="truncate leading-tight">{project.name}</span>
-                        <span className="truncate text-[11px] text-muted-foreground leading-tight">
+                        <span className="truncate text-[11px] opacity-70 leading-tight">
                           {project.client}
                         </span>
                       </span>
@@ -252,10 +252,10 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
               )
             })}
 
-            <Separator className="my-3" />
+            <Separator className="my-3 bg-white/10" />
 
             {!isCollapsed && (
-              <span className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <span className="px-2 text-xs font-semibold text-white/50 uppercase tracking-wider">
                 Administración
               </span>
             )}
@@ -268,8 +268,8 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      ? "bg-white text-purple-700 font-medium shadow-sm"
+                      : "text-white/70 hover:bg-white/10 hover:text-white",
                     isCollapsed && "justify-center px-2"
                   )}
                   title={isCollapsed ? item.title : undefined}
@@ -283,11 +283,11 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
         </ScrollArea>
 
         {/* Collapse Button */}
-        <div className="border-t p-2">
+        <div className="border-t border-white/10 p-2">
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-center"
+            className="w-full justify-center text-white/70 hover:bg-white/10 hover:text-white"
             onClick={() => setIsCollapsed(!isCollapsed)}
           >
             {isCollapsed ? (
