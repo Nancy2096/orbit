@@ -37,6 +37,7 @@ import {
   EyeOff,
   Timer,
   ListTodo,
+  ListChecks,
   Link2,
   Flag,
   Tag,
@@ -52,9 +53,10 @@ import {
   File,
   X,
   StickyNote,
-  LayoutGrid,
   ChevronDown,
+  ChevronUp,
   Check,
+  History,
 } from "lucide-react"
 import {
   Popover,
@@ -68,6 +70,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu"
 import {
   Dialog,
@@ -81,8 +84,10 @@ import {
   useCatalog,
   TASK_TYPES_STORAGE_KEY,
   TASK_FORMATS_STORAGE_KEY,
+  AREAS_STORAGE_KEY,
   defaultTaskTypes,
   defaultTaskFormats,
+  defaultAreas,
 } from "@/lib/orbit-tasksflow/catalogs"
 import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
 
@@ -335,14 +340,16 @@ const getTaskById = (id: string) => {
     createdBy: { id: "user-2", name: "Eduardo Méndez", initials: "EM" },
     createdAt: "2026-05-01T10:30:00",
     updatedAt: "2026-05-10T14:20:00",
-    subtasks: [],
+    subtasks: [] as Array<{ id: string; name: string; completed: boolean }>,
     comments: [],
     attachments: [],
     timeEntries: [],
     history: [{ id: "h1", action: "Tarea creada", user: "Sistema", date: "2026-05-01T10:30:00" }],
     relatedTasks: [],
     tags: [],
-    notes: [] as Array<{ id: string; author: { name: string; initials: string }; text: string; date: string; isPrivate: boolean; attachments: Array<{ id: string; name: string; type: string; size: string }>; driveLinks: Array<{ id: string; name: string; url: string }> }>,
+    // Reacciones con emoji: máximo una por usuario.
+    reactions: [] as Array<{ userId: string; userName: string; emoji: string }>,
+    notes: [] as Array<{ id: string; author: { name: string; initials: string }; text: string; date: string; isPrivate: boolean; attachments: Array<{ id: string; name: string; type: string; size: string; url?: string }>; driveLinks: Array<{ id: string; name: string; url: string }> }>,
     notifyOnComplete: [],
     projectTeam: [
       { id: "user-1", name: "Diana García", initials: "DG", role: "Diseñador Senior" },
@@ -353,10 +360,12 @@ const getTaskById = (id: string) => {
 
 export function TaskDetailView({
   taskId: taskIdProp,
+  taskName,
   embedded = false,
   onClose,
 }: {
   taskId?: string
+  taskName?: string
   embedded?: boolean
   onClose?: () => void
 } = {}) {
@@ -364,11 +373,28 @@ export function TaskDetailView({
   const taskId = (taskIdProp ?? (params.id as string))
   const [activeTab, setActiveTab] = useState("overview")
   const [newComment, setNewComment] = useState("")
-  const [task, setTask] = useState(() => getTaskById(taskId))
+  const [task, setTask] = useState(() => {
+    const base = getTaskById(taskId)
+    // Si el id no está en la base local, usa el nombre real recibido en lugar de "Tarea <id>".
+    return taskName && base.name === `Tarea ${taskId}` ? { ...base, name: taskName } : base
+  })
   const { items: taskTypes } = useCatalog(TASK_TYPES_STORAGE_KEY, defaultTaskTypes)
   const { items: taskFormats } = useCatalog(TASK_FORMATS_STORAGE_KEY, defaultTaskFormats)
+  const { items: areas } = useCatalog(AREAS_STORAGE_KEY, defaultAreas)
   const [selectedTypeId, setSelectedTypeId] = useState<string>("")
   const [selectedFormatId, setSelectedFormatId] = useState<string>("")
+  const [selectedAreaId, setSelectedAreaId] = useState<string>("")
+  // Subtareas funcionales
+  const [newSubtaskName, setNewSubtaskName] = useState("")
+  const [showAddSubtask, setShowAddSubtask] = useState(false)
+  // Adjuntos, enlaces de Drive e imágenes embebidas de la Descripción
+  const [descriptionDriveLinks, setDescriptionDriveLinks] = useState<{ id: string; name: string; url: string }[]>([])
+  const [descriptionImages, setDescriptionImages] = useState<{ id: string; name: string; url: string }[]>([])
+  const [showAddDescDriveLink, setShowAddDescDriveLink] = useState(false)
+  const [newDescDriveLinkName, setNewDescDriveLinkName] = useState("")
+  const [newDescDriveLinkUrl, setNewDescDriveLinkUrl] = useState("")
+  const [isDescDragOver, setIsDescDragOver] = useState(false)
+  const [isNoteDragOver, setIsNoteDragOver] = useState(false)
   const [workedHoursInput, setWorkedHoursInput] = useState<number>(() => Math.floor(task.workedHours))
   const [workedMinutesInput, setWorkedMinutesInput] = useState<number>(() => Math.round((task.workedHours % 1) * 60))
   const [proposalsCount, setProposalsCount] = useState<number>(0)
@@ -389,17 +415,22 @@ export function TaskDetailView({
   const [newDeliverableName, setNewDeliverableName] = useState("")
   const [newDeliverableUrl, setNewDeliverableUrl] = useState("")
   const [showEditDialog, setShowEditDialog] = useState(false)
+  // Panel de comentarios (desplegable) y vista de historial (cambia de "ventana").
+  const [showComments, setShowComments] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
 
   const addDeliverable = () => {
     if (!newDeliverableUrl.trim()) return
+    const name = newDeliverableName.trim() || "Entregable de Google Drive"
     setDeliverables(prev => [
       ...prev,
       {
         id: `del-${Date.now()}`,
-        name: newDeliverableName.trim() || "Entregable de Google Drive",
+        name,
         url: newDeliverableUrl.trim(),
       },
     ])
+    logActivity(`Editable agregado: "${name}"`)
     setNewDeliverableName("")
     setNewDeliverableUrl("")
     setShowAddDeliverable(false)
@@ -407,6 +438,7 @@ export function TaskDetailView({
 
   const removeDeliverable = (id: string) => {
     setDeliverables(prev => prev.filter(d => d.id !== id))
+    logActivity("Editable eliminado")
   }
 
   const [editedTask, setEditedTask] = useState({
@@ -440,12 +472,45 @@ export function TaskDetailView({
   }
 
   const toggleSubtask = (subtaskId: string) => {
+    setTask(prev => {
+      const target = prev.subtasks.find(s => s.id === subtaskId)
+      const action = target
+        ? `Subtarea "${target.name}" marcada como ${target.completed ? "pendiente" : "completada"}`
+        : "Subtarea actualizada"
+      return {
+        ...prev,
+        subtasks: prev.subtasks.map(s =>
+          s.id === subtaskId ? { ...s, completed: !s.completed } : s
+        ),
+        history: [
+          ...prev.history,
+          { id: `h-${Date.now()}`, action, user: currentUser.name, date: new Date().toISOString() },
+        ],
+      }
+    })
+  }
+
+  const addSubtask = () => {
+    const name = newSubtaskName.trim()
+    if (!name) return
     setTask(prev => ({
       ...prev,
-      subtasks: prev.subtasks.map(s => 
-        s.id === subtaskId ? { ...s, completed: !s.completed } : s
-      )
+      subtasks: [...prev.subtasks, { id: `sub-${Date.now()}`, name, completed: false }],
+      history: [
+        ...prev.history,
+        { id: `h-${Date.now()}`, action: `Subtarea agregada: "${name}"`, user: currentUser.name, date: new Date().toISOString() },
+      ],
     }))
+    setNewSubtaskName("")
+    setShowAddSubtask(false)
+  }
+
+  const deleteSubtask = (subtaskId: string) => {
+    setTask(prev => ({
+      ...prev,
+      subtasks: prev.subtasks.filter(s => s.id !== subtaskId),
+    }))
+    logActivity("Subtarea eliminada")
   }
 
   const deleteComment = (commentId: string) => {
@@ -453,6 +518,45 @@ export function TaskDetailView({
       ...prev,
       comments: prev.comments.filter((c: any) => c.id !== commentId)
     }))
+    logActivity("Comentario eliminado")
+  }
+
+  // Lee archivos de imagen soltados y devuelve promesas con data URL para mostrarlos embebidos.
+  const readImageFiles = (files: FileList | File[]): Promise<{ id: string; name: string; url: string }[]> => {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"))
+    return Promise.all(
+      imageFiles.map(
+        (file, i) =>
+          new Promise<{ id: string; name: string; url: string }>((resolve) => {
+            const reader = new FileReader()
+            reader.onload = () =>
+              resolve({ id: `img-${Date.now()}-${i}`, name: file.name, url: reader.result as string })
+            reader.readAsDataURL(file)
+          }),
+      ),
+    )
+  }
+
+  const handleDescriptionDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDescDragOver(false)
+    if (!e.dataTransfer.files?.length) return
+    const images = await readImageFiles(e.dataTransfer.files)
+    if (images.length === 0) return
+    setDescriptionImages(prev => [...prev, ...images])
+    logActivity(`Imagen agregada a la descripción (${images.length})`)
+  }
+
+  const handleNoteDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsNoteDragOver(false)
+    if (!e.dataTransfer.files?.length) return
+    const images = await readImageFiles(e.dataTransfer.files)
+    if (images.length === 0) return
+    setNoteAttachments(prev => [
+      ...prev,
+      ...images.map(img => ({ id: img.id, name: img.name, type: "image", size: "", url: img.url })),
+    ])
   }
 
   // --- Descripción editable con registro de guardado ---
@@ -464,6 +568,7 @@ export function TaskDetailView({
     setTask(prev => ({ ...prev, description: descriptionDraft }))
     setDescriptionUpdatedAt(new Date().toISOString())
     setIsEditingDescription(false)
+    logActivity("Descripción actualizada")
   }
 
   const cancelEditDescription = () => {
@@ -498,17 +603,31 @@ export function TaskDetailView({
   const linkTask = (t: { id: string; name: string; status: string; assignee: string }) => {
     setTask(prev => {
       if (prev.relatedTasks.some((r: any) => r.id === t.id)) return prev
-      return { ...prev, relatedTasks: [...prev.relatedTasks, t] }
+      return {
+        ...prev,
+        relatedTasks: [...prev.relatedTasks, t],
+        history: [
+          ...prev.history,
+          { id: `h-${Date.now()}`, action: `Tarea vinculada: "${t.name}"`, user: currentUser.name, date: new Date().toISOString() },
+        ],
+      }
     })
     setShowLinkTaskDialog(false)
     setLinkTaskSearch("")
   }
 
   const unlinkTask = (id: string) => {
-    setTask(prev => ({
-      ...prev,
-      relatedTasks: prev.relatedTasks.filter((r: any) => r.id !== id),
-    }))
+    setTask(prev => {
+      const target = prev.relatedTasks.find((r: any) => r.id === id)
+      return {
+        ...prev,
+        relatedTasks: prev.relatedTasks.filter((r: any) => r.id !== id),
+        history: [
+          ...prev.history,
+          { id: `h-${Date.now()}`, action: `Tarea desvinculada${target ? `: "${target.name}"` : ""}`, user: currentUser.name, date: new Date().toISOString() },
+        ],
+      }
+    })
   }
 
   const filteredLinkableTasks = linkableTasks.filter(t => {
@@ -524,6 +643,48 @@ export function TaskDetailView({
 
   // --- Comentarios funcionales ---
   const currentUser = { id: "user-1", name: "Diana García", initials: "DG" }
+  const reactionEmojis = ["👍", "🎉", "❤️", "🔥", "👏", "🚀", "😍", "✅"]
+  const myReaction = (task.reactions ?? []).find(r => r.userId === currentUser.id)?.emoji
+
+  // Agrupa las reacciones por emoji con su conteo y quiénes reaccionaron.
+  const groupedReactions = Object.values(
+    (task.reactions ?? []).reduce((acc, r) => {
+      if (!acc[r.emoji]) acc[r.emoji] = { emoji: r.emoji, count: 0, users: [] as string[] }
+      acc[r.emoji].count += 1
+      acc[r.emoji].users.push(r.userName)
+      return acc
+    }, {} as Record<string, { emoji: string; count: number; users: string[] }>),
+  )
+
+  // Registra en el historial de actividad cualquier ajuste hecho en la tarea.
+  const logActivity = (action: string) => {
+    setTask(prev => ({
+      ...prev,
+      history: [
+        ...prev.history,
+        { id: `h-${Date.now()}`, action, user: currentUser.name, date: new Date().toISOString() },
+      ],
+    }))
+  }
+
+  // Reacción con emoji: un usuario puede tener solo un emoji activo a la vez.
+  // Volver a elegir el mismo emoji lo quita; elegir otro lo reemplaza.
+  const toggleReaction = (emoji: string) => {
+    setTask(prev => {
+      const reactions = prev.reactions ?? []
+      const existing = reactions.find(r => r.userId === currentUser.id)
+      let next: typeof reactions
+      if (existing && existing.emoji === emoji) {
+        next = reactions.filter(r => r.userId !== currentUser.id)
+      } else {
+        next = [
+          ...reactions.filter(r => r.userId !== currentUser.id),
+          { userId: currentUser.id, userName: currentUser.name, emoji },
+        ]
+      }
+      return { ...prev, reactions: next }
+    })
+  }
 
   const addComment = () => {
     if (!newComment.trim()) return
@@ -540,55 +701,148 @@ export function TaskDetailView({
       attachments: commentAttachments,
     }
     setTask(prev => ({ ...prev, comments: [...(prev.comments || []), comment] }))
+    logActivity("Comentario agregado")
     setNewComment("")
     setCommentAttachments([])
     setShowMentions(false)
   }
 
   return (
-    <div className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}>
+    <div
+      className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}
+      style={
+        {
+          // Acento morado local: vuelve morados los botones de acción (primary)
+          // y los estados hover (accent) sin alterar el tema global del resto de Orbit.
+          "--primary": "oklch(0.55 0.22 293)",
+          "--primary-foreground": "oklch(0.985 0 0)",
+          "--ring": "oklch(0.55 0.22 293)",
+          "--accent": "oklch(0.96 0.03 293)",
+          "--accent-foreground": "oklch(0.45 0.2 293)",
+        } as React.CSSProperties
+      }
+    >
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          {embedded ? (
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Cerrar detalle">
-              <X className="h-5 w-5" />
-            </Button>
-          ) : (
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/orbit-tasksflow/tasks">
-                <ArrowLeft className="h-5 w-5" />
-              </Link>
-            </Button>
-          )}
-          <div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-              <Link href="/orbit-tasksflow/projects" className="hover:underline">Proyectos</Link>
-              <span>/</span>
-              <Link href={`/orbit-tasksflow/projects/${task.project.id}`} className="hover:underline">{task.project.name}</Link>
-              <span>/</span>
-              <span>Tarea</span>
+      <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-700 p-5 text-white shadow-lg">
+        {/* Halo decorativo */}
+        <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-white/10 blur-2xl" aria-hidden="true" />
+        <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full bg-fuchsia-400/20 blur-2xl" aria-hidden="true" />
+
+        <div className="relative flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            {embedded ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClose}
+                aria-label="Cerrar detalle"
+                className="shrink-0 text-white hover:bg-white/15 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="icon"
+                asChild
+                className="shrink-0 text-white hover:bg-white/15 hover:text-white"
+              >
+                <Link href="/orbit-tasksflow/tasks">
+                  <ArrowLeft className="h-5 w-5" />
+                </Link>
+              </Button>
+            )}
+            <div className="min-w-0 flex items-center gap-3">
+              <span className={`h-3 w-3 shrink-0 rounded-full ring-4 ring-white/20 ${status.color}`} aria-hidden="true" />
+              <h1 className="text-2xl font-bold leading-tight text-balance">{task.name}</h1>
             </div>
-            <h1 className="text-2xl font-bold">{task.name}</h1>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setShowEditDialog(true)}
+              className="bg-white text-purple-700 hover:bg-white/90"
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Editar
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Más acciones"
+                  className="text-white hover:bg-white/15 hover:text-white"
+                >
+                  <MoreHorizontal className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Reaccionar</DropdownMenuLabel>
+                <div className="grid grid-cols-4 gap-1 p-1">
+                  {reactionEmojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => toggleReaction(emoji)}
+                      aria-label={`Reaccionar con ${emoji}`}
+                      aria-pressed={myReaction === emoji}
+                      className={`flex h-9 items-center justify-center rounded-md text-xl transition-colors hover:bg-accent ${
+                        myReaction === emoji ? "bg-accent ring-2 ring-primary" : ""
+                      }`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+                {myReaction && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => toggleReaction(myReaction)}>
+                      <X className="h-4 w-4 mr-2" />
+                      Quitar mi reacción
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowEditDialog(true)}>
-            <Edit className="h-4 w-4 mr-2" />
-            Editar
-          </Button>
-          <Button variant="ghost" size="icon">
-            <MoreHorizontal className="h-5 w-5" />
-          </Button>
-        </div>
+
+        {/* Reacciones sobre la tarea */}
+        {groupedReactions.length > 0 && (
+          <div className="relative mt-4 flex flex-wrap items-center gap-2">
+            {groupedReactions.map((r) => {
+              const mine = myReaction === r.emoji
+              return (
+                <button
+                  key={r.emoji}
+                  type="button"
+                  onClick={() => toggleReaction(r.emoji)}
+                  title={r.users.join(", ")}
+                  aria-pressed={mine}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm backdrop-blur transition-colors ${
+                    mine
+                      ? "border-white bg-white/25 text-white"
+                      : "border-white/30 bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                >
+                  <span className="text-base leading-none">{r.emoji}</span>
+                  <span className="font-semibold tabular-nums">{r.count}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Quick Info Bar */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-6">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Estado:</span>
+      <Card className="shadow-sm border-b-2 border-b-purple-500">
+        <CardContent className="p-5">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
+            {/* Estado */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Estado</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button type="button" className="focus:outline-none">
@@ -602,7 +856,10 @@ export function TaskDetailView({
                   {Object.entries(taskStatusConfig).map(([key, cfg]) => (
                     <DropdownMenuItem
                       key={key}
-                      onSelect={() => setTask(prev => ({ ...prev, status: key }))}
+                      onSelect={() => {
+                        if (task.status !== key) logActivity(`Estado cambiado a ${cfg.label}`)
+                        setTask(prev => ({ ...prev, status: key }))
+                      }}
                       className={task.status === key ? "bg-muted" : ""}
                     >
                       <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
@@ -612,8 +869,10 @@ export function TaskDetailView({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Prioridad:</span>
+
+            {/* Prioridad */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Prioridad</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button type="button" className="focus:outline-none">
@@ -628,7 +887,10 @@ export function TaskDetailView({
                   {Object.entries(priorityConfig).map(([key, cfg]) => (
                     <DropdownMenuItem
                       key={key}
-                      onSelect={() => setTask(prev => ({ ...prev, priority: key }))}
+                      onSelect={() => {
+                        if (task.priority !== key) logActivity(`Prioridad cambiada a ${cfg.label}`)
+                        setTask(prev => ({ ...prev, priority: key }))
+                      }}
                       className={task.priority === key ? "bg-muted" : ""}
                     >
                       <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
@@ -638,23 +900,28 @@ export function TaskDetailView({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Asignado:</span>
+
+            {/* Asignado */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Asignado</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted transition-colors focus:outline-none">
-                    <Avatar className="h-6 w-6">
+                  <button type="button" className="flex items-center gap-2 rounded-md -ml-1.5 px-1.5 py-1 hover:bg-muted transition-colors focus:outline-none max-w-full">
+                    <Avatar className="h-6 w-6 shrink-0">
                       <AvatarFallback className="text-xs">{task.assignee.initials}</AvatarFallback>
                     </Avatar>
-                    <span className="text-sm font-medium">{task.assignee.name}</span>
-                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-sm font-medium truncate">{task.assignee.name}</span>
+                    <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
                   {task.projectTeam.map((member: any) => (
                     <DropdownMenuItem
                       key={member.id}
-                      onSelect={() => setTask(prev => ({ ...prev, assignee: { ...prev.assignee, ...member } }))}
+                      onSelect={() => {
+                        if (task.assignee.id !== member.id) logActivity(`Asignada a ${member.name}`)
+                        setTask(prev => ({ ...prev, assignee: { ...prev.assignee, ...member } }))
+                      }}
                       className={task.assignee.id === member.id ? "bg-muted" : ""}
                     >
                       <Avatar className="h-6 w-6 mr-2">
@@ -669,17 +936,19 @@ export function TaskDetailView({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">Vence:</span>
+
+            {/* Vencimiento */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Vencimiento</span>
               <Popover>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-sm font-medium hover:bg-muted transition-colors focus:outline-none"
+                    className="flex items-center gap-1.5 rounded-md -ml-1.5 px-1.5 py-1 text-sm font-medium hover:bg-muted transition-colors focus:outline-none"
                   >
+                    <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
                     {formatDate(task.dueDate)}
-                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
                   </button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -691,14 +960,19 @@ export function TaskDetailView({
                       const y = date.getFullYear()
                       const m = String(date.getMonth() + 1).padStart(2, "0")
                       const d = String(date.getDate()).padStart(2, "0")
-                      setTask(prev => ({ ...prev, dueDate: `${y}-${m}-${d}` }))
+                      const next = `${y}-${m}-${d}`
+                      if (task.dueDate !== next) logActivity(`Fecha límite cambiada a ${formatDate(next)}`)
+                      setTask(prev => ({ ...prev, dueDate: next }))
                     }}
                     initialFocus
                   />
                 </PopoverContent>
               </Popover>
             </div>
-            <div className="flex items-center gap-2">
+
+            {/* Visibilidad */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Visibilidad</span>
               {task.isClientVisible ? (
                 <Badge variant="outline" className="text-emerald-600">
                   <Eye className="h-3 w-3 mr-1" />
@@ -711,10 +985,12 @@ export function TaskDetailView({
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground flex items-center gap-1">
-                <BellRing className="h-4 w-4 text-amber-600" />
-                Notificar:
+
+            {/* Notificar al completar */}
+            <div className="col-span-2 flex flex-col items-start gap-1.5 sm:col-span-2">
+              <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <BellRing className="h-3.5 w-3.5 text-amber-600" />
+                Notificar al completar
               </span>
               <div className="flex items-center flex-wrap gap-1.5">
                 {task.notifyOnComplete?.map((person: any) => (
@@ -757,40 +1033,440 @@ export function TaskDetailView({
                 </Popover>
               </div>
             </div>
+
+            {/* Acciones: Comentarios e Historial (debajo de Vencimiento, a la derecha de Notificar) */}
+            <div className="col-span-2 flex flex-col items-stretch justify-start gap-2 sm:col-span-1">
+              <Button
+                type="button"
+                variant={showComments && !showHistory ? "default" : "outline"}
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => {
+                  setShowHistory(false)
+                  setShowComments(v => !v)
+                }}
+              >
+                <MessageCircle className="h-4 w-4" />
+                <span className="flex-1 text-left">Comentarios</span>
+                {showComments && !showHistory ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant={showHistory ? "default" : "outline"}
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => setShowHistory(v => !v)}
+              >
+                <History className="h-4 w-4" />
+                <span className="flex-1 text-left">Historial</span>
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <div className="flex flex-wrap h-auto gap-2 p-2 bg-muted/50 rounded-xl">
-          {/* Link to Project Summary */}
-          <Link 
-            href={`/orbit-tasksflow/projects/${task.project.id}`}
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg bg-primary text-primary-foreground shadow-md hover:bg-primary/90 transition-all"
-          >
-            <LayoutGrid className="h-5 w-5" />
-            <span>Resumen</span>
-          </Link>
-          
-          <TabsList className="flex flex-wrap h-auto gap-2 p-0 bg-transparent">
-          <TabsTrigger 
-            value="overview" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-cyan-50 dark:hover:bg-cyan-950 transition-all"
-          >
-            <ListTodo className="h-5 w-5" />
-            <span>Tareas</span>
-          </TabsTrigger>
-        </TabsList>
-        </div>
+      {/* Panel de Comentarios (desplegable, respeta los dos cuadros de arriba) */}
+      {showComments && !showHistory && (
+        <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <MessageCircle className="h-5 w-5" />
+              Comentarios ({task.comments?.length || 0})
+            </CardTitle>
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowComments(false)}>
+              <ChevronUp className="h-4 w-4" />
+              Ocultar
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Comment Input */}
+            <div className="flex gap-3">
+              <Avatar className="h-10 w-10 shrink-0">
+                <AvatarFallback>DG</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 space-y-3">
+                <div className="relative">
+                  <Textarea
+                    placeholder="Escribe un comentario... Usa @ para mencionar a alguien"
+                    value={newComment}
+                    onChange={(e) => {
+                      setNewComment(e.target.value)
+                      const lastChar = e.target.value.slice(-1)
+                      if (lastChar === '@') {
+                        setShowMentions(true)
+                      }
+                    }}
+                    className="min-h-[100px]"
+                  />
+                  {showMentions && (
+                    <Card className="absolute bottom-full left-0 mb-2 w-64 z-10 shadow-lg">
+                      <CardContent className="p-2">
+                        <p className="text-xs font-medium text-muted-foreground px-2 py-1 mb-1">Mencionar a:</p>
+                        {task.projectTeam?.map((member: any) => (
+                          <button
+                            key={member.id}
+                            onClick={() => {
+                              setNewComment(prev => prev + member.name + ' ')
+                              setShowMentions(false)
+                            }}
+                            className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
+                          >
+                            <Avatar className="h-6 w-6">
+                              <AvatarFallback className="text-[10px]">{member.initials}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="text-sm font-medium">{member.name}</p>
+                              <p className="text-xs text-muted-foreground">{member.role}</p>
+                            </div>
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => setShowMentions(false)}
+                          className="w-full text-xs text-muted-foreground mt-2 hover:text-foreground"
+                        >
+                          Cerrar
+                        </button>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
 
+                {/* Attachments Preview */}
+                {commentAttachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
+                    {commentAttachments.map((file) => (
+                      <Badge key={file.id} variant="secondary" className="flex items-center gap-2 px-3 py-1.5">
+                        {file.type === 'image' ? <FileImage className="h-4 w-4" /> : <File className="h-4 w-4" />}
+                        <span className="max-w-32 truncate">{file.name}</span>
+                        <span className="text-xs text-muted-foreground">{file.size}</span>
+                        <button
+                          onClick={() => setCommentAttachments(prev => prev.filter(f => f.id !== file.id))}
+                          className="ml-1 hover:text-destructive"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowMentions(!showMentions)}
+                      className="gap-2"
+                    >
+                      <AtSign className="h-4 w-4" />
+                      Mencionar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const newFile = { id: `temp-${Date.now()}`, name: 'Archivo_ejemplo.pdf', type: 'pdf', size: '1.2 MB' }
+                        setCommentAttachments(prev => [...prev, newFile])
+                      }}
+                      className="gap-2"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      Adjuntar
+                    </Button>
+                  </div>
+                  <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
+                    <Send className="h-4 w-4 mr-2" />
+                    Enviar
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Comments List */}
+            <div className="space-y-6">
+              {task.comments?.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">Aún no hay comentarios.</p>
+              )}
+              {task.comments?.map((comment: any) => (
+                <div key={comment.id} className="flex gap-3">
+                  <Avatar className="h-10 w-10 shrink-0">
+                    <AvatarFallback>{comment.author.initials}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{comment.author.name}</span>
+                      <span className="text-xs text-muted-foreground">{formatDateTime(comment.date)}</span>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto text-muted-foreground">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => deleteComment(comment.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Eliminar comentario
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <p className="text-sm">
+                      {comment.text.split(/(@\w+\s\w+)/g).map((part: string, i: number) =>
+                        part.startsWith('@') ? (
+                          <span key={i} className="text-primary font-medium bg-primary/10 px-1 rounded">{part}</span>
+                        ) : (
+                          <span key={i}>{part}</span>
+                        )
+                      )}
+                    </p>
+
+                    {/* Comment Attachments */}
+                    {comment.attachments?.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {comment.attachments.map((file: any) => (
+                          <div key={file.id} className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer">
+                            {file.type === 'image' ? (
+                              <FileImage className="h-4 w-4 text-blue-500" />
+                            ) : (
+                              <FileText className="h-4 w-4 text-orange-500" />
+                            )}
+                            <span className="text-sm font-medium">{file.name}</span>
+                            <span className="text-xs text-muted-foreground">{file.size}</span>
+                            <Download className="h-3 w-3 text-muted-foreground" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Mentions indicator */}
+                    {comment.mentions?.length > 0 && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Bell className="h-3 w-3" />
+                        Notificó a: {comment.mentions.map((m: any) => m.name).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Vista de Historial (cambia de ventana, respeta los dos cuadros de arriba) */}
+      {showHistory && (
+        <Card className="border-b-2 border-b-purple-500 animate-in fade-in duration-200">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Historial de Actividad
+            </CardTitle>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowHistory(false)}>
+              <ArrowLeft className="h-4 w-4" />
+              Volver
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {task.history.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Sin actividad registrada.</p>
+            ) : (
+              <div className="relative">
+                <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
+                <div className="space-y-6">
+                  {[...task.history].reverse().map((event) => (
+                    <div key={event.id} className="relative flex gap-4 pl-10">
+                      <div className="absolute left-2 w-4 h-4 rounded-full bg-background border-2 border-primary" />
+                      <div>
+                        <p className="font-medium">{event.action}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {event.user} - {formatDateTime(event.date)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tabs */}
+      {!showHistory && (
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-3">
-            {/* Main Content */}
-            <div className="md:col-span-2 space-y-6">
-              {/* Description */}
-              <Card>
+          <div className="space-y-6">
+            {/* Detalles + Tiempo y Tareas (2 columnas, arriba de Descripción) */}
+            <div className="grid gap-6 md:grid-cols-2 items-start">
+              {/* Details */}
+              <Card className="border-b-2 border-b-purple-500">
+                <CardHeader>
+                  <CardTitle className="text-lg">Detalles</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3.5 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Tipo</span>
+                    <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
+                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
+                        <SelectValue placeholder="Selecciona tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskTypes.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Formato</span>
+                    <Select value={selectedFormatId} onValueChange={setSelectedFormatId}>
+                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
+                        <SelectValue placeholder="Selecciona formato" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskFormats.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Área</span>
+                    <Select
+                      value={selectedAreaId}
+                      onValueChange={(value) => {
+                        setSelectedAreaId(value)
+                        const name = areas.find(a => a.id === value)?.name
+                        if (name) {
+                          setTask(prev => ({ ...prev, area: name }))
+                          logActivity(`Área cambiada a ${name}`)
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
+                        <SelectValue placeholder={task.area}>
+                          {areas.find(a => a.id === selectedAreaId)?.name ?? task.area}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {areas.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Creada por</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar className="h-5 w-5 shrink-0">
+                        <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
+                      </Avatar>
+                      <span className="truncate">{task.createdBy.name}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Creada</span>
+                    <span className="text-right">{formatDateTime(task.createdAt)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Time & Tasks Summary */}
+              <Card className="border-b-2 border-b-purple-500">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Timer className="h-5 w-5" />
+                    Tiempo y Tareas
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Trabajado</Label>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          value={workedHoursInput}
+                          onChange={(e) => setWorkedHoursInput(Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-20"
+                          aria-label="Horas trabajadas"
+                        />
+                        <span className="text-sm text-muted-foreground">h</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={59}
+                          value={workedMinutesInput}
+                          onChange={(e) => setWorkedMinutesInput(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
+                          className="w-20"
+                          aria-label="Minutos trabajados"
+                        />
+                        <span className="text-sm text-muted-foreground">min</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="proposals-count" className="text-muted-foreground">Propuestas</Label>
+                      <Input
+                        id="proposals-count"
+                        type="number"
+                        min={0}
+                        value={proposalsCount}
+                        onChange={(e) => setProposalsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="adjustments-count" className="text-muted-foreground">Ajustes</Label>
+                      <Input
+                        id="adjustments-count"
+                        type="number"
+                        min={0}
+                        value={adjustmentsCount}
+                        onChange={(e) => setAdjustmentsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="deliverables-count" className="text-muted-foreground">Entregables</Label>
+                      <Input
+                        id="deliverables-count"
+                        type="number"
+                        min={0}
+                        value={deliverablesCount}
+                        onChange={(e) => setDeliverablesCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Description */}
+              <Card className="border-b-2 border-b-purple-500">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-lg">Descripción</CardTitle>
                   {!isEditingDescription && (
@@ -808,7 +1484,11 @@ export function TaskDetailView({
                     </Button>
                   )}
                 </CardHeader>
-                <CardContent>
+                <CardContent
+                  onDragOver={(e) => { e.preventDefault(); setIsDescDragOver(true) }}
+                  onDragLeave={() => setIsDescDragOver(false)}
+                  onDrop={handleDescriptionDrop}
+                >
                   {isEditingDescription ? (
                     <div className="space-y-3">
                       <Textarea
@@ -838,21 +1518,153 @@ export function TaskDetailView({
                       )}
                     </>
                   )}
-                  
-                  {/* Tags */}
-                  <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
-                    {task.tags.map(tag => (
-                      <Badge key={tag} variant="secondary" className="text-xs">
-                        <Tag className="h-3 w-3 mr-1" />
-                        {tag}
-                      </Badge>
-                    ))}
+
+                  {/* Imágenes embebidas (arrastra imágenes aquí) */}
+                  {descriptionImages.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+                      {descriptionImages.map((img) => (
+                        <div key={img.id} className="group relative overflow-hidden rounded-lg border">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={img.url || "/placeholder.svg"} alt={img.name} className="h-32 w-full object-cover" />
+                          <button
+                            onClick={() => setDescriptionImages(prev => prev.filter(i => i.id !== img.id))}
+                            className="absolute top-1.5 right-1.5 rounded-full bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                            aria-label={`Quitar ${img.name}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Enlaces de Google Drive de la descripción */}
+                  {descriptionDriveLinks.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      {descriptionDriveLinks.map((link) => (
+                        <a
+                          key={link.id}
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg text-sm hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
+                            <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+                            <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+                            <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+                            <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+                            <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+                            <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+                          </svg>
+                          <span className="max-w-[150px] truncate text-blue-700 dark:text-blue-400">{link.name}</span>
+                          <ExternalLink className="h-3 w-3 text-blue-500" />
+                          <button
+                            onClick={(e) => { e.preventDefault(); setDescriptionDriveLinks(prev => prev.filter(l => l.id !== link.id)) }}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label={`Quitar ${link.name}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Formulario para enlace de Drive */}
+                  {showAddDescDriveLink && (
+                    <div className="p-3 border rounded-lg bg-blue-50/50 dark:bg-blue-950/20 space-y-3 mt-4">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          placeholder="Nombre del archivo"
+                          value={newDescDriveLinkName}
+                          onChange={(e) => setNewDescDriveLinkName(e.target.value)}
+                        />
+                        <Input
+                          placeholder="https://drive.google.com/..."
+                          value={newDescDriveLinkUrl}
+                          onChange={(e) => setNewDescDriveLinkUrl(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => { setShowAddDescDriveLink(false); setNewDescDriveLinkName(""); setNewDescDriveLinkUrl("") }}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={!newDescDriveLinkName.trim() || !newDescDriveLinkUrl.trim()}
+                          onClick={() => {
+                            setDescriptionDriveLinks(prev => [...prev, { id: `ddl-${Date.now()}`, name: newDescDriveLinkName, url: newDescDriveLinkUrl }])
+                            setNewDescDriveLinkName("")
+                            setNewDescDriveLinkUrl("")
+                            setShowAddDescDriveLink(false)
+                          }}
+                        >
+                          Agregar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Barra de acciones + zona de arrastre */}
+                  <div className={`flex flex-wrap items-center gap-1 mt-4 pt-4 border-t ${isDescDragOver ? "rounded-lg ring-2 ring-primary ring-offset-2" : ""}`}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2"
+                      onClick={() => {
+                        const input = document.createElement("input")
+                        input.type = "file"
+                        input.accept = "image/*"
+                        input.multiple = true
+                        input.onchange = async (e) => {
+                          const files = (e.target as HTMLInputElement).files
+                          if (files) {
+                            const images = await readImageFiles(files)
+                            if (images.length) {
+                              setDescriptionImages(prev => [...prev, ...images])
+                              logActivity(`Imagen agregada a la descripción (${images.length})`)
+                            }
+                          }
+                        }
+                        input.click()
+                      }}
+                    >
+                      <FileImage className="h-4 w-4 mr-1" />
+                      Imagen
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setShowAddDescDriveLink(true)}>
+                      <svg className="h-4 w-4 mr-1" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
+                        <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+                        <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+                        <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+                        <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+                        <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+                        <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+                      </svg>
+                      Drive
+                    </Button>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {isDescDragOver ? "Suelta la imagen aquí" : "Arrastra una imagen para insertarla"}
+                    </span>
                   </div>
+
+                  {/* Tags */}
+                  {task.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
+                      {task.tags.map(tag => (
+                        <Badge key={tag} variant="secondary" className="text-xs">
+                          <Tag className="h-3 w-3 mr-1" />
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
               {/* Notes */}
-              <Card>
+              <Card className="border-b-2 border-b-purple-500">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <StickyNote className="h-5 w-5" />
@@ -862,9 +1674,14 @@ export function TaskDetailView({
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Add Note */}
-                  <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                  <div
+                    className={`space-y-3 p-4 border rounded-lg bg-muted/30 transition-colors ${isNoteDragOver ? "ring-2 ring-primary ring-offset-2 bg-primary/5" : ""}`}
+                    onDragOver={(e) => { e.preventDefault(); setIsNoteDragOver(true) }}
+                    onDragLeave={() => setIsNoteDragOver(false)}
+                    onDrop={handleNoteDrop}
+                  >
                     <Textarea 
-                      placeholder="Escribe una nota..." 
+                      placeholder="Escribe una nota o arrastra una imagen aquí..." 
                       value={newNote}
                       onChange={(e) => setNewNote(e.target.value)}
                       className="min-h-[80px]"
@@ -874,16 +1691,30 @@ export function TaskDetailView({
                     {(noteAttachments.length > 0 || noteDriveLinks.length > 0) && (
                       <div className="flex flex-wrap gap-2">
                         {noteAttachments.map((file) => (
-                          <div key={file.id} className="flex items-center gap-2 px-3 py-1.5 bg-background border rounded-full text-sm">
-                            <Paperclip className="h-3 w-3 text-muted-foreground" />
-                            <span className="max-w-[150px] truncate">{file.name}</span>
-                            <button 
-                              onClick={() => setNoteAttachments(prev => prev.filter(f => f.id !== file.id))}
-                              className="text-muted-foreground hover:text-destructive"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </div>
+                          file.type === "image" && file.url ? (
+                            <div key={file.id} className="group relative h-16 w-16 overflow-hidden rounded-lg border">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={file.url || "/placeholder.svg"} alt={file.name} className="h-full w-full object-cover" />
+                              <button
+                                onClick={() => setNoteAttachments(prev => prev.filter(f => f.id !== file.id))}
+                                className="absolute top-0.5 right-0.5 rounded-full bg-background/80 p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                                aria-label={`Quitar ${file.name}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div key={file.id} className="flex items-center gap-2 px-3 py-1.5 bg-background border rounded-full text-sm">
+                              <Paperclip className="h-3 w-3 text-muted-foreground" />
+                              <span className="max-w-[150px] truncate">{file.name}</span>
+                              <button 
+                                onClick={() => setNoteAttachments(prev => prev.filter(f => f.id !== file.id))}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          )
                         ))}
                         {noteDriveLinks.map((link) => (
                           <div key={link.id} className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-full text-sm">
@@ -965,8 +1796,8 @@ export function TaskDetailView({
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
                         <label className="flex items-center gap-2 text-sm">
                           <Checkbox 
                             checked={noteIsPrivate}
@@ -1074,22 +1905,35 @@ export function TaskDetailView({
                         {((note.attachments && note.attachments.length > 0) || (note.driveLinks && note.driveLinks.length > 0)) && (
                           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t">
                             {note.attachments?.map((file: any) => (
-                              <a 
-                                key={file.id}
-                                href="#"
-                                className="flex items-center gap-2 px-3 py-1.5 bg-background border rounded-lg text-sm hover:bg-muted/50 transition-colors"
-                              >
-                                {file.type === 'image' ? (
-                                  <FileImage className="h-4 w-4 text-blue-500" />
-                                ) : file.type === 'pdf' ? (
-                                  <FileText className="h-4 w-4 text-red-500" />
-                                ) : (
-                                  <File className="h-4 w-4 text-muted-foreground" />
-                                )}
-                                <span className="max-w-[150px] truncate">{file.name}</span>
-                                <span className="text-xs text-muted-foreground">{file.size}</span>
-                                <Download className="h-3 w-3 text-muted-foreground" />
-                              </a>
+                              file.type === 'image' && file.url ? (
+                                <a
+                                  key={file.id}
+                                  href={file.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block overflow-hidden rounded-lg border hover:opacity-90 transition-opacity"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={file.url || "/placeholder.svg"} alt={file.name} className="h-28 w-40 object-cover" />
+                                </a>
+                              ) : (
+                                <a 
+                                  key={file.id}
+                                  href="#"
+                                  className="flex items-center gap-2 px-3 py-1.5 bg-background border rounded-lg text-sm hover:bg-muted/50 transition-colors"
+                                >
+                                  {file.type === 'image' ? (
+                                    <FileImage className="h-4 w-4 text-blue-500" />
+                                  ) : file.type === 'pdf' ? (
+                                    <FileText className="h-4 w-4 text-red-500" />
+                                  ) : (
+                                    <File className="h-4 w-4 text-muted-foreground" />
+                                  )}
+                                  <span className="max-w-[150px] truncate">{file.name}</span>
+                                  <span className="text-xs text-muted-foreground">{file.size}</span>
+                                  <Download className="h-3 w-3 text-muted-foreground" />
+                                </a>
+                              )
                             ))}
                             {note.driveLinks?.map((link: any) => (
                               <a 
@@ -1119,8 +1963,90 @@ export function TaskDetailView({
                 </CardContent>
               </Card>
 
+              {/* Subtareas */}
+              <Card className="border-b-2 border-b-purple-500">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <ListChecks className="h-5 w-5" />
+                      Subtareas
+                    </CardTitle>
+                    <CardDescription>
+                      {task.subtasks.filter(s => s.completed).length} de {task.subtasks.length} completadas
+                    </CardDescription>
+                  </div>
+                  <Button size="sm" onClick={() => setShowAddSubtask(prev => !prev)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nueva Subtarea
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {showAddSubtask && (
+                    <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30">
+                      <Input
+                        autoFocus
+                        placeholder="Nombre de la subtarea..."
+                        value={newSubtaskName}
+                        onChange={(e) => setNewSubtaskName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                            e.preventDefault()
+                            addSubtask()
+                          } else if (e.key === "Escape") {
+                            setShowAddSubtask(false)
+                            setNewSubtaskName("")
+                          }
+                        }}
+                      />
+                      <Button size="sm" onClick={addSubtask} disabled={!newSubtaskName.trim()}>
+                        Agregar
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setShowAddSubtask(false); setNewSubtaskName("") }}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  )}
+
+                  {task.subtasks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No hay subtareas todavía. Agrega la primera.
+                    </p>
+                  ) : (
+                    <ol className="space-y-2">
+                      {task.subtasks.map((subtask, index) => (
+                        <li
+                          key={subtask.id}
+                          className={`group flex items-center gap-3 p-3 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
+                        >
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          <Checkbox
+                            checked={subtask.completed}
+                            onCheckedChange={() => toggleSubtask(subtask.id)}
+                            aria-label={`Marcar "${subtask.name}" como ${subtask.completed ? 'pendiente' : 'completada'}`}
+                          />
+                          <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
+                            {subtask.name}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                            onClick={() => deleteSubtask(subtask.id)}
+                            aria-label={`Eliminar ${subtask.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Related Tasks */}
-              <Card>
+              <Card className="border-b-2 border-b-purple-500">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Link2 className="h-5 w-5" />
@@ -1218,341 +2144,8 @@ export function TaskDetailView({
               </Dialog>
             </div>
 
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Time & Tasks Summary */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Timer className="h-5 w-5" />
-                    Tiempo y Tareas
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground">Trabajado</Label>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          type="number"
-                          min={0}
-                          value={workedHoursInput}
-                          onChange={(e) => setWorkedHoursInput(Math.max(0, parseInt(e.target.value) || 0))}
-                          className="w-20"
-                          aria-label="Horas trabajadas"
-                        />
-                        <span className="text-sm text-muted-foreground">h</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          type="number"
-                          min={0}
-                          max={59}
-                          value={workedMinutesInput}
-                          onChange={(e) => setWorkedMinutesInput(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
-                          className="w-20"
-                          aria-label="Minutos trabajados"
-                        />
-                        <span className="text-sm text-muted-foreground">min</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="border-t pt-4 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="proposals-count" className="text-muted-foreground">Propuestas</Label>
-                      <Input
-                        id="proposals-count"
-                        type="number"
-                        min={0}
-                        value={proposalsCount}
-                        onChange={(e) => setProposalsCount(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-24"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="adjustments-count" className="text-muted-foreground">Ajustes</Label>
-                      <Input
-                        id="adjustments-count"
-                        type="number"
-                        min={0}
-                        value={adjustmentsCount}
-                        onChange={(e) => setAdjustmentsCount(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-24"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="deliverables-count" className="text-muted-foreground">Entregables</Label>
-                      <Input
-                        id="deliverables-count"
-                        type="number"
-                        min={0}
-                        value={deliverablesCount}
-                        onChange={(e) => setDeliverablesCount(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-24"
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Detalles</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Tipo</span>
-                    <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
-                      <SelectTrigger className="h-8 w-[180px]">
-                        <SelectValue placeholder="Selecciona tipo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {taskTypes.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Formato</span>
-                    <Select value={selectedFormatId} onValueChange={setSelectedFormatId}>
-                      <SelectTrigger className="h-8 w-[180px]">
-                        <SelectValue placeholder="Selecciona formato" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {taskFormats.map((f) => (
-                          <SelectItem key={f.id} value={f.id}>
-                            {f.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Área</span>
-                    <Badge variant="outline">{task.area}</Badge>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Fecha inicio</span>
-                    <span className="font-medium">{formatDate(task.startDate)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Fecha límite</span>
-                    <span className="font-medium">{formatDate(task.dueDate)}</span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Creada por</span>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-5 w-5">
-                        <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm">{task.createdBy.name}</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Creada</span>
-                    <span className="text-sm">{formatDateTime(task.createdAt)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Actualizada</span>
-                    <span className="text-sm">{formatDateTime(task.updatedAt)}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-          {/* Comments Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <MessageCircle className="h-5 w-5" />
-                Comentarios ({task.comments?.length || 0})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Comment Input */}
-              <div className="flex gap-3">
-                <Avatar className="h-10 w-10 shrink-0">
-                  <AvatarFallback>DG</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 space-y-3">
-                  <div className="relative">
-                    <Textarea 
-                      placeholder="Escribe un comentario... Usa @ para mencionar a alguien" 
-                      value={newComment}
-                      onChange={(e) => {
-                        setNewComment(e.target.value)
-                        const lastChar = e.target.value.slice(-1)
-                        if (lastChar === '@') {
-                          setShowMentions(true)
-                        }
-                      }}
-                      className="min-h-[100px]"
-                    />
-                    {showMentions && (
-                      <Card className="absolute bottom-full left-0 mb-2 w-64 z-10 shadow-lg">
-                        <CardContent className="p-2">
-                          <p className="text-xs font-medium text-muted-foreground px-2 py-1 mb-1">Mencionar a:</p>
-                          {task.projectTeam?.map((member: any) => (
-                            <button
-                              key={member.id}
-                              onClick={() => {
-                                setNewComment(prev => prev + member.name + ' ')
-                                setShowMentions(false)
-                              }}
-                              className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
-                            >
-                              <Avatar className="h-6 w-6">
-                                <AvatarFallback className="text-[10px]">{member.initials}</AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="text-sm font-medium">{member.name}</p>
-                                <p className="text-xs text-muted-foreground">{member.role}</p>
-                              </div>
-                            </button>
-                          ))}
-                          <button 
-                            onClick={() => setShowMentions(false)}
-                            className="w-full text-xs text-muted-foreground mt-2 hover:text-foreground"
-                          >
-                            Cerrar
-                          </button>
-                        </CardContent>
-                      </Card>
-                    )}
-                  </div>
-                  
-                  {/* Attachments Preview */}
-                  {commentAttachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
-                      {commentAttachments.map((file) => (
-                        <Badge key={file.id} variant="secondary" className="flex items-center gap-2 px-3 py-1.5">
-                          {file.type === 'image' ? <FileImage className="h-4 w-4" /> : <File className="h-4 w-4" />}
-                          <span className="max-w-32 truncate">{file.name}</span>
-                          <span className="text-xs text-muted-foreground">{file.size}</span>
-                          <button 
-                            onClick={() => setCommentAttachments(prev => prev.filter(f => f.id !== file.id))}
-                            className="ml-1 hover:text-destructive"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => setShowMentions(!showMentions)}
-                        className="gap-2"
-                      >
-                        <AtSign className="h-4 w-4" />
-                        Mencionar
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => {
-                          const newFile = { id: `temp-${Date.now()}`, name: 'Archivo_ejemplo.pdf', type: 'pdf', size: '1.2 MB' }
-                          setCommentAttachments(prev => [...prev, newFile])
-                        }}
-                        className="gap-2"
-                      >
-                        <Paperclip className="h-4 w-4" />
-                        Adjuntar
-                      </Button>
-                    </div>
-                    <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
-                      <Send className="h-4 w-4 mr-2" />
-                      Enviar
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              {/* Comments List */}
-              <div className="space-y-6">
-                {task.comments?.map((comment: any) => (
-                  <div key={comment.id} className="flex gap-3">
-                    <Avatar className="h-10 w-10 shrink-0">
-                      <AvatarFallback>{comment.author.initials}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{comment.author.name}</span>
-                        <span className="text-xs text-muted-foreground">{formatDateTime(comment.date)}</span>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto text-muted-foreground">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onSelect={() => deleteComment(comment.id)}
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Eliminar comentario
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                      <p className="text-sm">
-                        {comment.text.split(/(@\w+\s\w+)/g).map((part: string, i: number) => 
-                          part.startsWith('@') ? (
-                            <span key={i} className="text-primary font-medium bg-primary/10 px-1 rounded">{part}</span>
-                          ) : (
-                            <span key={i}>{part}</span>
-                          )
-                        )}
-                      </p>
-                      
-                      {/* Comment Attachments */}
-                      {comment.attachments?.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {comment.attachments.map((file: any) => (
-                            <div key={file.id} className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer">
-                              {file.type === 'image' ? (
-                                <FileImage className="h-4 w-4 text-blue-500" />
-                              ) : (
-                                <FileText className="h-4 w-4 text-orange-500" />
-                              )}
-                              <span className="text-sm font-medium">{file.name}</span>
-                              <span className="text-xs text-muted-foreground">{file.size}</span>
-                              <Download className="h-3 w-3 text-muted-foreground" />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {/* Mentions indicator */}
-                      {comment.mentions?.length > 0 && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Bell className="h-3 w-3" />
-                          Notificó a: {comment.mentions.map((m: any) => m.name).join(', ')}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Entregables (links a Google Drive) */}
-          <Card>
+          <Card className="border-b-2 border-b-purple-500">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-lg">Editables</CardTitle>
@@ -1646,61 +2239,9 @@ export function TaskDetailView({
             </CardContent>
           </Card>
 
-          {/* Subtareas (integrado en Tareas) */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Subtareas</CardTitle>
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Nueva Subtarea
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {task.subtasks.map(subtask => (
-                  <div 
-                    key={subtask.id} 
-                    className={`flex items-center gap-3 p-4 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
-                  >
-                    <Checkbox 
-                      checked={subtask.completed} 
-                      onCheckedChange={() => toggleSubtask(subtask.id)}
-                    />
-                    <span className={subtask.completed ? 'line-through text-muted-foreground' : ''}>
-                      {subtask.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Historial (integrado en Tareas) */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Historial de Actividad</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="relative">
-                <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
-                <div className="space-y-6">
-                  {task.history.map((event, index) => (
-                    <div key={event.id} className="relative flex gap-4 pl-10">
-                      <div className="absolute left-2 w-4 h-4 rounded-full bg-background border-2 border-primary" />
-                      <div>
-                        <p className="font-medium">{event.action}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {event.user} - {formatDateTime(event.date)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
+      )}
 
       {/* Edit Task Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>

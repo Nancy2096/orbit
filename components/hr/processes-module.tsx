@@ -116,7 +116,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 const NONE = "none"
 
-type DurationUnit = "horas" | "días" | "semanas"
+type DurationUnit = "minutos" | "horas" | "días" | "semanas"
 
 // La duración se guarda como texto (ej. "2 días"). Estos helpers separan y
 // recomponen la cantidad y la unidad para el editor sin cambiar el esquema.
@@ -124,11 +124,13 @@ function parseDuration(value: string | null | undefined): { amount: string; unit
   if (!value) return { amount: "", unit: "días" }
   const match = value.match(/(\d+(?:[.,]\d+)?)/)
   const amount = match ? match[1].replace(",", ".") : ""
-  const unit: DurationUnit = /hora/i.test(value)
-    ? "horas"
-    : /semana/i.test(value)
-      ? "semanas"
-      : "días"
+  const unit: DurationUnit = /minuto/i.test(value)
+    ? "minutos"
+    : /hora/i.test(value)
+      ? "horas"
+      : /semana/i.test(value)
+        ? "semanas"
+        : "días"
   return { amount, unit }
 }
 
@@ -711,7 +713,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
             <Separator />
 
             {/* Pasos del proceso */}
-            <div className="space-y-3">
+            <div className="relative space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="flex items-center gap-2 font-medium">
@@ -722,10 +724,6 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                     Ordena los pasos y asigna el puesto o área responsable de cada uno.
                   </p>
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={addStep}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Agregar paso
-                </Button>
               </div>
 
               {steps.length === 0 ? (
@@ -865,6 +863,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
+                                        <SelectItem value="minutos">Minutos</SelectItem>
                                         <SelectItem value="horas">Horas</SelectItem>
                                         <SelectItem value="días">Días</SelectItem>
                                         <SelectItem value="semanas">Semanas</SelectItem>
@@ -881,6 +880,19 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                   ))}
                 </div>
               )}
+
+              {/* Botón flotante: siempre visible mientras se editan los pasos */}
+              <div className="sticky bottom-3 z-10 flex justify-end pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={addStep}
+                  className="rounded-full bg-green-500 text-white shadow-lg shadow-green-500/30 hover:bg-green-600"
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Agregar paso
+                </Button>
+              </div>
             </div>
 
             <Separator />
