@@ -587,6 +587,10 @@ export default function ProjectDetailPage() {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
   }
 
+  // Panel lateral de vista rápida de tarea (se desliza a la derecha, sin cambiar de página).
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const selectedTask = tasks.find((t: any) => t.id === selectedTaskId) || null
+
   // Renderiza una fila de tarea (reutilizada en la tabla de activas y completadas).
   const renderTaskRow = (task: any) => {
     const status = statusConfig[task.status as keyof typeof statusConfig]
@@ -595,7 +599,8 @@ export default function ProjectDetailPage() {
     return (
       <TableRow
         key={task.id}
-        className={`hover:bg-muted/50 transition-colors ${task.status === "vencido" ? "bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50" : ""}`}
+        onClick={() => setSelectedTaskId(task.id)}
+        className={`cursor-pointer hover:bg-muted/50 transition-colors ${selectedTaskId === task.id ? "bg-primary/5 ring-1 ring-inset ring-primary/30" : ""} ${task.status === "vencido" ? "bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50" : ""}`}
       >
         <TableCell onClick={(e) => e.stopPropagation()}>
           <Checkbox
@@ -605,12 +610,11 @@ export default function ProjectDetailPage() {
         </TableCell>
         <TableCell>
           <div className="flex items-center gap-2">
-            <Link
-              href={`/orbit-tasksflow/tasks/${task.id}`}
-              className={`font-medium text-primary hover:underline ${isCompleted ? "line-through text-muted-foreground" : ""}`}
+            <span
+              className={`font-medium text-primary ${isCompleted ? "line-through text-muted-foreground" : ""}`}
             >
               {task.title}
-            </Link>
+            </span>
             {task.linkedRequestId && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">
                 Solicitud
@@ -1221,7 +1225,7 @@ const toggleTaskComplete = (taskId: string) => {
         </TabsContent>
 
         {/* Tasks Tab */}
-        <TabsContent value="tasks" className="space-y-4">
+        <TabsContent value="tasks" className="space-y-4 relative">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
@@ -1308,6 +1312,116 @@ const toggleTaskComplete = (taskId: string) => {
                 </CardContent>
               )}
             </Card>
+          )}
+
+          {/* Panel lateral de vista rápida (se desliza sobre las columnas) */}
+          {selectedTask && (
+            <div
+              key={selectedTask.id}
+              className="absolute top-0 right-0 z-30 h-full w-full max-w-md animate-in slide-in-from-right-6 fade-in duration-200"
+            >
+              <Card className="flex h-full flex-col overflow-hidden rounded-l-xl rounded-r-none border-l shadow-2xl">
+                <CardHeader className="flex flex-row items-start justify-between gap-2 border-b bg-muted/30 space-y-0">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-base text-pretty">{selectedTask.title}</CardTitle>
+                      {selectedTask.linkedRequestId && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200 shrink-0">
+                          Solicitud
+                        </Badge>
+                      )}
+                    </div>
+                    <CardDescription className="text-xs mt-1">Vista rápida de la tarea</CardDescription>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => setSelectedTaskId(null)}
+                    aria-label="Cerrar panel"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </CardHeader>
+
+                <CardContent className="flex-1 overflow-y-auto p-4 space-y-5">
+                  {selectedTask.description && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Descripción</p>
+                      <p className="text-sm text-pretty">{selectedTask.description}</p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1.5">Estado</p>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${statusConfig[selectedTask.status as keyof typeof statusConfig].color}`} />
+                        <span className={`text-sm ${statusConfig[selectedTask.status as keyof typeof statusConfig].textColor}`}>
+                          {statusConfig[selectedTask.status as keyof typeof statusConfig].label}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1.5">Prioridad</p>
+                      <Badge variant="outline" className={priorityConfig[selectedTask.priority as keyof typeof priorityConfig].color}>
+                        {priorityConfig[selectedTask.priority as keyof typeof priorityConfig].label}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1.5">Asignado</p>
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                            {selectedTask.assignee}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm">{selectedTask.assigneeName}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1.5">Horas</p>
+                      <span className="text-sm">{selectedTask.hours}h</span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1.5">Vencimiento</p>
+                      <span className={`text-sm ${selectedTask.status === "vencido" ? "text-red-600 font-medium" : ""}`}>
+                        {selectedTask.dueDate}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1.5">Creada</p>
+                      <span className="text-sm">{selectedTask.createdAt}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Cambiar estado</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(statusConfig).map(([key, cfg]) => (
+                        <button
+                          key={key}
+                          onClick={() => changeTaskStatus(selectedTask.id, key)}
+                          className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-muted ${selectedTask.status === key ? "border-primary bg-primary/10 font-medium" : "border-border"}`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${cfg.color}`} />
+                          {cfg.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </CardContent>
+
+                <div className="border-t p-3">
+                  <Button asChild className="w-full">
+                    <Link href={`/orbit-tasksflow/tasks/${selectedTask.id}`}>
+                      <Eye className="h-4 w-4 mr-2" />
+                      Ver detalle completo
+                    </Link>
+                  </Button>
+                </div>
+              </Card>
+            </div>
           )}
         </TabsContent>
 
