@@ -44,7 +44,7 @@ function formatShort(d: Date) {
   return d.toLocaleDateString("es-MX", { day: "numeric", month: "short" })
 }
 
-export function GanttChart({ tasks, title = "Diagrama de Gantt", description }: GanttChartProps) {
+export function GanttChart({ tasks, title = "Cronograma", description }: GanttChartProps) {
   const model = useMemo(() => {
     const valid = tasks.filter((t) => t.createdAt && t.dueDate)
     if (valid.length === 0) return null

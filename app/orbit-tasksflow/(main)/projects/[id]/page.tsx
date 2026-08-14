@@ -103,7 +103,8 @@ import {
   Upload,
   FileImage,
   Download,
-  Trash
+  Trash,
+  X
 } from "lucide-react"
 
 // Mock data - In production this would come from the database
@@ -531,10 +532,14 @@ export default function ProjectDetailPage() {
   const [showEditTaskDialog, setShowEditTaskDialog] = useState(false)
   const [editingTask, setEditingTask] = useState<any>(null)
   const [tasks, setTasks] = useState(() => getProjectSummary(projectId)?.tasks ?? mockTasks)
+  // Los avisos vuelven a mostrarse cada vez que se entra a la cuenta.
+  const [alertDismissed, setAlertDismissed] = useState(false)
 
-  // Al cambiar de cuenta en el menú, recarga las tareas de esa cuenta.
+  // Al cambiar de cuenta en el menú, recarga las tareas de esa cuenta
+  // y restaura los avisos para que aparezcan de nuevo.
   useEffect(() => {
     setTasks(getProjectSummary(projectId)?.tasks ?? mockTasks)
+    setAlertDismissed(false)
   }, [projectId])
   const [showGoogleCalendarDialog, setShowGoogleCalendarDialog] = useState(false)
   const [calendarConnected, setCalendarConnected] = useState(mockProject.calendarConnected)
@@ -780,7 +785,7 @@ const toggleTaskComplete = (taskId: string) => {
       </div>
 
       {/* Overdue Alert */}
-      {project.tasks.overdue > 0 && (
+      {project.tasks.overdue > 0 && !alertDismissed && (
         <Card className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -793,9 +798,20 @@ const toggleTaskComplete = (taskId: string) => {
                   Hay tareas que requieren atención inmediata
                 </p>
               </div>
-              <Button variant="destructive" size="sm" className="ml-auto">
-                Ver Tareas Vencidas
-              </Button>
+              <div className="ml-auto flex items-center gap-2">
+                <Button variant="destructive" size="sm">
+                  Ver Tareas Vencidas
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-red-600 hover:bg-red-100 dark:hover:bg-red-900"
+                  onClick={() => setAlertDismissed(true)}
+                  aria-label="Cerrar aviso"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -803,71 +819,71 @@ const toggleTaskComplete = (taskId: string) => {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex flex-wrap h-auto gap-2 p-2 bg-muted/50 rounded-xl">
+        <TabsList className="flex h-auto w-full flex-nowrap gap-1 overflow-x-auto p-2 bg-muted/50 rounded-xl justify-start">
           <TabsTrigger 
             value="panel" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-violet-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-violet-50 dark:hover:bg-violet-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-violet-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-violet-50 dark:hover:bg-violet-950 transition-all"
           >
-            <LayoutDashboard className="h-5 w-5" />
+            <LayoutDashboard className="h-4 w-4 shrink-0" />
             <span>Panel</span>
           </TabsTrigger>
           <TabsTrigger 
             value="overview" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-muted transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-muted transition-all"
           >
-            <BarChart3 className="h-5 w-5" />
+            <BarChart3 className="h-4 w-4 shrink-0" />
             <span>Resumen</span>
           </TabsTrigger>
           <TabsTrigger 
             value="tasks" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-blue-50 dark:hover:bg-blue-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-blue-50 dark:hover:bg-blue-950 transition-all"
           >
-            <ListTodo className="h-5 w-5" />
+            <ListTodo className="h-4 w-4 shrink-0" />
             <span>Tareas</span>
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs data-[state=active]:bg-blue-400/30 data-[state=active]:text-white">{project.tasks.total}</Badge>
           </TabsTrigger>
           <TabsTrigger 
             value="gantt" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all"
           >
-            <GanttChartSquare className="h-5 w-5" />
+            <GanttChartSquare className="h-4 w-4 shrink-0" />
             <span>Gantt</span>
           </TabsTrigger>
           <TabsTrigger 
             value="deliverables" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-all"
           >
-            <Package className="h-5 w-5" />
+            <Package className="h-4 w-4 shrink-0" />
             <span>Reportes</span>
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{reports.length}</Badge>
           </TabsTrigger>
           <TabsTrigger 
             value="documents" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
           >
-            <FolderOpen className="h-5 w-5" />
+            <FolderOpen className="h-4 w-4 shrink-0" />
             <span>Documentos</span>
           </TabsTrigger>
           <TabsTrigger 
             value="calendar" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-rose-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-rose-50 dark:hover:bg-rose-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-rose-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-rose-50 dark:hover:bg-rose-950 transition-all"
           >
-            <Calendar className="h-5 w-5" />
+            <Calendar className="h-4 w-4 shrink-0" />
             <span>Calendario</span>
           </TabsTrigger>
           <TabsTrigger 
             value="requests" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-cyan-50 dark:hover:bg-cyan-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-cyan-50 dark:hover:bg-cyan-950 transition-all"
           >
-            <MessageSquarePlus className="h-5 w-5" />
+            <MessageSquarePlus className="h-4 w-4 shrink-0" />
             <span>Solicitudes</span>
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{project.clientRequests.length}</Badge>
           </TabsTrigger>
           <TabsTrigger 
             value="rss" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-orange-50 dark:hover:bg-orange-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-orange-50 dark:hover:bg-orange-950 transition-all"
           >
-            <Rss className="h-5 w-5" />
+            <Rss className="h-4 w-4 shrink-0" />
             <span>Parrilla RSS</span>
           </TabsTrigger>
         </TabsList>
