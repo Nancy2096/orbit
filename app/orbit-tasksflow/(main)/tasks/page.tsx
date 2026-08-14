@@ -2,53 +2,22 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  LayoutDashboard,
-  FolderKanban,
   ListTodo,
-  Kanban,
-  Calendar,
-  GanttChart,
-  FileCheck,
-  Activity,
-  FileText,
-  Plus,
-  Filter,
   Search,
-  MoreHorizontal,
   Clock,
   AlertTriangle,
-  Building2,
-  Briefcase,
+  CheckCircle2,
   Eye,
   EyeOff,
-  Edit,
-  Trash2,
-  Copy,
-  ChevronDown,
-  ArrowUpDown,
-  Timer,
-  CheckCircle2,
-  XCircle,
-  PauseCircle,
-  User,
-  Users,
+  ChevronRight,
+  CalendarDays,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -80,20 +49,8 @@ const currentUser = {
   name: "Diana García",
   initials: "DG",
   email: "diana@agencia.com",
-  role: "Diseñador Senior"
+  role: "Diseñador Senior",
 }
-
-// Team members for filter
-const teamMembers = [
-  { id: "user-1", name: "Diana García", initials: "DG" },
-  { id: "user-2", name: "Eduardo Méndez", initials: "EM" },
-  { id: "user-3", name: "María López", initials: "ML" },
-  { id: "user-4", name: "Carlos Ruiz", initials: "CR" },
-  { id: "user-5", name: "Roberto Sánchez", initials: "RS" },
-  { id: "user-6", name: "Ana Torres", initials: "AT" },
-  { id: "user-7", name: "Laura Vega", initials: "LV" },
-  { id: "user-8", name: "Pedro Martínez", initials: "PM" },
-]
 
 const dummyTasks = [
   { id: "1", name: "Diseñar artes campaña leads", project: "Campaña Leads Q2", client: "Desarrolladora Horizonte", assignee: "Diana García", status: "en_proceso", priority: "alta", dueDate: "2026-05-12", hours: 4.5, area: "Diseño", isClientVisible: true, isOverdue: false },
@@ -106,62 +63,51 @@ const dummyTasks = [
   { id: "8", name: "Video promocional", project: "Branding Residencial", client: "Residencial Bosques", assignee: "Pedro Martínez", status: "en_proceso", priority: "urgente", dueDate: "2026-05-16", hours: 8, area: "Producción", isClientVisible: false, isOverdue: false },
   { id: "9", name: "Diseño logo nuevo", project: "Branding Residencial", client: "Residencial Bosques", assignee: "Diana García", status: "nueva", priority: "alta", dueDate: "2026-05-20", hours: 0, area: "Diseño", isClientVisible: false, isOverdue: false },
   { id: "10", name: "Configurar Google Ads", project: "Campaña Leads Q2", client: "Desarrolladora Horizonte", assignee: "Eduardo Méndez", status: "nueva", priority: "media", dueDate: "2026-05-18", hours: 0, area: "Estrategia", isClientVisible: false, isOverdue: false },
+  { id: "11", name: "Nuevos creativos Meta Ads", project: "Campaña Meta Ads Abril", client: "Desarrolladora Horizonte", assignee: "Diana García", status: "en_proceso", priority: "media", dueDate: "2026-05-21", hours: 2.5, area: "Diseño", isClientVisible: false, isOverdue: false },
+  { id: "12", name: "Rediseño banner home", project: "Landing Torre Central", client: "Torre Central Living", assignee: "Diana García", status: "cambios_solicitados", priority: "alta", dueDate: "2026-05-09", hours: 1.5, area: "Diseño", isClientVisible: true, isOverdue: true },
+  { id: "13", name: "Sistema de iconos marca", project: "Branding Residencial", client: "Residencial Bosques", assignee: "Diana García", status: "revision_interna", priority: "media", dueDate: "2026-05-19", hours: 3, area: "Diseño", isClientVisible: false, isOverdue: false },
+  { id: "14", name: "Kit de plantillas redes", project: "SEO Mensual Mayo", client: "Grupo Inmobiliario Altiva", assignee: "Diana García", status: "entregada", priority: "baja", dueDate: "2026-05-06", hours: 6, area: "Diseño", isClientVisible: true, isOverdue: false },
 ]
 
-export default function TasksPage() {
+function formatDueDate(date: string) {
+  const d = new Date(date + "T00:00:00")
+  return d.toLocaleDateString("es-MX", { day: "2-digit", month: "short" })
+}
+
+export default function MyTasksPage() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
   const [filterPriority, setFilterPriority] = useState("all")
   const [filterArea, setFilterArea] = useState("all")
-  const [filterPerson, setFilterPerson] = useState(currentUser.name) // Default to current user
-  const [showMyTasksOnly, setShowMyTasksOnly] = useState(true) // Start with "My Tasks" selected
-  const [selectedTasks, setSelectedTasks] = useState<string[]>([])
-  const [agencies, setAgencies] = useState<any[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
       const supabase = createClient()
-      const { data } = await supabase.from("agencies").select("id, name").eq("is_active", true)
-      if (data) setAgencies(data)
+      await supabase.from("agencies").select("id").eq("is_active", true)
       setLoading(false)
     }
     fetchData()
   }, [])
 
-  const filteredTasks = dummyTasks.filter(task => {
-    if (searchQuery && !task.name.toLowerCase().includes(searchQuery.toLowerCase()) && !task.assignee.toLowerCase().includes(searchQuery.toLowerCase())) return false
+  // Solo las tareas asignadas al usuario actual
+  const myTasks = dummyTasks.filter((task) => task.assignee === currentUser.name)
+
+  const filteredTasks = myTasks.filter((task) => {
+    if (searchQuery && !task.name.toLowerCase().includes(searchQuery.toLowerCase()) && !task.project.toLowerCase().includes(searchQuery.toLowerCase())) return false
     if (filterStatus !== "all" && task.status !== filterStatus) return false
     if (filterPriority !== "all" && task.priority !== filterPriority) return false
     if (filterArea !== "all" && task.area !== filterArea) return false
-    if (filterPerson !== "all" && task.assignee !== filterPerson) return false
     return true
   })
 
-  // My tasks (current user's tasks)
-  const myTasks = dummyTasks.filter(task => task.assignee === currentUser.name)
-  const myTasksOverdue = myTasks.filter(t => t.isOverdue).length
-  const myTasksInProgress = myTasks.filter(t => t.status === "en_proceso").length
+  // Stats personales
+  const totalMyTasks = myTasks.length
+  const myInProgress = myTasks.filter((t) => t.status === "en_proceso").length
+  const myOverdue = myTasks.filter((t) => t.isOverdue).length
+  const myCompleted = myTasks.filter((t) => t.status === "aprobada" || t.status === "entregada").length
 
-  const toggleTaskSelection = (taskId: string) => {
-    setSelectedTasks(prev => 
-      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
-    )
-  }
-
-  const toggleAllTasks = () => {
-    if (selectedTasks.length === filteredTasks.length) {
-      setSelectedTasks([])
-    } else {
-      setSelectedTasks(filteredTasks.map(t => t.id))
-    }
-  }
-
-  // Stats
-  const totalTasks = dummyTasks.length
-  const overdueTasks = dummyTasks.filter(t => t.isOverdue).length
-  const inProgressTasks = dummyTasks.filter(t => t.status === "en_proceso").length
-  const completedTasks = dummyTasks.filter(t => t.status === "aprobada" || t.status === "entregada").length
+  const hasFilters = filterStatus !== "all" || filterPriority !== "all" || filterArea !== "all" || searchQuery !== ""
 
   if (loading) {
     return (
@@ -176,30 +122,30 @@ export default function TasksPage() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <ListTodo className="h-7 w-7 text-primary" />
-            Lista de Tareas
-          </h1>
-          <p className="text-muted-foreground">Gestiona y filtra todas las tareas del equipo</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Nueva Tarea
-          </Button>
+        <div className="flex items-center gap-3">
+          <Avatar className="h-11 w-11 border-2 border-primary">
+            <AvatarFallback className="bg-primary text-primary-foreground">{currentUser.initials}</AvatarFallback>
+          </Avatar>
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <ListTodo className="h-6 w-6 text-primary" />
+              Mis Tareas
+            </h1>
+            <p className="text-muted-foreground">
+              {currentUser.name} · {currentUser.role}
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats personales */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950 dark:to-blue-900/50 border-blue-200 dark:border-blue-800">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-blue-600 dark:text-blue-400">Total Tareas</p>
-                <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{totalTasks}</p>
+                <p className="text-sm text-blue-600 dark:text-blue-400">Asignadas</p>
+                <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{totalMyTasks}</p>
               </div>
               <ListTodo className="h-8 w-8 text-blue-500/50" />
             </div>
@@ -210,7 +156,7 @@ export default function TasksPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-amber-600 dark:text-amber-400">En Proceso</p>
-                <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{inProgressTasks}</p>
+                <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{myInProgress}</p>
               </div>
               <Clock className="h-8 w-8 text-amber-500/50" />
             </div>
@@ -221,7 +167,7 @@ export default function TasksPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-red-600 dark:text-red-400">Vencidas</p>
-                <p className="text-2xl font-bold text-red-700 dark:text-red-300">{overdueTasks}</p>
+                <p className="text-2xl font-bold text-red-700 dark:text-red-300">{myOverdue}</p>
               </div>
               <AlertTriangle className="h-8 w-8 text-red-500/50" />
             </div>
@@ -232,7 +178,7 @@ export default function TasksPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-green-600 dark:text-green-400">Completadas</p>
-                <p className="text-2xl font-bold text-green-700 dark:text-green-300">{completedTasks}</p>
+                <p className="text-2xl font-bold text-green-700 dark:text-green-300">{myCompleted}</p>
               </div>
               <CheckCircle2 className="h-8 w-8 text-green-500/50" />
             </div>
@@ -240,117 +186,20 @@ export default function TasksPage() {
         </Card>
       </div>
 
-      {/* My Tasks Toggle Section */}
-      <Card className={showMyTasksOnly ? "border-primary bg-primary/5" : ""}>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-4">
-              <Button
-                variant={showMyTasksOnly ? "default" : "outline"}
-                size="sm"
-                onClick={() => {
-                  setShowMyTasksOnly(true)
-                  setFilterPerson(currentUser.name)
-                }}
-                className="gap-2"
-              >
-                <User className="h-4 w-4" />
-                Mis Tareas
-              </Button>
-              <Button
-                variant={!showMyTasksOnly ? "default" : "outline"}
-                size="sm"
-                onClick={() => {
-                  setShowMyTasksOnly(false)
-                  setFilterPerson("all")
-                }}
-                className="gap-2"
-              >
-                <Users className="h-4 w-4" />
-                Todas las Tareas
-              </Button>
-            </div>
-            
-            {showMyTasksOnly && (
-              <div className="flex items-center gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <Avatar className="h-8 w-8 border-2 border-primary">
-                    <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                      {currentUser.initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-medium">{currentUser.name}</p>
-                    <p className="text-xs text-muted-foreground">{currentUser.role}</p>
-                  </div>
-                </div>
-                <div className="h-8 w-px bg-border" />
-                <div className="flex gap-4">
-                  <div>
-                    <p className="text-lg font-bold text-primary">{myTasks.length}</p>
-                    <p className="text-xs text-muted-foreground">Asignadas</p>
-                  </div>
-                  <div>
-                    <p className="text-lg font-bold text-amber-600">{myTasksInProgress}</p>
-                    <p className="text-xs text-muted-foreground">En Proceso</p>
-                  </div>
-                  {myTasksOverdue > 0 && (
-                    <div>
-                      <p className="text-lg font-bold text-red-600">{myTasksOverdue}</p>
-                      <p className="text-xs text-muted-foreground">Vencidas</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Filters */}
+      {/* Filtros */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input 
-                placeholder="Buscar tareas o personas..." 
+              <Input
+                placeholder="Buscar en mis tareas..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
             </div>
 
-            {/* Person Filter */}
-            <Select 
-              value={filterPerson} 
-              onValueChange={(value) => {
-                setFilterPerson(value)
-                setShowMyTasksOnly(value === currentUser.name)
-              }}
-            >
-              <SelectTrigger className="w-44">
-                <User className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Persona" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas las personas</SelectItem>
-                <SelectItem value={currentUser.name}>
-                  <span className="font-medium">{currentUser.name} (Yo)</span>
-                </SelectItem>
-                {teamMembers.filter(m => m.name !== currentUser.name).map((member) => (
-                  <SelectItem key={member.id} value={member.name}>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-5 w-5">
-                        <AvatarFallback className="text-[10px]">{member.initials}</AvatarFallback>
-                      </Avatar>
-                      {member.name}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-40">
                 <SelectValue placeholder="Estatus" />
@@ -389,169 +238,78 @@ export default function TasksPage() {
                 <SelectItem value="Copywriting">Copywriting</SelectItem>
               </SelectContent>
             </Select>
-
-            {(filterStatus !== "all" || filterPriority !== "all" || filterArea !== "all" || searchQuery || (filterPerson !== "all" && filterPerson !== currentUser.name)) && (
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => {
-                  setFilterStatus("all")
-                  setFilterPriority("all")
-                  setFilterArea("all")
-                  setSearchQuery("")
-                  setFilterPerson(currentUser.name)
-                  setShowMyTasksOnly(true)
-                }}
-              >
-                Limpiar filtros
-              </Button>
-            )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Tasks Table */}
+      {/* Lista de mis tareas — una línea por tarea, cada una es un link */}
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">
-                  <Checkbox 
-                    checked={selectedTasks.length === filteredTasks.length && filteredTasks.length > 0}
-                    onCheckedChange={toggleAllTasks}
-                  />
-                </TableHead>
-                <TableHead>Tarea</TableHead>
-                <TableHead>Proyecto / Cliente</TableHead>
-                <TableHead>Responsable</TableHead>
-                <TableHead>Área</TableHead>
-                <TableHead>Prioridad</TableHead>
-                <TableHead>Estatus</TableHead>
-                <TableHead>Fecha Límite</TableHead>
-                <TableHead>Horas</TableHead>
-                <TableHead className="w-12"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          {filteredTasks.length === 0 ? (
+            <div className="text-center py-16">
+              <ListTodo className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">
+                {hasFilters ? "No hay tareas que coincidan con los filtros." : "No tienes tareas asignadas."}
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y">
               {filteredTasks.map((task) => {
-                const statusConfig = taskStatusConfig[task.status as keyof typeof taskStatusConfig]
-                const prioConfig = priorityConfig[task.priority as keyof typeof priorityConfig]
-                
+                const statusCfg = taskStatusConfig[task.status as keyof typeof taskStatusConfig]
+                const prioCfg = priorityConfig[task.priority as keyof typeof priorityConfig]
                 return (
-                  <TableRow key={task.id} className={task.isOverdue ? "bg-red-50/50 dark:bg-red-950/30" : ""}>
-                    <TableCell>
-                      <Checkbox 
-                        checked={selectedTasks.includes(task.id)}
-                        onCheckedChange={() => toggleTaskSelection(task.id)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {task.isClientVisible ? (
-                          <Eye className="h-3 w-3 text-blue-500 shrink-0" />
-                        ) : (
-                          <EyeOff className="h-3 w-3 text-muted-foreground shrink-0" />
-                        )}
-                        <Link 
-                          href={`/orbit-tasksflow/tasks/${task.id}`}
-                          className="font-medium hover:text-primary hover:underline"
-                        >
-                          {task.name}
-                        </Link>
+                  <li key={task.id}>
+                    <Link
+                      href={`/orbit-tasksflow/tasks/${task.id}`}
+                      className={`flex items-center gap-3 px-4 py-3 hover:bg-muted/60 transition-colors ${task.isOverdue ? "bg-red-50/40 dark:bg-red-950/20" : ""}`}
+                    >
+                      {/* Estado */}
+                      <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${statusCfg.color}`} title={statusCfg.label} />
+
+                      {/* Visibilidad cliente */}
+                      {task.isClientVisible ? (
+                        <Eye className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                      ) : (
+                        <EyeOff className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      )}
+
+                      {/* Nombre + proyecto/cliente */}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{task.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {task.project} · {task.client}
+                        </p>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="text-sm">{task.project}</p>
-                        <p className="text-xs text-muted-foreground">{task.client}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-6 w-6">
-                          <AvatarFallback className="text-xs">{task.assignee.split(" ").map(n => n[0]).join("")}</AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm">{task.assignee}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{task.area}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={`${prioConfig.color} text-white`}>
-                        {prioConfig.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${statusConfig.color}`} />
-                        <span className="text-sm">{statusConfig.label}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`text-sm ${task.isOverdue ? "text-red-600 font-medium" : ""}`}>
-                        {task.isOverdue && <AlertTriangle className="h-3 w-3 inline mr-1" />}
-                        {task.dueDate}
+
+                      {/* Área */}
+                      <Badge variant="outline" className="hidden md:inline-flex shrink-0">{task.area}</Badge>
+
+                      {/* Prioridad */}
+                      <Badge className={`${prioCfg.color} text-white shrink-0 hidden sm:inline-flex`}>{prioCfg.label}</Badge>
+
+                      {/* Estatus */}
+                      <span className="text-sm text-muted-foreground w-28 shrink-0 hidden lg:block">{statusCfg.label}</span>
+
+                      {/* Fecha límite */}
+                      <span className={`text-sm flex items-center gap-1 w-24 shrink-0 justify-end ${task.isOverdue ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                        {task.isOverdue ? <AlertTriangle className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" />}
+                        {formatDueDate(task.dueDate)}
                       </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm">{task.hours > 0 ? `${task.hours}h` : "-"}</span>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/orbit-tasksflow/tasks/${task.id}`}>
-                              <Eye className="h-4 w-4 mr-2" />
-                              Ver Detalle
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Copy className="h-4 w-4 mr-2" />
-                            Duplicar
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600">
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Eliminar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
+
+                      {/* Horas */}
+                      <span className="text-sm text-muted-foreground w-12 text-right shrink-0 hidden sm:block">
+                        {task.hours > 0 ? `${task.hours}h` : "—"}
+                      </span>
+
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                    </Link>
+                  </li>
                 )
               })}
-            </TableBody>
-          </Table>
+            </ul>
+          )}
         </CardContent>
       </Card>
-
-      {/* Bulk Actions */}
-      {selectedTasks.length > 0 && (
-        <Card className="fixed bottom-6 left-1/2 -translate-x-1/2 shadow-lg border-primary">
-          <CardContent className="p-3 flex items-center gap-4">
-            <span className="text-sm font-medium">{selectedTasks.length} seleccionadas</span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm">Cambiar estatus</Button>
-              <Button variant="outline" size="sm">Reasignar</Button>
-              <Button variant="outline" size="sm" className="text-red-600">Eliminar</Button>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => setSelectedTasks([])}>
-              Cancelar
-            </Button>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

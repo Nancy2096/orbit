@@ -47,7 +47,7 @@ import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
 
 const mainNavItems = [
   { title: "Dashboard", href: "/orbit-tasksflow", icon: LayoutDashboard },
-  { title: "Tareas", href: "/orbit-tasksflow/tasks", icon: ListTodo },
+  { title: "Mis Tareas", href: "/orbit-tasksflow/tasks", icon: ListTodo },
 ]
 
 const sidebarProjects = projectsData.map((p) => ({ id: p.id, name: p.name, client: p.client }))
