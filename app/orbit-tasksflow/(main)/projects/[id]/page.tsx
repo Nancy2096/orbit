@@ -35,11 +35,13 @@ import {
 import { useCatalog, AREAS_STORAGE_KEY, defaultAreas } from "@/lib/orbit-tasksflow/catalogs"
 import { getProjectSummary } from "@/lib/orbit-tasksflow/projects-data"
 import { GanttChart } from "@/components/orbit-tasksflow/gantt-chart"
+import { ProjectPanel } from "@/components/orbit-tasksflow/project-panel"
 import {
   ArrowLeft,
   FolderKanban,
   Calendar,
   Clock,
+  LayoutDashboard,
   Users,
   CheckCircle2,
   AlertTriangle,
@@ -52,7 +54,6 @@ import {
   Edit,
   Briefcase,
   Target,
-  TrendingUp,
   ListTodo,
   Package,
   Globe,
@@ -518,7 +519,7 @@ export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
   const projectId = params.id as string
-  const [activeTab, setActiveTab] = useState("tasks")
+  const [activeTab, setActiveTab] = useState("panel")
   const [showLinkFolderDialog, setShowLinkFolderDialog] = useState(false)
   const [editingFolder, setEditingFolder] = useState<any>(null)
   const [newFolderName, setNewFolderName] = useState("")
@@ -724,6 +725,7 @@ const toggleTaskComplete = (taskId: string) => {
   }
   
   const modulesList = [
+    { key: "panel", label: "Panel", icon: LayoutDashboard, description: "Métricas y gráficas de las tareas" },
     { key: "resumen", label: "Resumen", icon: BarChart3, description: "Vista general del proyecto" },
     { key: "tareas", label: "Tareas", icon: ListTodo, description: "Lista de tareas y avances" },
     { key: "entregables", label: "Reportes", icon: Package, description: "Reportes del proyecto por área y periodo" },
@@ -740,8 +742,6 @@ const toggleTaskComplete = (taskId: string) => {
   const project = summary
     ? { ...mockProject, id: summary.id, name: summary.name, client: summary.client, account: summary.account }
     : mockProject
-  const hoursOverBudget = project.hoursWorked > project.hoursBudget
-  const budgetOverspent = project.spent > project.budget
 
   return (
     <div className="p-6 space-y-6">
@@ -779,84 +779,6 @@ const toggleTaskComplete = (taskId: string) => {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-5">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                <Target className="h-4 w-4 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{project.progress}%</p>
-                <p className="text-xs text-muted-foreground">Avance</p>
-              </div>
-            </div>
-            <Progress value={project.progress} className="mt-2 h-1.5" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{project.tasks.completed}/{project.tasks.total}</p>
-                <p className="text-xs text-muted-foreground">Tareas</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
-                <Package className="h-4 w-4 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{project.deliverables.approved}/{project.deliverables.total}</p>
-                <p className="text-xs text-muted-foreground">Entregables</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className={hoursOverBudget ? "border-red-200 dark:border-red-800" : ""}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${hoursOverBudget ? "bg-red-100 dark:bg-red-900/30" : "bg-amber-100 dark:bg-amber-900/30"}`}>
-                <Clock className={`h-4 w-4 ${hoursOverBudget ? "text-red-600" : "text-amber-600"}`} />
-              </div>
-              <div>
-                <p className={`text-2xl font-bold ${hoursOverBudget ? "text-red-600" : ""}`}>
-                  {project.hoursWorked}h
-                </p>
-                <p className="text-xs text-muted-foreground">/ {project.hoursBudget}h</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className={budgetOverspent ? "border-red-200 dark:border-red-800" : ""}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${budgetOverspent ? "bg-red-100 dark:bg-red-900/30" : "bg-green-100 dark:bg-green-900/30"}`}>
-                <TrendingUp className={`h-4 w-4 ${budgetOverspent ? "text-red-600" : "text-green-600"}`} />
-              </div>
-              <div>
-                <p className={`text-2xl font-bold ${budgetOverspent ? "text-red-600" : ""}`}>
-                  ${(project.spent / 1000).toFixed(0)}k
-                </p>
-                <p className="text-xs text-muted-foreground">/ ${(project.budget / 1000).toFixed(0)}k</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Overdue Alert */}
       {project.tasks.overdue > 0 && (
         <Card className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950">
@@ -882,6 +804,13 @@ const toggleTaskComplete = (taskId: string) => {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex flex-wrap h-auto gap-2 p-2 bg-muted/50 rounded-xl">
+          <TabsTrigger 
+            value="panel" 
+            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-violet-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-violet-50 dark:hover:bg-violet-950 transition-all"
+          >
+            <LayoutDashboard className="h-5 w-5" />
+            <span>Panel</span>
+          </TabsTrigger>
           <TabsTrigger 
             value="overview" 
             className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-muted transition-all"
@@ -942,6 +871,11 @@ const toggleTaskComplete = (taskId: string) => {
             <span>Parrilla RSS</span>
           </TabsTrigger>
         </TabsList>
+
+        {/* Panel Tab */}
+        <TabsContent value="panel" className="space-y-4">
+          <ProjectPanel tasks={tasks} reports={reports} projectName={project.name} />
+        </TabsContent>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
