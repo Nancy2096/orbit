@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog"
 import { useCatalog, AREAS_STORAGE_KEY, defaultAreas } from "@/lib/orbit-tasksflow/catalogs"
 import { getProjectSummary } from "@/lib/orbit-tasksflow/projects-data"
+import { GanttChart } from "@/components/orbit-tasksflow/gantt-chart"
 import {
   ArrowLeft,
   FolderKanban,
@@ -88,6 +89,7 @@ import {
   Clock as ClockIcon,
   Send,
   Rss,
+  GanttChartSquare,
   GripVertical,
   ImageIcon,
   Film,
@@ -896,6 +898,13 @@ const toggleTaskComplete = (taskId: string) => {
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs data-[state=active]:bg-blue-400/30 data-[state=active]:text-white">{project.tasks.total}</Badge>
           </TabsTrigger>
           <TabsTrigger 
+            value="gantt" 
+            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all"
+          >
+            <GanttChartSquare className="h-5 w-5" />
+            <span>Gantt</span>
+          </TabsTrigger>
+          <TabsTrigger 
             value="deliverables" 
             className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-all"
           >
@@ -1350,6 +1359,14 @@ const toggleTaskComplete = (taskId: string) => {
               )}
             </Card>
           )}
+        </TabsContent>
+
+        {/* Gantt Tab */}
+        <TabsContent value="gantt" className="space-y-4">
+          <GanttChart
+            tasks={tasks}
+            description={`Cronograma de las tareas de ${project.name}`}
+          />
         </TabsContent>
 
         {/* Deliverables Tab */}
