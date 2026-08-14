@@ -37,6 +37,7 @@ import {
   EyeOff,
   Timer,
   ListTodo,
+  ListChecks,
   Link2,
   Flag,
   Tag,
@@ -82,8 +83,10 @@ import {
   useCatalog,
   TASK_TYPES_STORAGE_KEY,
   TASK_FORMATS_STORAGE_KEY,
+  AREAS_STORAGE_KEY,
   defaultTaskTypes,
   defaultTaskFormats,
+  defaultAreas,
 } from "@/lib/orbit-tasksflow/catalogs"
 import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
 
@@ -336,14 +339,14 @@ const getTaskById = (id: string) => {
     createdBy: { id: "user-2", name: "Eduardo Méndez", initials: "EM" },
     createdAt: "2026-05-01T10:30:00",
     updatedAt: "2026-05-10T14:20:00",
-    subtasks: [],
+    subtasks: [] as Array<{ id: string; name: string; completed: boolean }>,
     comments: [],
     attachments: [],
     timeEntries: [],
     history: [{ id: "h1", action: "Tarea creada", user: "Sistema", date: "2026-05-01T10:30:00" }],
     relatedTasks: [],
     tags: [],
-    notes: [] as Array<{ id: string; author: { name: string; initials: string }; text: string; date: string; isPrivate: boolean; attachments: Array<{ id: string; name: string; type: string; size: string }>; driveLinks: Array<{ id: string; name: string; url: string }> }>,
+    notes: [] as Array<{ id: string; author: { name: string; initials: string }; text: string; date: string; isPrivate: boolean; attachments: Array<{ id: string; name: string; type: string; size: string; url?: string }>; driveLinks: Array<{ id: string; name: string; url: string }> }>,
     notifyOnComplete: [],
     projectTeam: [
       { id: "user-1", name: "Diana García", initials: "DG", role: "Diseñador Senior" },
@@ -374,8 +377,21 @@ export function TaskDetailView({
   })
   const { items: taskTypes } = useCatalog(TASK_TYPES_STORAGE_KEY, defaultTaskTypes)
   const { items: taskFormats } = useCatalog(TASK_FORMATS_STORAGE_KEY, defaultTaskFormats)
+  const { items: areas } = useCatalog(AREAS_STORAGE_KEY, defaultAreas)
   const [selectedTypeId, setSelectedTypeId] = useState<string>("")
   const [selectedFormatId, setSelectedFormatId] = useState<string>("")
+  const [selectedAreaId, setSelectedAreaId] = useState<string>("")
+  // Subtareas funcionales
+  const [newSubtaskName, setNewSubtaskName] = useState("")
+  const [showAddSubtask, setShowAddSubtask] = useState(false)
+  // Adjuntos, enlaces de Drive e imágenes embebidas de la Descripción
+  const [descriptionDriveLinks, setDescriptionDriveLinks] = useState<{ id: string; name: string; url: string }[]>([])
+  const [descriptionImages, setDescriptionImages] = useState<{ id: string; name: string; url: string }[]>([])
+  const [showAddDescDriveLink, setShowAddDescDriveLink] = useState(false)
+  const [newDescDriveLinkName, setNewDescDriveLinkName] = useState("")
+  const [newDescDriveLinkUrl, setNewDescDriveLinkUrl] = useState("")
+  const [isDescDragOver, setIsDescDragOver] = useState(false)
+  const [isNoteDragOver, setIsNoteDragOver] = useState(false)
   const [workedHoursInput, setWorkedHoursInput] = useState<number>(() => Math.floor(task.workedHours))
   const [workedMinutesInput, setWorkedMinutesInput] = useState<number>(() => Math.round((task.workedHours % 1) * 60))
   const [proposalsCount, setProposalsCount] = useState<number>(0)
@@ -471,12 +487,73 @@ export function TaskDetailView({
     })
   }
 
+  const addSubtask = () => {
+    const name = newSubtaskName.trim()
+    if (!name) return
+    setTask(prev => ({
+      ...prev,
+      subtasks: [...prev.subtasks, { id: `sub-${Date.now()}`, name, completed: false }],
+      history: [
+        ...prev.history,
+        { id: `h-${Date.now()}`, action: `Subtarea agregada: "${name}"`, user: currentUser.name, date: new Date().toISOString() },
+      ],
+    }))
+    setNewSubtaskName("")
+    setShowAddSubtask(false)
+  }
+
+  const deleteSubtask = (subtaskId: string) => {
+    setTask(prev => ({
+      ...prev,
+      subtasks: prev.subtasks.filter(s => s.id !== subtaskId),
+    }))
+    logActivity("Subtarea eliminada")
+  }
+
   const deleteComment = (commentId: string) => {
     setTask(prev => ({
       ...prev,
       comments: prev.comments.filter((c: any) => c.id !== commentId)
     }))
     logActivity("Comentario eliminado")
+  }
+
+  // Lee archivos de imagen soltados y devuelve promesas con data URL para mostrarlos embebidos.
+  const readImageFiles = (files: FileList | File[]): Promise<{ id: string; name: string; url: string }[]> => {
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"))
+    return Promise.all(
+      imageFiles.map(
+        (file, i) =>
+          new Promise<{ id: string; name: string; url: string }>((resolve) => {
+            const reader = new FileReader()
+            reader.onload = () =>
+              resolve({ id: `img-${Date.now()}-${i}`, name: file.name, url: reader.result as string })
+            reader.readAsDataURL(file)
+          }),
+      ),
+    )
+  }
+
+  const handleDescriptionDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDescDragOver(false)
+    if (!e.dataTransfer.files?.length) return
+    const images = await readImageFiles(e.dataTransfer.files)
+    if (images.length === 0) return
+    setDescriptionImages(prev => [...prev, ...images])
+    logActivity(`Imagen agregada a la descripción (${images.length})`)
+  }
+
+  const handleNoteDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsNoteDragOver(false)
+    if (!e.dataTransfer.files?.length) return
+    const images = await readImageFiles(e.dataTransfer.files)
+    if (images.length === 0) return
+    setNoteAttachments(prev => [
+      ...prev,
+      ...images.map(img => ({ id: img.id, name: img.name, type: "image", size: "", url: img.url })),
+    ])
   }
 
   // --- Descripción editable con registro de guardado ---
@@ -1172,7 +1249,30 @@ export function TaskDetailView({
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground shrink-0">Área</span>
-                    <Badge variant="outline">{task.area}</Badge>
+                    <Select
+                      value={selectedAreaId}
+                      onValueChange={(value) => {
+                        setSelectedAreaId(value)
+                        const name = areas.find(a => a.id === value)?.name
+                        if (name) {
+                          setTask(prev => ({ ...prev, area: name }))
+                          logActivity(`Área cambiada a ${name}`)
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[150px] max-w-[60%]">
+                        <SelectValue placeholder={task.area}>
+                          {areas.find(a => a.id === selectedAreaId)?.name ?? task.area}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {areas.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between gap-3">
@@ -1187,10 +1287,6 @@ export function TaskDetailView({
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground shrink-0">Creada</span>
                     <span className="text-right">{formatDateTime(task.createdAt)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Actualizada</span>
-                    <span className="text-right">{formatDateTime(task.updatedAt)}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -1291,7 +1387,11 @@ export function TaskDetailView({
                     </Button>
                   )}
                 </CardHeader>
-                <CardContent>
+                <CardContent
+                  onDragOver={(e) => { e.preventDefault(); setIsDescDragOver(true) }}
+                  onDragLeave={() => setIsDescDragOver(false)}
+                  onDrop={handleDescriptionDrop}
+                >
                   {isEditingDescription ? (
                     <div className="space-y-3">
                       <Textarea
@@ -1321,16 +1421,148 @@ export function TaskDetailView({
                       )}
                     </>
                   )}
-                  
-                  {/* Tags */}
-                  <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
-                    {task.tags.map(tag => (
-                      <Badge key={tag} variant="secondary" className="text-xs">
-                        <Tag className="h-3 w-3 mr-1" />
-                        {tag}
-                      </Badge>
-                    ))}
+
+                  {/* Imágenes embebidas (arrastra imágenes aquí) */}
+                  {descriptionImages.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+                      {descriptionImages.map((img) => (
+                        <div key={img.id} className="group relative overflow-hidden rounded-lg border">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={img.url || "/placeholder.svg"} alt={img.name} className="h-32 w-full object-cover" />
+                          <button
+                            onClick={() => setDescriptionImages(prev => prev.filter(i => i.id !== img.id))}
+                            className="absolute top-1.5 right-1.5 rounded-full bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                            aria-label={`Quitar ${img.name}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Enlaces de Google Drive de la descripción */}
+                  {descriptionDriveLinks.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      {descriptionDriveLinks.map((link) => (
+                        <a
+                          key={link.id}
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg text-sm hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
+                            <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+                            <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+                            <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+                            <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+                            <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+                            <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+                          </svg>
+                          <span className="max-w-[150px] truncate text-blue-700 dark:text-blue-400">{link.name}</span>
+                          <ExternalLink className="h-3 w-3 text-blue-500" />
+                          <button
+                            onClick={(e) => { e.preventDefault(); setDescriptionDriveLinks(prev => prev.filter(l => l.id !== link.id)) }}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label={`Quitar ${link.name}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Formulario para enlace de Drive */}
+                  {showAddDescDriveLink && (
+                    <div className="p-3 border rounded-lg bg-blue-50/50 dark:bg-blue-950/20 space-y-3 mt-4">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          placeholder="Nombre del archivo"
+                          value={newDescDriveLinkName}
+                          onChange={(e) => setNewDescDriveLinkName(e.target.value)}
+                        />
+                        <Input
+                          placeholder="https://drive.google.com/..."
+                          value={newDescDriveLinkUrl}
+                          onChange={(e) => setNewDescDriveLinkUrl(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => { setShowAddDescDriveLink(false); setNewDescDriveLinkName(""); setNewDescDriveLinkUrl("") }}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={!newDescDriveLinkName.trim() || !newDescDriveLinkUrl.trim()}
+                          onClick={() => {
+                            setDescriptionDriveLinks(prev => [...prev, { id: `ddl-${Date.now()}`, name: newDescDriveLinkName, url: newDescDriveLinkUrl }])
+                            setNewDescDriveLinkName("")
+                            setNewDescDriveLinkUrl("")
+                            setShowAddDescDriveLink(false)
+                          }}
+                        >
+                          Agregar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Barra de acciones + zona de arrastre */}
+                  <div className={`flex flex-wrap items-center gap-1 mt-4 pt-4 border-t ${isDescDragOver ? "rounded-lg ring-2 ring-primary ring-offset-2" : ""}`}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2"
+                      onClick={() => {
+                        const input = document.createElement("input")
+                        input.type = "file"
+                        input.accept = "image/*"
+                        input.multiple = true
+                        input.onchange = async (e) => {
+                          const files = (e.target as HTMLInputElement).files
+                          if (files) {
+                            const images = await readImageFiles(files)
+                            if (images.length) {
+                              setDescriptionImages(prev => [...prev, ...images])
+                              logActivity(`Imagen agregada a la descripción (${images.length})`)
+                            }
+                          }
+                        }
+                        input.click()
+                      }}
+                    >
+                      <FileImage className="h-4 w-4 mr-1" />
+                      Imagen
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setShowAddDescDriveLink(true)}>
+                      <svg className="h-4 w-4 mr-1" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
+                        <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+                        <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+                        <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+                        <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+                        <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+                        <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+                      </svg>
+                      Drive
+                    </Button>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {isDescDragOver ? "Suelta la imagen aquí" : "Arrastra una imagen para insertarla"}
+                    </span>
                   </div>
+
+                  {/* Tags */}
+                  {task.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
+                      {task.tags.map(tag => (
+                        <Badge key={tag} variant="secondary" className="text-xs">
+                          <Tag className="h-3 w-3 mr-1" />
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1345,9 +1577,14 @@ export function TaskDetailView({
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Add Note */}
-                  <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                  <div
+                    className={`space-y-3 p-4 border rounded-lg bg-muted/30 transition-colors ${isNoteDragOver ? "ring-2 ring-primary ring-offset-2 bg-primary/5" : ""}`}
+                    onDragOver={(e) => { e.preventDefault(); setIsNoteDragOver(true) }}
+                    onDragLeave={() => setIsNoteDragOver(false)}
+                    onDrop={handleNoteDrop}
+                  >
                     <Textarea 
-                      placeholder="Escribe una nota..." 
+                      placeholder="Escribe una nota o arrastra una imagen aquí..." 
                       value={newNote}
                       onChange={(e) => setNewNote(e.target.value)}
                       className="min-h-[80px]"
@@ -1357,16 +1594,30 @@ export function TaskDetailView({
                     {(noteAttachments.length > 0 || noteDriveLinks.length > 0) && (
                       <div className="flex flex-wrap gap-2">
                         {noteAttachments.map((file) => (
-                          <div key={file.id} className="flex items-center gap-2 px-3 py-1.5 bg-background border rounded-full text-sm">
-                            <Paperclip className="h-3 w-3 text-muted-foreground" />
-                            <span className="max-w-[150px] truncate">{file.name}</span>
-                            <button 
-                              onClick={() => setNoteAttachments(prev => prev.filter(f => f.id !== file.id))}
-                              className="text-muted-foreground hover:text-destructive"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </div>
+                          file.type === "image" && file.url ? (
+                            <div key={file.id} className="group relative h-16 w-16 overflow-hidden rounded-lg border">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={file.url || "/placeholder.svg"} alt={file.name} className="h-full w-full object-cover" />
+                              <button
+                                onClick={() => setNoteAttachments(prev => prev.filter(f => f.id !== file.id))}
+                                className="absolute top-0.5 right-0.5 rounded-full bg-background/80 p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                                aria-label={`Quitar ${file.name}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div key={file.id} className="flex items-center gap-2 px-3 py-1.5 bg-background border rounded-full text-sm">
+                              <Paperclip className="h-3 w-3 text-muted-foreground" />
+                              <span className="max-w-[150px] truncate">{file.name}</span>
+                              <button 
+                                onClick={() => setNoteAttachments(prev => prev.filter(f => f.id !== file.id))}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          )
                         ))}
                         {noteDriveLinks.map((link) => (
                           <div key={link.id} className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-full text-sm">
@@ -1557,22 +1808,35 @@ export function TaskDetailView({
                         {((note.attachments && note.attachments.length > 0) || (note.driveLinks && note.driveLinks.length > 0)) && (
                           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t">
                             {note.attachments?.map((file: any) => (
-                              <a 
-                                key={file.id}
-                                href="#"
-                                className="flex items-center gap-2 px-3 py-1.5 bg-background border rounded-lg text-sm hover:bg-muted/50 transition-colors"
-                              >
-                                {file.type === 'image' ? (
-                                  <FileImage className="h-4 w-4 text-blue-500" />
-                                ) : file.type === 'pdf' ? (
-                                  <FileText className="h-4 w-4 text-red-500" />
-                                ) : (
-                                  <File className="h-4 w-4 text-muted-foreground" />
-                                )}
-                                <span className="max-w-[150px] truncate">{file.name}</span>
-                                <span className="text-xs text-muted-foreground">{file.size}</span>
-                                <Download className="h-3 w-3 text-muted-foreground" />
-                              </a>
+                              file.type === 'image' && file.url ? (
+                                <a
+                                  key={file.id}
+                                  href={file.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block overflow-hidden rounded-lg border hover:opacity-90 transition-opacity"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={file.url || "/placeholder.svg"} alt={file.name} className="h-28 w-40 object-cover" />
+                                </a>
+                              ) : (
+                                <a 
+                                  key={file.id}
+                                  href="#"
+                                  className="flex items-center gap-2 px-3 py-1.5 bg-background border rounded-lg text-sm hover:bg-muted/50 transition-colors"
+                                >
+                                  {file.type === 'image' ? (
+                                    <FileImage className="h-4 w-4 text-blue-500" />
+                                  ) : file.type === 'pdf' ? (
+                                    <FileText className="h-4 w-4 text-red-500" />
+                                  ) : (
+                                    <File className="h-4 w-4 text-muted-foreground" />
+                                  )}
+                                  <span className="max-w-[150px] truncate">{file.name}</span>
+                                  <span className="text-xs text-muted-foreground">{file.size}</span>
+                                  <Download className="h-3 w-3 text-muted-foreground" />
+                                </a>
+                              )
                             ))}
                             {note.driveLinks?.map((link: any) => (
                               <a 
@@ -1599,6 +1863,88 @@ export function TaskDetailView({
                       </div>
                     ))}
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Subtareas */}
+              <Card className="border-b-2 border-b-purple-500">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <ListChecks className="h-5 w-5" />
+                      Subtareas
+                    </CardTitle>
+                    <CardDescription>
+                      {task.subtasks.filter(s => s.completed).length} de {task.subtasks.length} completadas
+                    </CardDescription>
+                  </div>
+                  <Button size="sm" onClick={() => setShowAddSubtask(prev => !prev)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nueva Subtarea
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {showAddSubtask && (
+                    <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30">
+                      <Input
+                        autoFocus
+                        placeholder="Nombre de la subtarea..."
+                        value={newSubtaskName}
+                        onChange={(e) => setNewSubtaskName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                            e.preventDefault()
+                            addSubtask()
+                          } else if (e.key === "Escape") {
+                            setShowAddSubtask(false)
+                            setNewSubtaskName("")
+                          }
+                        }}
+                      />
+                      <Button size="sm" onClick={addSubtask} disabled={!newSubtaskName.trim()}>
+                        Agregar
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setShowAddSubtask(false); setNewSubtaskName("") }}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  )}
+
+                  {task.subtasks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No hay subtareas todavía. Agrega la primera.
+                    </p>
+                  ) : (
+                    <ol className="space-y-2">
+                      {task.subtasks.map((subtask, index) => (
+                        <li
+                          key={subtask.id}
+                          className={`group flex items-center gap-3 p-3 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
+                        >
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          <Checkbox
+                            checked={subtask.completed}
+                            onCheckedChange={() => toggleSubtask(subtask.id)}
+                            aria-label={`Marcar "${subtask.name}" como ${subtask.completed ? 'pendiente' : 'completada'}`}
+                          />
+                          <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
+                            {subtask.name}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                            onClick={() => deleteSubtask(subtask.id)}
+                            aria-label={`Eliminar ${subtask.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1796,34 +2142,6 @@ export function TaskDetailView({
             </CardContent>
           </Card>
 
-          {/* Subtareas (integrado en Tareas) */}
-          <Card className="border-b-2 border-b-purple-500">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Subtareas</CardTitle>
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Nueva Subtarea
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {task.subtasks.map(subtask => (
-                  <div 
-                    key={subtask.id} 
-                    className={`flex items-center gap-3 p-4 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
-                  >
-                    <Checkbox 
-                      checked={subtask.completed} 
-                      onCheckedChange={() => toggleSubtask(subtask.id)}
-                    />
-                    <span className={subtask.completed ? 'line-through text-muted-foreground' : ''}>
-                      {subtask.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
       )}
