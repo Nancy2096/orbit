@@ -39,26 +39,24 @@ import {
   Clock,
   Layers,
   Wrench,
+  Library,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
 
 const mainNavItems = [
   { title: "Dashboard", href: "/orbit-tasksflow", icon: LayoutDashboard },
-  { title: "Tareas", href: "/orbit-tasksflow/tasks", icon: ListTodo },
+  { title: "Mis Tareas", href: "/orbit-tasksflow/tasks", icon: ListTodo },
 ]
 
-const sidebarProjects = [
-  { id: "1", name: "Campaña Leads Q2", client: "Desarrolladora Horizonte" },
-  { id: "2", name: "Landing Torre Central", client: "Torre Central Living" },
-  { id: "3", name: "Branding Residencial", client: "Residencial Bosques" },
-  { id: "4", name: "SEO Mensual Mayo", client: "Grupo Inmobiliario Altiva" },
-  { id: "5", name: "Renders 3D", client: "Nova Arquitectura" },
-  { id: "6", name: "Campaña Meta Ads Abril", client: "Desarrolladora Horizonte" },
-]
+const sidebarProjects = projectsData.map((p) => ({ id: p.id, name: p.name, client: p.client }))
+
+const ACTIVE_PROJECT_KEY = "orbit-tasksflow-active-project"
 
 const adminNavItems = [
   { title: "Administración", href: "/orbit-tasksflow/admin", icon: Wrench },
+  { title: "Catálogos", href: "/orbit-tasksflow/catalogs", icon: Library },
   { title: "Usuarios", href: "/orbit-tasksflow/users", icon: Users },
   { title: "Configuración", href: "/orbit-tasksflow/settings", icon: Settings },
 ]
@@ -77,6 +75,22 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [userProfile, setUserProfile] = useState(defaultProfile)
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+
+  // Mantiene resaltada la cuenta seleccionada en el menú, incluso al abrir
+  // el detalle de una tarea (/orbit-tasksflow/tasks/[id]).
+  const isTaskDetail = /^\/orbit-tasksflow\/tasks\/[^/]+/.test(pathname)
+
+  useEffect(() => {
+    const match = pathname.match(/^\/orbit-tasksflow\/projects\/([^/]+)/)
+    if (match) {
+      setActiveProjectId(match[1])
+      localStorage.setItem(ACTIVE_PROJECT_KEY, match[1])
+    } else {
+      const saved = localStorage.getItem(ACTIVE_PROJECT_KEY)
+      if (saved) setActiveProjectId(saved)
+    }
+  }, [pathname])
 
   // Cargar perfil del localStorage
   useEffect(() => {
@@ -152,8 +166,13 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
               </span>
             )}
             {mainNavItems.map((item) => {
-              const isActive = pathname === item.href || 
-                (item.href !== "/orbit-tasksflow" && pathname.startsWith(item.href))
+              // "Tareas" solo se resalta en su lista, no en el detalle de una
+              // tarea abierta desde una cuenta (ahí se resalta la cuenta).
+              const isActive =
+                item.href === "/orbit-tasksflow/tasks"
+                  ? pathname === item.href
+                  : pathname === item.href ||
+                    (item.href !== "/orbit-tasksflow" && pathname.startsWith(item.href))
               return (
                 <Link
                   key={item.href}
@@ -199,7 +218,10 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
 
             {sidebarProjects.map((project) => {
               const href = `/orbit-tasksflow/projects/${project.id}`
-              const isActive = pathname === href
+              const isActive =
+                pathname === href ||
+                pathname.startsWith(href + "/") ||
+                (isTaskDetail && activeProjectId === project.id)
               return (
                 <Link
                   key={project.id}

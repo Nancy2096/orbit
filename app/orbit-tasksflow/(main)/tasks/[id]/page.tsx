@@ -25,9 +25,9 @@ import {
   FileText,
   Plus,
   MoreHorizontal,
-  Play,
-  Pause,
   Edit,
+  Save,
+  Clock,
   Briefcase,
   FolderKanban,
   MessageCircle,
@@ -37,7 +37,6 @@ import {
   EyeOff,
   Timer,
   ListTodo,
-  History,
   Link2,
   Flag,
   Tag,
@@ -78,6 +77,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  useCatalog,
+  TASK_TYPES_STORAGE_KEY,
+  TASK_FORMATS_STORAGE_KEY,
+  defaultTaskTypes,
+  defaultTaskFormats,
+} from "@/lib/orbit-tasksflow/catalogs"
+import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
 
 
 const taskStatusConfig: Record<string, { label: string; color: string }> = {
@@ -344,13 +351,29 @@ const getTaskById = (id: string) => {
   }
 }
 
-export default function TaskDetailPage() {
+export function TaskDetailView({
+  taskId: taskIdProp,
+  embedded = false,
+  onClose,
+}: {
+  taskId?: string
+  embedded?: boolean
+  onClose?: () => void
+} = {}) {
   const params = useParams()
-  const taskId = params.id as string
+  const taskId = (taskIdProp ?? (params.id as string))
   const [activeTab, setActiveTab] = useState("overview")
   const [newComment, setNewComment] = useState("")
-  const [isTracking, setIsTracking] = useState(false)
   const [task, setTask] = useState(() => getTaskById(taskId))
+  const { items: taskTypes } = useCatalog(TASK_TYPES_STORAGE_KEY, defaultTaskTypes)
+  const { items: taskFormats } = useCatalog(TASK_FORMATS_STORAGE_KEY, defaultTaskFormats)
+  const [selectedTypeId, setSelectedTypeId] = useState<string>("")
+  const [selectedFormatId, setSelectedFormatId] = useState<string>("")
+  const [workedHoursInput, setWorkedHoursInput] = useState<number>(() => Math.floor(task.workedHours))
+  const [workedMinutesInput, setWorkedMinutesInput] = useState<number>(() => Math.round((task.workedHours % 1) * 60))
+  const [proposalsCount, setProposalsCount] = useState<number>(0)
+  const [adjustmentsCount, setAdjustmentsCount] = useState<number>(0)
+  const [deliverablesCount, setDeliverablesCount] = useState<number>(0)
   const [commentAttachments, setCommentAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
   const [showMentions, setShowMentions] = useState(false)
   const [mentionSearch, setMentionSearch] = useState("")
@@ -398,8 +421,6 @@ export default function TaskDetailPage() {
   const status = taskStatusConfig[task.status] || { label: task.status, color: "bg-gray-500" }
   const priority = priorityConfig[task.priority] || { label: task.priority, color: "bg-gray-400", textColor: "text-gray-600" }
 
-  const completedSubtasks = task.subtasks.filter(s => s.completed).length
-  const totalSubtasks = task.subtasks.length
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString("es-MX", {
@@ -434,16 +455,112 @@ export default function TaskDetailPage() {
     }))
   }
 
+  // --- Descripción editable con registro de guardado ---
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [descriptionDraft, setDescriptionDraft] = useState(task.description)
+  const [descriptionUpdatedAt, setDescriptionUpdatedAt] = useState<string | null>(null)
+
+  const saveDescription = () => {
+    setTask(prev => ({ ...prev, description: descriptionDraft }))
+    setDescriptionUpdatedAt(new Date().toISOString())
+    setIsEditingDescription(false)
+  }
+
+  const cancelEditDescription = () => {
+    setDescriptionDraft(task.description)
+    setIsEditingDescription(false)
+  }
+
+  // --- Vincular tareas de cualquier cuenta ---
+  const [showLinkTaskDialog, setShowLinkTaskDialog] = useState(false)
+  const [linkTaskSearch, setLinkTaskSearch] = useState("")
+
+  // Mapea los estados del catálogo de proyectos a las claves de taskStatusConfig.
+  const projectStatusMap: Record<string, string> = {
+    en_progreso: "en_proceso",
+    pendiente: "por_asignar",
+    vencido: "vencida",
+    completado: "entregada",
+  }
+
+  // Todas las tareas de todas las cuentas, aptas para vincular.
+  const linkableTasks = projectsData.flatMap(project =>
+    project.tasks.map(t => ({
+      id: t.id,
+      name: t.title,
+      status: projectStatusMap[t.status] || t.status,
+      assignee: t.assigneeName,
+      account: project.account,
+      projectName: project.name,
+    }))
+  )
+
+  const linkTask = (t: { id: string; name: string; status: string; assignee: string }) => {
+    setTask(prev => {
+      if (prev.relatedTasks.some((r: any) => r.id === t.id)) return prev
+      return { ...prev, relatedTasks: [...prev.relatedTasks, t] }
+    })
+    setShowLinkTaskDialog(false)
+    setLinkTaskSearch("")
+  }
+
+  const unlinkTask = (id: string) => {
+    setTask(prev => ({
+      ...prev,
+      relatedTasks: prev.relatedTasks.filter((r: any) => r.id !== id),
+    }))
+  }
+
+  const filteredLinkableTasks = linkableTasks.filter(t => {
+    const alreadyLinked = task.relatedTasks.some((r: any) => r.id === t.id)
+    const isSelf = t.id === task.id
+    const term = linkTaskSearch.toLowerCase()
+    const matches =
+      t.name.toLowerCase().includes(term) ||
+      t.account.toLowerCase().includes(term) ||
+      t.assignee.toLowerCase().includes(term)
+    return !alreadyLinked && !isSelf && matches
+  })
+
+  // --- Comentarios funcionales ---
+  const currentUser = { id: "user-1", name: "Diana García", initials: "DG" }
+
+  const addComment = () => {
+    if (!newComment.trim()) return
+    // Detecta menciones a partir de los nombres del equipo presentes en el texto.
+    const mentions = (task.projectTeam || [])
+      .filter((m: any) => newComment.includes(m.name))
+      .map((m: any) => ({ id: m.id, name: m.name }))
+    const comment = {
+      id: `c-${Date.now()}`,
+      author: currentUser,
+      text: newComment.trim(),
+      date: new Date().toISOString(),
+      mentions,
+      attachments: commentAttachments,
+    }
+    setTask(prev => ({ ...prev, comments: [...(prev.comments || []), comment] }))
+    setNewComment("")
+    setCommentAttachments([])
+    setShowMentions(false)
+  }
+
   return (
-    <div className="p-6 space-y-6">
+    <div className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/orbit-tasksflow/tasks">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
+          {embedded ? (
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Cerrar detalle">
+              <X className="h-5 w-5" />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/orbit-tasksflow/tasks">
+                <ArrowLeft className="h-5 w-5" />
+              </Link>
+            </Button>
+          )}
           <div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
               <Link href="/orbit-tasksflow/projects" className="hover:underline">Proyectos</Link>
@@ -456,13 +573,6 @@ export default function TaskDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button 
-            variant={isTracking ? "destructive" : "default"}
-            onClick={() => setIsTracking(!isTracking)}
-          >
-            {isTracking ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
-            {isTracking ? "Detener" : "Iniciar Tiempo"}
-          </Button>
           <Button variant="outline" onClick={() => setShowEditDialog(true)}>
             <Edit className="h-4 w-4 mr-2" />
             Editar
@@ -671,28 +781,6 @@ export default function TaskDetailPage() {
             <ListTodo className="h-5 w-5" />
             <span>Tareas</span>
           </TabsTrigger>
-          <TabsTrigger 
-            value="subtasks" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-blue-50 dark:hover:bg-blue-950 transition-all"
-          >
-            <CheckSquare className="h-5 w-5" />
-            <span>Subtareas</span>
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{completedSubtasks}/{totalSubtasks}</Badge>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="time" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
-          >
-            <Timer className="h-5 w-5" />
-            <span>Tiempo</span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="history" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-slate-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-slate-50 dark:hover:bg-slate-950 transition-all"
-          >
-            <History className="h-5 w-5" />
-            <span>Historial</span>
-          </TabsTrigger>
         </TabsList>
         </div>
 
@@ -703,11 +791,53 @@ export default function TaskDetailPage() {
             <div className="md:col-span-2 space-y-6">
               {/* Description */}
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-lg">Descripción</CardTitle>
+                  {!isEditingDescription && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => {
+                        setDescriptionDraft(task.description)
+                        setIsEditingDescription(true)
+                      }}
+                    >
+                      <Edit className="h-4 w-4" />
+                      Editar
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
-                  <p className="text-muted-foreground">{task.description}</p>
+                  {isEditingDescription ? (
+                    <div className="space-y-3">
+                      <Textarea
+                        value={descriptionDraft}
+                        onChange={(e) => setDescriptionDraft(e.target.value)}
+                        className="min-h-[120px]"
+                        placeholder="Describe la tarea..."
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={cancelEditDescription}>
+                          Cancelar
+                        </Button>
+                        <Button size="sm" onClick={saveDescription}>
+                          <Save className="h-4 w-4 mr-2" />
+                          Guardar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground whitespace-pre-wrap">{task.description}</p>
+                      {descriptionUpdatedAt && (
+                        <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          Última edición: {formatDateTime(descriptionUpdatedAt)}
+                        </p>
+                      )}
+                    </>
+                  )}
                   
                   {/* Tags */}
                   <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
@@ -999,53 +1129,170 @@ export default function TaskDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {task.relatedTasks.map(relTask => (
+                    {task.relatedTasks.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No hay tareas vinculadas todavía.
+                      </p>
+                    )}
+                    {task.relatedTasks.map((relTask: any) => (
                       <div key={relTask.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <ListTodo className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{relTask.name}</span>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ListTodo className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            <span className="font-medium block truncate">{relTask.name}</span>
+                            {relTask.account && (
+                              <span className="text-xs text-muted-foreground">{relTask.account}</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm text-muted-foreground">{relTask.assignee}</span>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-sm text-muted-foreground hidden sm:inline">{relTask.assignee}</span>
                           <Badge className={`${taskStatusConfig[relTask.status]?.color || 'bg-gray-500'} text-white text-xs`}>
                             {taskStatusConfig[relTask.status]?.label || relTask.status}
                           </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => unlinkTask(relTask.id)}
+                            aria-label="Desvincular tarea"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     ))}
-                    <Button variant="outline" size="sm" className="w-full mt-2">
+                    <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => setShowLinkTaskDialog(true)}>
                       <Plus className="h-4 w-4 mr-2" />
                       Vincular Tarea
                     </Button>
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Dialog: Vincular Tarea */}
+              <Dialog open={showLinkTaskDialog} onOpenChange={(open) => { setShowLinkTaskDialog(open); if (!open) setLinkTaskSearch("") }}>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Vincular Tarea</DialogTitle>
+                    <DialogDescription>
+                      Selecciona una tarea de esta cuenta o de cualquier otra cuenta para vincularla.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <Input
+                      placeholder="Buscar por tarea, cuenta o responsable..."
+                      value={linkTaskSearch}
+                      onChange={(e) => setLinkTaskSearch(e.target.value)}
+                    />
+                    <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                      {filteredLinkableTasks.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-6">
+                          No se encontraron tareas para vincular.
+                        </p>
+                      ) : (
+                        filteredLinkableTasks.map(t => (
+                          <button
+                            key={t.id}
+                            onClick={() => linkTask(t)}
+                            className="flex items-center justify-between gap-3 w-full p-3 border rounded-lg hover:bg-muted/50 transition-colors text-left"
+                          >
+                            <div className="min-w-0">
+                              <span className="font-medium block truncate">{t.name}</span>
+                              <span className="text-xs text-muted-foreground">{t.account} · {t.assignee}</span>
+                            </div>
+                            <Badge className={`${taskStatusConfig[t.status]?.color || 'bg-gray-500'} text-white text-xs shrink-0`}>
+                              {taskStatusConfig[t.status]?.label || t.status}
+                            </Badge>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => { setShowLinkTaskDialog(false); setLinkTaskSearch("") }}>
+                      Cerrar
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {/* Time Summary */}
+              {/* Time & Tasks Summary */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Timer className="h-5 w-5" />
-                    Tiempo
+                    Tiempo y Tareas
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Estimado</span>
-                    <span className="font-medium">{task.estimatedHours}h</span>
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Trabajado</Label>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          value={workedHoursInput}
+                          onChange={(e) => setWorkedHoursInput(Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-20"
+                          aria-label="Horas trabajadas"
+                        />
+                        <span className="text-sm text-muted-foreground">h</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={59}
+                          value={workedMinutesInput}
+                          onChange={(e) => setWorkedMinutesInput(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
+                          className="w-20"
+                          aria-label="Minutos trabajados"
+                        />
+                        <span className="text-sm text-muted-foreground">min</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Trabajado</span>
-                    <span className="font-medium">{task.workedHours}h</span>
+
+                  <div className="border-t pt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="proposals-count" className="text-muted-foreground">Propuestas</Label>
+                      <Input
+                        id="proposals-count"
+                        type="number"
+                        min={0}
+                        value={proposalsCount}
+                        onChange={(e) => setProposalsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="adjustments-count" className="text-muted-foreground">Ajustes</Label>
+                      <Input
+                        id="adjustments-count"
+                        type="number"
+                        min={0}
+                        value={adjustmentsCount}
+                        onChange={(e) => setAdjustmentsCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="deliverables-count" className="text-muted-foreground">Entregables</Label>
+                      <Input
+                        id="deliverables-count"
+                        type="number"
+                        min={0}
+                        value={deliverablesCount}
+                        onChange={(e) => setDeliverablesCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Restante</span>
-                    <span className="font-medium text-amber-600">{(task.estimatedHours - task.workedHours).toFixed(1)}h</span>
-                  </div>
-                  <Progress value={(task.workedHours / task.estimatedHours) * 100} className="h-2" />
                 </CardContent>
               </Card>
 
@@ -1055,15 +1302,35 @@ export default function TaskDetailPage() {
                   <CardTitle className="text-lg">Detalles</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Proyecto</span>
-                    <Link href={`/orbit-tasksflow/projects/${task.project.id}`} className="font-medium text-primary hover:underline">
-                      {task.project.name}
-                    </Link>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Tipo</span>
+                    <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
+                      <SelectTrigger className="h-8 w-[180px]">
+                        <SelectValue placeholder="Selecciona tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskTypes.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Cliente</span>
-                    <span className="font-medium">{task.client}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Formato</span>
+                    <Select value={selectedFormatId} onValueChange={setSelectedFormatId}>
+                      <SelectTrigger className="h-8 w-[180px]">
+                        <SelectValue placeholder="Selecciona formato" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskFormats.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Área</span>
@@ -1204,7 +1471,7 @@ export default function TaskDetailPage() {
                         Adjuntar
                       </Button>
                     </div>
-                    <Button size="sm" disabled={!newComment.trim()}>
+                    <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
                       <Send className="h-4 w-4 mr-2" />
                       Enviar
                     </Button>
@@ -1378,10 +1645,8 @@ export default function TaskDetailPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Subtasks Tab */}
-        <TabsContent value="subtasks" className="space-y-4">
+          {/* Subtareas (integrado en Tareas) */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Subtareas</CardTitle>
@@ -1409,50 +1674,8 @@ export default function TaskDetailPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Time Tab */}
-        <TabsContent value="time" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Registro de Tiempo</CardTitle>
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Agregar Entrada
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {task.timeEntries.map(entry => (
-                  <div key={entry.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="text-center">
-                        <p className="text-lg font-bold">{entry.hours}h</p>
-                      </div>
-                      <div>
-                        <p className="font-medium">{entry.description}</p>
-                        <p className="text-sm text-muted-foreground">{formatDate(entry.date)}</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="icon">
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-              
-              <Separator className="my-4" />
-              
-              <div className="flex justify-between text-lg font-bold">
-                <span>Total</span>
-                <span>{task.workedHours}h</span>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* History Tab */}
-        <TabsContent value="history" className="space-y-4">
+          {/* Historial (integrado en Tareas) */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Historial de Actividad</CardTitle>
@@ -1595,4 +1818,8 @@ export default function TaskDetailPage() {
       </Dialog>
     </div>
   )
+}
+
+export default function TaskDetailPage() {
+  return <TaskDetailView />
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,11 +32,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { useCatalog, AREAS_STORAGE_KEY, defaultAreas } from "@/lib/orbit-tasksflow/catalogs"
+import { getProjectSummary } from "@/lib/orbit-tasksflow/projects-data"
+import { GanttChart } from "@/components/orbit-tasksflow/gantt-chart"
+import { ProjectPanel } from "@/components/orbit-tasksflow/project-panel"
+import { TaskDetailView } from "@/app/orbit-tasksflow/(main)/tasks/[id]/page"
 import {
   ArrowLeft,
   FolderKanban,
   Calendar,
   Clock,
+  LayoutDashboard,
   Users,
   CheckCircle2,
   AlertTriangle,
@@ -49,7 +55,6 @@ import {
   Edit,
   Briefcase,
   Target,
-  TrendingUp,
   ListTodo,
   Package,
   Globe,
@@ -86,20 +91,21 @@ import {
   Clock as ClockIcon,
   Send,
   Rss,
+  GanttChartSquare,
   GripVertical,
   ImageIcon,
   Film,
   Layers,
   Hash,
   Pencil,
-  Receipt,
   DollarSign,
   CreditCard,
   Ban,
   Upload,
   FileImage,
   Download,
-  Trash
+  Trash,
+  X
 } from "lucide-react"
 
 // Mock data - In production this would come from the database
@@ -369,7 +375,7 @@ const mockProject = {
       status: "en_revision",
       priority: "media",
       type: "adicional",
-      requestedBy: { name: "Laura Martínez", position: "Brand Manager" },
+      requestedBy: { name: "Laura Mart����nez", position: "Brand Manager" },
       createdAt: "2024-04-03T14:15:00",
       dueDate: "2024-04-10",
       attachments: 0,
@@ -489,14 +495,6 @@ const mockTasks = [
   { id: "6", title: "Optimización de pauta", status: "vencido", priority: "alta", assignee: "JP", assigneeName: "Juan Pérez", dueDate: "2024-03-25", createdAt: "2024-03-05", hours: 12, description: "Ajustar presupuestos según rendimiento" },
 ]
 
-const mockDeliverables = [
-  { id: "d1", name: "Key Visuals Campaña", status: "aprobado", dueDate: "2024-03-15", files: 5 },
-  { id: "d2", name: "Calendario de Contenidos Abril", status: "aprobado", dueDate: "2024-03-28", files: 1 },
-  { id: "d3", name: "Videos Promocionales", status: "pendiente", dueDate: "2024-04-20", files: 0 },
-  { id: "d4", name: "Reporte de Métricas Q1", status: "aprobado", dueDate: "2024-04-01", files: 1 },
-  { id: "d5", name: "Creativos para Pauta", status: "revision", dueDate: "2024-04-05", files: 12 },
-]
-
 const statusConfig = {
   completado: { label: "Completado", color: "bg-green-500", textColor: "text-green-600" },
   en_progreso: { label: "En Progreso", color: "bg-blue-500", textColor: "text-blue-600" },
@@ -504,12 +502,14 @@ const statusConfig = {
   vencido: { label: "Vencido", color: "bg-red-500", textColor: "text-red-600" },
 }
 
-const deliverableStatusConfig = {
-  aprobado: { label: "Aprobado", color: "bg-green-500" },
-  pendiente: { label: "Pendiente", color: "bg-amber-500" },
-  revision: { label: "En Revisión", color: "bg-blue-500" },
-  rechazado: { label: "Rechazado", color: "bg-red-500" },
-}
+const MONTHS = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+]
+
+const initialReports = [
+  { id: "r1", name: "Reporte de Métricas Q1", month: "Marzo", year: "2024", area: "Estrategia", fileName: "reporte-metricas-q1.pdf" },
+]
 
 const priorityConfig = {
   alta: { label: "Alta", color: "text-red-600 bg-red-50 border-red-200" },
@@ -532,7 +532,16 @@ export default function ProjectDetailPage() {
   const [contactPermissions, setContactPermissions] = useState<Record<string, string>>({})
   const [showEditTaskDialog, setShowEditTaskDialog] = useState(false)
   const [editingTask, setEditingTask] = useState<any>(null)
-  const [tasks, setTasks] = useState(mockTasks)
+  const [tasks, setTasks] = useState(() => getProjectSummary(projectId)?.tasks ?? mockTasks)
+  // Los avisos vuelven a mostrarse cada vez que se entra a la cuenta.
+  const [alertDismissed, setAlertDismissed] = useState(false)
+
+  // Al cambiar de cuenta en el menú, recarga las tareas de esa cuenta
+  // y restaura los avisos para que aparezcan de nuevo.
+  useEffect(() => {
+    setTasks(getProjectSummary(projectId)?.tasks ?? mockTasks)
+    setAlertDismissed(false)
+  }, [projectId])
   const [showGoogleCalendarDialog, setShowGoogleCalendarDialog] = useState(false)
   const [calendarConnected, setCalendarConnected] = useState(mockProject.calendarConnected)
   const [connectingCalendar, setConnectingCalendar] = useState(false)
@@ -540,11 +549,48 @@ export default function ProjectDetailPage() {
   const [selectedRequest, setSelectedRequest] = useState<any>(null)
   const [clientRequests, setClientRequests] = useState(mockProject.clientRequests)
   const [showCompletedTasks, setShowCompletedTasks] = useState(false)
+  const { items: areaOptions } = useCatalog(AREAS_STORAGE_KEY, defaultAreas)
+  const [reports, setReports] = useState(initialReports)
+  const [showNewReportDialog, setShowNewReportDialog] = useState(false)
+  const [reportName, setReportName] = useState("")
+  const [reportMonth, setReportMonth] = useState("")
+  const [reportYear, setReportYear] = useState(String(new Date().getFullYear()))
+  const [reportArea, setReportArea] = useState("")
+  const [reportFileName, setReportFileName] = useState("")
+
+  const resetReportForm = () => {
+    setReportName("")
+    setReportMonth("")
+    setReportYear(String(new Date().getFullYear()))
+    setReportArea("")
+    setReportFileName("")
+  }
+
+  const addReport = () => {
+    if (!reportName.trim() || !reportMonth || !reportArea) return
+    setReports((prev) => [
+      ...prev,
+      {
+        id: `r-${Date.now()}`,
+        name: reportName.trim(),
+        month: reportMonth,
+        year: reportYear,
+        area: reportArea,
+        fileName: reportFileName || "documento.pdf",
+      },
+    ])
+    resetReportForm()
+    setShowNewReportDialog(false)
+  }
 
   // Acción rápida: cambia el estado de una tarea sin abrir el diálogo de edición.
   const changeTaskStatus = (taskId: string, newStatus: string) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
   }
+
+  // Panel lateral de vista rápida de tarea (se desliza a la derecha, sin cambiar de página).
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const selectedTask = tasks.find((t: any) => t.id === selectedTaskId) || null
 
   // Renderiza una fila de tarea (reutilizada en la tabla de activas y completadas).
   const renderTaskRow = (task: any) => {
@@ -554,7 +600,8 @@ export default function ProjectDetailPage() {
     return (
       <TableRow
         key={task.id}
-        className={`hover:bg-muted/50 transition-colors ${task.status === "vencido" ? "bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50" : ""}`}
+        onClick={() => setSelectedTaskId(task.id)}
+        className={`cursor-pointer hover:bg-muted/50 transition-colors ${selectedTaskId === task.id ? "bg-primary/5 ring-1 ring-inset ring-primary/30" : ""} ${task.status === "vencido" ? "bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50" : ""}`}
       >
         <TableCell onClick={(e) => e.stopPropagation()}>
           <Checkbox
@@ -564,12 +611,11 @@ export default function ProjectDetailPage() {
         </TableCell>
         <TableCell>
           <div className="flex items-center gap-2">
-            <Link
-              href={`/orbit-tasksflow/tasks/${task.id}`}
-              className={`font-medium text-primary hover:underline ${isCompleted ? "line-through text-muted-foreground" : ""}`}
+            <span
+              className={`font-medium text-primary ${isCompleted ? "line-through text-muted-foreground" : ""}`}
             >
               {task.title}
-            </Link>
+            </span>
             {task.linkedRequestId && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">
                 Solicitud
@@ -689,20 +735,23 @@ const toggleTaskComplete = (taskId: string) => {
   }
   
   const modulesList = [
+    { key: "panel", label: "Panel", icon: LayoutDashboard, description: "Métricas y gráficas de las tareas" },
     { key: "resumen", label: "Resumen", icon: BarChart3, description: "Vista general del proyecto" },
     { key: "tareas", label: "Tareas", icon: ListTodo, description: "Lista de tareas y avances" },
-    { key: "entregables", label: "Entregables", icon: Package, description: "Archivos y entregas del proyecto" },
+    { key: "entregables", label: "Reportes", icon: Package, description: "Reportes del proyecto por área y periodo" },
     { key: "equipo", label: "Equipo", icon: Users, description: "Miembros asignados al proyecto" },
     { key: "documentos", label: "Documentos", icon: FolderOpen, description: "Carpetas y archivos compartidos" },
     { key: "calendario", label: "Calendario", icon: Calendar, description: "Fechas importantes y eventos" },
     { key: "solicitudes", label: "Solicitudes", icon: MessageSquarePlus, description: "Solicitudes de cambios del cliente" },
     { key: "parrilla_rss", label: "Parrilla RSS", icon: Rss, description: "Calendario de publicaciones" },
-    { key: "facturacion", label: "Facturación", icon: Receipt, description: "Facturas y pagos del proyecto" },
   ]
   
-  const project = mockProject
-  const hoursOverBudget = project.hoursWorked > project.hoursBudget
-  const budgetOverspent = project.spent > project.budget
+  // Combina los datos base de demostración con la identidad de la cuenta
+  // seleccionada, para que el encabezado y los datos reflejen la cuenta activa.
+  const summary = getProjectSummary(projectId)
+  const project = summary
+    ? { ...mockProject, id: summary.id, name: summary.name, client: summary.client, account: summary.account }
+    : mockProject
 
   return (
     <div className="p-6 space-y-6">
@@ -737,93 +786,11 @@ const toggleTaskComplete = (taskId: string) => {
               Configurar
             </Link>
           </Button>
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Nueva Tarea
-          </Button>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-5">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                <Target className="h-4 w-4 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{project.progress}%</p>
-                <p className="text-xs text-muted-foreground">Avance</p>
-              </div>
-            </div>
-            <Progress value={project.progress} className="mt-2 h-1.5" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{project.tasks.completed}/{project.tasks.total}</p>
-                <p className="text-xs text-muted-foreground">Tareas</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
-                <Package className="h-4 w-4 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{project.deliverables.approved}/{project.deliverables.total}</p>
-                <p className="text-xs text-muted-foreground">Entregables</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className={hoursOverBudget ? "border-red-200 dark:border-red-800" : ""}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${hoursOverBudget ? "bg-red-100 dark:bg-red-900/30" : "bg-amber-100 dark:bg-amber-900/30"}`}>
-                <Clock className={`h-4 w-4 ${hoursOverBudget ? "text-red-600" : "text-amber-600"}`} />
-              </div>
-              <div>
-                <p className={`text-2xl font-bold ${hoursOverBudget ? "text-red-600" : ""}`}>
-                  {project.hoursWorked}h
-                </p>
-                <p className="text-xs text-muted-foreground">/ {project.hoursBudget}h</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className={budgetOverspent ? "border-red-200 dark:border-red-800" : ""}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${budgetOverspent ? "bg-red-100 dark:bg-red-900/30" : "bg-green-100 dark:bg-green-900/30"}`}>
-                <TrendingUp className={`h-4 w-4 ${budgetOverspent ? "text-red-600" : "text-green-600"}`} />
-              </div>
-              <div>
-                <p className={`text-2xl font-bold ${budgetOverspent ? "text-red-600" : ""}`}>
-                  ${(project.spent / 1000).toFixed(0)}k
-                </p>
-                <p className="text-xs text-muted-foreground">/ ${(project.budget / 1000).toFixed(0)}k</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Overdue Alert */}
-      {project.tasks.overdue > 0 && (
+      {project.tasks.overdue > 0 && !alertDismissed && (
         <Card className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -836,9 +803,20 @@ const toggleTaskComplete = (taskId: string) => {
                   Hay tareas que requieren atención inmediata
                 </p>
               </div>
-              <Button variant="destructive" size="sm" className="ml-auto">
-                Ver Tareas Vencidas
-              </Button>
+              <div className="ml-auto flex items-center gap-2">
+                <Button variant="destructive" size="sm">
+                  Ver Tareas Vencidas
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-red-600 hover:bg-red-100 dark:hover:bg-red-900"
+                  onClick={() => setAlertDismissed(true)}
+                  aria-label="Cerrar aviso"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -846,67 +824,79 @@ const toggleTaskComplete = (taskId: string) => {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex flex-wrap h-auto gap-2 p-2 bg-muted/50 rounded-xl">
-          <TabsTrigger 
-            value="overview" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-muted transition-all"
-          >
-            <BarChart3 className="h-5 w-5" />
-            <span>Resumen</span>
-          </TabsTrigger>
+        <TabsList className="flex h-auto w-full flex-nowrap gap-1 overflow-x-auto p-2 bg-muted/50 rounded-xl justify-start">
           <TabsTrigger 
             value="tasks" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-blue-50 dark:hover:bg-blue-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-blue-50 dark:hover:bg-blue-950 transition-all"
           >
-            <ListTodo className="h-5 w-5" />
+            <ListTodo className="h-4 w-4 shrink-0" />
             <span>Tareas</span>
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs data-[state=active]:bg-blue-400/30 data-[state=active]:text-white">{project.tasks.total}</Badge>
           </TabsTrigger>
           <TabsTrigger 
+            value="rss" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-orange-50 dark:hover:bg-orange-950 transition-all"
+          >
+            <Rss className="h-4 w-4 shrink-0" />
+            <span>Parrilla RSS</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="overview" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-muted transition-all"
+          >
+            <BarChart3 className="h-4 w-4 shrink-0" />
+            <span>Resumen</span>
+          </TabsTrigger>
+          <TabsTrigger 
             value="deliverables" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-all"
           >
-            <Package className="h-5 w-5" />
-            <span>Entregables</span>
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{project.deliverables.total}</Badge>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="documents" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
-          >
-            <FolderOpen className="h-5 w-5" />
-            <span>Documentos</span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="calendar" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-rose-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-rose-50 dark:hover:bg-rose-950 transition-all"
-          >
-            <Calendar className="h-5 w-5" />
-            <span>Calendario</span>
+            <Package className="h-4 w-4 shrink-0" />
+            <span>Reportes</span>
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{reports.length}</Badge>
           </TabsTrigger>
           <TabsTrigger 
             value="requests" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-cyan-50 dark:hover:bg-cyan-950 transition-all"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-cyan-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-cyan-50 dark:hover:bg-cyan-950 transition-all"
           >
-            <MessageSquarePlus className="h-5 w-5" />
+            <MessageSquarePlus className="h-4 w-4 shrink-0" />
             <span>Solicitudes</span>
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{project.clientRequests.length}</Badge>
           </TabsTrigger>
           <TabsTrigger 
-            value="rss" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-orange-50 dark:hover:bg-orange-950 transition-all"
+            value="calendar" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-rose-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-rose-50 dark:hover:bg-rose-950 transition-all"
           >
-            <Rss className="h-5 w-5" />
-            <span>Parrilla RSS</span>
+            <Calendar className="h-4 w-4 shrink-0" />
+            <span>Calendario</span>
           </TabsTrigger>
           <TabsTrigger 
-            value="billing" 
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg data-[state=active]:bg-teal-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-teal-50 dark:hover:bg-teal-950 transition-all"
+            value="gantt" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-indigo-50 dark:hover:bg-indigo-950 transition-all"
           >
-            <Receipt className="h-5 w-5" />
-            <span>Facturación</span>
+            <GanttChartSquare className="h-4 w-4 shrink-0" />
+            <span>Cronograma</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="documents" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-amber-50 dark:hover:bg-amber-950 transition-all"
+          >
+            <FolderOpen className="h-4 w-4 shrink-0" />
+            <span>Documentos</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="panel" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-violet-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-violet-50 dark:hover:bg-violet-950 transition-all"
+          >
+            <LayoutDashboard className="h-4 w-4 shrink-0" />
+            <span>Panel</span>
           </TabsTrigger>
         </TabsList>
+
+        {/* Panel Tab */}
+        <TabsContent value="panel" className="space-y-4">
+          <ProjectPanel tasks={tasks} reports={reports} projectName={project.name} />
+        </TabsContent>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
@@ -1236,7 +1226,7 @@ const toggleTaskComplete = (taskId: string) => {
         </TabsContent>
 
         {/* Tasks Tab */}
-        <TabsContent value="tasks" className="space-y-4">
+        <TabsContent value="tasks" className="space-y-4 relative">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
@@ -1324,6 +1314,32 @@ const toggleTaskComplete = (taskId: string) => {
               )}
             </Card>
           )}
+
+          {/* Panel lateral: detalle completo de la tarea (se desliza sobre las columnas) */}
+          {selectedTaskId && (
+            <div
+              key={selectedTaskId}
+              className="absolute top-0 right-0 z-30 h-[calc(100vh-8rem)] min-h-[600px] w-full max-w-3xl animate-in slide-in-from-right-6 fade-in duration-200"
+            >
+              <Card className="flex h-full flex-col overflow-hidden rounded-l-xl rounded-r-none border-l shadow-2xl">
+                <div className="flex-1 overflow-y-auto overscroll-contain">
+                  <TaskDetailView
+                    taskId={selectedTaskId}
+                    embedded
+                    onClose={() => setSelectedTaskId(null)}
+                  />
+                </div>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Gantt Tab */}
+        <TabsContent value="gantt" className="space-y-4">
+          <GanttChart
+            tasks={tasks}
+            description={`Cronograma de las tareas de ${project.name}`}
+          />
         </TabsContent>
 
         {/* Deliverables Tab */}
@@ -1331,50 +1347,130 @@ const toggleTaskComplete = (taskId: string) => {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle>Entregables</CardTitle>
+                <CardTitle>Reportes</CardTitle>
                 <CardDescription>
-                  {project.deliverables.approved} de {project.deliverables.total} aprobados
+                  {reports.length} {reports.length === 1 ? "reporte cargado" : "reportes cargados"}
                 </CardDescription>
               </div>
-              <Button>
+              <Button onClick={() => setShowNewReportDialog(true)}>
                 <Plus className="h-4 w-4 mr-2" />
-                Nuevo Entregable
+                Nuevo Reporte
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {mockDeliverables.map((deliverable) => {
-                  const status = deliverableStatusConfig[deliverable.status as keyof typeof deliverableStatusConfig]
-                  return (
-                    <Card key={deliverable.id} className="hover:shadow-md transition-shadow cursor-pointer">
+              {reports.length === 0 ? (
+                <div className="text-center py-12">
+                  <FileText className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">Aún no hay reportes. Carga el primero con "Nuevo Reporte".</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {reports.map((report) => (
+                    <Card key={report.id} className="hover:shadow-md transition-shadow">
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-2.5 h-2.5 rounded-full ${status.color}`} />
-                            <span className="text-sm font-medium">{status.label}</span>
+                          <div className="h-10 w-10 rounded bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <FileText className="h-5 w-5 text-primary" />
                           </div>
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
+                          <Badge variant="outline">{report.area}</Badge>
                         </div>
-                        <h4 className="font-semibold mb-2">{deliverable.name}</h4>
-                        <div className="flex items-center justify-between text-sm text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {deliverable.dueDate}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <FileText className="h-3 w-3" />
-                            {deliverable.files} archivos
-                          </span>
+                        <h4 className="font-semibold mb-1 text-pretty">{report.name}</h4>
+                        <p className="text-sm text-muted-foreground mb-3">
+                          {report.month} {report.year}
+                        </p>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground truncate">
+                          <Paperclip className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{report.fileName}</span>
                         </div>
                       </CardContent>
                     </Card>
-                  )
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          <Dialog open={showNewReportDialog} onOpenChange={(open) => { setShowNewReportDialog(open); if (!open) resetReportForm() }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nuevo Reporte</DialogTitle>
+                <DialogDescription>Carga un documento de reporte con su información.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="report-name">Nombre</Label>
+                  <Input
+                    id="report-name"
+                    placeholder="Ej. Reporte de Métricas Q1"
+                    value={reportName}
+                    onChange={(e) => setReportName(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Mes</Label>
+                    <Select value={reportMonth} onValueChange={setReportMonth}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona mes" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MONTHS.map((m) => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="report-year">Año</Label>
+                    <Input
+                      id="report-year"
+                      type="number"
+                      min={2000}
+                      max={2100}
+                      value={reportYear}
+                      onChange={(e) => setReportYear(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Área / Departamento</Label>
+                  <Select value={reportArea} onValueChange={setReportArea}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona área" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {areaOptions.map((a) => (
+                        <SelectItem key={a.id} value={a.name}>{a.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="report-file">Documento</Label>
+                  <Input
+                    id="report-file"
+                    type="file"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv"
+                    onChange={(e) => setReportFileName(e.target.files?.[0]?.name ?? "")}
+                  />
+                  {reportFileName && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Paperclip className="h-3 w-3" />
+                      {reportFileName}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShowNewReportDialog(false); resetReportForm() }}>
+                  Cancelar
+                </Button>
+                <Button onClick={addReport} disabled={!reportName.trim() || !reportMonth || !reportArea}>
+                  Cargar Reporte
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* Documents Tab */}
@@ -2243,9 +2339,7 @@ const statusConfig: Record<string, { label: string, color: string, bgColor: stri
         </TabsContent>
 
         {/* Billing Tab */}
-        <TabsContent value="billing" className="space-y-4">
-          <BillingModule project={project} />
-        </TabsContent>
+
       </Tabs>
 
       {/* Link Folder to Google Drive Dialog */}
@@ -4005,414 +4099,6 @@ function RssPipelineModule({ project }: { project: typeof mockProject }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  )
-}
-
-// Billing Module Component
-function BillingModule({ project }: { project: typeof mockProject }) {
-  const [invoices, setInvoices] = useState(project.billing.invoices)
-  const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null)
-  const [showNewTask, setShowNewTask] = useState<string | null>(null)
-  const [newTaskTitle, setNewTaskTitle] = useState("")
-  const [showUpload, setShowUpload] = useState<string | null>(null)
-
-  const statusConfig: Record<string, { label: string, color: string, bgColor: string, icon: React.ReactNode }> = {
-    por_cobrar: { label: "Por Cobrar", color: "text-amber-600", bgColor: "bg-amber-100 dark:bg-amber-900/30", icon: <ClockIcon className="h-4 w-4" /> },
-    pagada: { label: "Pagada", color: "text-green-600", bgColor: "bg-green-100 dark:bg-green-900/30", icon: <CheckCircle2 className="h-4 w-4" /> },
-    vencida: { label: "Vencida", color: "text-red-600", bgColor: "bg-red-100 dark:bg-red-900/30", icon: <AlertTriangle className="h-4 w-4" /> },
-    cancelada: { label: "Cancelada", color: "text-gray-600", bgColor: "bg-gray-100 dark:bg-gray-900/30", icon: <Ban className="h-4 w-4" /> }
-  }
-
-  const stats = {
-    total: invoices.reduce((sum, inv) => sum + inv.amount, 0),
-    pagadas: invoices.filter(i => i.status === 'pagada').reduce((sum, inv) => sum + inv.amount, 0),
-    porCobrar: invoices.filter(i => i.status === 'por_cobrar').reduce((sum, inv) => sum + inv.amount, 0),
-    vencidas: invoices.filter(i => i.status === 'vencida').reduce((sum, inv) => sum + inv.amount, 0)
-  }
-
-  const addTask = (invoiceId: string) => {
-    if (!newTaskTitle.trim()) return
-    setInvoices(invoices.map(inv => {
-      if (inv.id === invoiceId) {
-        return {
-          ...inv,
-          tasks: [...inv.tasks, {
-            id: `bt${Date.now()}`,
-            title: newTaskTitle,
-            status: "pendiente",
-            date: new Date().toISOString().split('T')[0],
-            assignee: "Sin asignar"
-          }]
-        }
-      }
-      return inv
-    }))
-    setNewTaskTitle("")
-    setShowNewTask(null)
-  }
-
-  const toggleTaskStatus = (invoiceId: string, taskId: string) => {
-    setInvoices(invoices.map(inv => {
-      if (inv.id === invoiceId) {
-        return {
-          ...inv,
-          tasks: inv.tasks.map(task => {
-            if (task.id === taskId) {
-              return { ...task, status: task.status === 'completada' ? 'pendiente' : 'completada' }
-            }
-            return task
-          })
-        }
-      }
-      return inv
-    }))
-  }
-
-  const handleFileUpload = (invoiceId: string, file: File) => {
-    const newAttachment = {
-      id: `att${Date.now()}`,
-      name: file.name,
-      date: new Date().toISOString().split('T')[0],
-      type: "image"
-    }
-    setInvoices(invoices.map(inv => {
-      if (inv.id === invoiceId) {
-        return { ...inv, attachments: [...inv.attachments, newAttachment] }
-      }
-      return inv
-    }))
-    setShowUpload(null)
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Header Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <DollarSign className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Facturado</p>
-                <p className="text-xl font-bold">${stats.total.toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Pagadas</p>
-                <p className="text-xl font-bold text-green-600">${stats.pagadas.toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/30">
-                <ClockIcon className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Por Cobrar</p>
-                <p className="text-xl font-bold text-amber-600">${stats.porCobrar.toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30">
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Vencidas</p>
-                <p className="text-xl font-bold text-red-600">${stats.vencidas.toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Monthly Fee Info */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <CreditCard className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="font-medium">Cuota Mensual</p>
-                <p className="text-sm text-muted-foreground">Día de facturación: {project.billing.billingDay} de cada mes</p>
-              </div>
-            </div>
-            <p className="text-2xl font-bold">${project.billing.monthlyFee.toLocaleString()} {project.billing.currency}</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Invoices List */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Receipt className="h-5 w-5" />
-            Historial de Facturación
-          </CardTitle>
-          <CardDescription>Lista mensual de facturas y estado de cobranza</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {invoices
-              .sort((a, b) => b.month.localeCompare(a.month))
-              .map((invoice) => {
-                const status = statusConfig[invoice.status]
-                const isExpanded = selectedInvoice === invoice.id
-                const pendingTasks = invoice.tasks.filter(t => t.status !== 'completada').length
-
-                return (
-                  <div key={invoice.id} className="border rounded-lg overflow-hidden">
-                    {/* Invoice Header */}
-                    <div 
-                      className={`p-4 cursor-pointer hover:bg-muted/50 transition-colors ${isExpanded ? 'bg-muted/30' : ''}`}
-                      onClick={() => setSelectedInvoice(isExpanded ? null : invoice.id)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className={`p-2 rounded-lg ${status.bgColor}`}>
-                            <span className={status.color}>{status.icon}</span>
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold">{invoice.period}</p>
-                              <Badge variant="outline" className="text-xs">{invoice.invoiceNumber}</Badge>
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                              Emitida: {new Date(invoice.invoiceDate).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
-                              {' | '}Vence: {new Date(invoice.dueDate).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="font-bold text-lg">${invoice.amount.toLocaleString()}</p>
-                            <Badge className={`${status.bgColor} ${status.color} border-0`}>
-                              {status.label}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            {pendingTasks > 0 && (
-                              <Badge variant="secondary" className="text-xs">
-                                {pendingTasks} pendiente{pendingTasks > 1 ? 's' : ''}
-                              </Badge>
-                            )}
-                            {invoice.attachments.length > 0 && (
-                              <Badge variant="outline" className="text-xs">
-                                <FileImage className="h-3 w-3 mr-1" />
-                                {invoice.attachments.length}
-                              </Badge>
-                            )}
-                            <ChevronRight className={`h-5 w-5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Expanded Content */}
-                    {isExpanded && (
-                      <div className="border-t bg-muted/20 p-4 space-y-4">
-                        {/* Invoice Details */}
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <h4 className="font-medium text-sm flex items-center gap-2">
-                              <ListTodo className="h-4 w-4" />
-                              Tareas de Cobranza ({invoice.tasks.length})
-                            </h4>
-                            <div className="space-y-2">
-                              {invoice.tasks.map((task) => (
-                                <div 
-                                  key={task.id} 
-                                  className="flex items-center gap-3 p-2 rounded-lg bg-background border"
-                                >
-                                  <Checkbox 
-                                    checked={task.status === 'completada'}
-                                    onCheckedChange={() => toggleTaskStatus(invoice.id, task.id)}
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <p className={`text-sm ${task.status === 'completada' ? 'line-through text-muted-foreground' : ''}`}>
-                                      {task.title}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {new Date(task.date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} - {task.assignee}
-                                    </p>
-                                  </div>
-                                </div>
-                              ))}
-                              
-                              {/* Add New Task */}
-                              {showNewTask === invoice.id ? (
-                                <div className="flex gap-2">
-                                  <Input 
-                                    placeholder="Nueva tarea de cobranza..."
-                                    value={newTaskTitle}
-                                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                                    className="flex-1"
-                                    onKeyDown={(e) => e.key === 'Enter' && addTask(invoice.id)}
-                                  />
-                                  <Button size="sm" onClick={() => addTask(invoice.id)}>Agregar</Button>
-                                  <Button size="sm" variant="ghost" onClick={() => { setShowNewTask(null); setNewTaskTitle("") }}>
-                                    <X className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  className="w-full"
-                                  onClick={() => setShowNewTask(invoice.id)}
-                                >
-                                  <Plus className="h-4 w-4 mr-2" />
-                                  Agregar Tarea
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            <h4 className="font-medium text-sm flex items-center gap-2">
-                              <FileImage className="h-4 w-4" />
-                              Comprobantes de Comunicación ({invoice.attachments.length})
-                            </h4>
-                            <div className="space-y-2">
-                              {invoice.attachments.map((attachment) => (
-                                <div 
-                                  key={attachment.id} 
-                                  className="flex items-center gap-3 p-2 rounded-lg bg-background border"
-                                >
-                                  <div className="p-2 rounded bg-muted">
-                                    <FileImage className="h-4 w-4 text-muted-foreground" />
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm truncate">{attachment.name}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {new Date(attachment.date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
-                                    </p>
-                                  </div>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                                    <Download className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              ))}
-
-                              {invoice.attachments.length === 0 && (
-                                <p className="text-sm text-muted-foreground text-center py-2">
-                                  No hay comprobantes adjuntos
-                                </p>
-                              )}
-
-                              {/* Upload Attachment */}
-                              {showUpload === invoice.id ? (
-                                <div className="p-4 border-2 border-dashed rounded-lg text-center">
-                                  <input 
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    id={`upload-${invoice.id}`}
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0]
-                                      if (file) handleFileUpload(invoice.id, file)
-                                    }}
-                                  />
-                                  <label 
-                                    htmlFor={`upload-${invoice.id}`}
-                                    className="cursor-pointer"
-                                  >
-                                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                                    <p className="text-sm text-muted-foreground">
-                                      Haz clic para seleccionar imagen
-                                    </p>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      JPG, PNG (máx. 5MB)
-                                    </p>
-                                  </label>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    className="mt-2"
-                                    onClick={() => setShowUpload(null)}
-                                  >
-                                    Cancelar
-                                  </Button>
-                                </div>
-                              ) : (
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  className="w-full"
-                                  onClick={() => setShowUpload(invoice.id)}
-                                >
-                                  <Upload className="h-4 w-4 mr-2" />
-                                  Subir Comprobante
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Payment Info */}
-                        {invoice.status === 'pagada' && invoice.paidDate && (
-                          <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300">
-                            <CheckCircle2 className="h-4 w-4" />
-                            <span className="text-sm">
-                              Pagada el {new Date(invoice.paidDate).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
-                            </span>
-                          </div>
-                        )}
-
-                        {invoice.status === 'vencida' && (
-                          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
-                            <AlertTriangle className="h-4 w-4" />
-                            <span className="text-sm">
-                              Vencida desde el {new Date(invoice.dueDate).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} - 
-                              {' '}{Math.floor((new Date().getTime() - new Date(invoice.dueDate).getTime()) / (1000 * 60 * 60 * 24))} días de atraso
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Actions */}
-                        <div className="flex gap-2 pt-2 border-t">
-                          <Button variant="outline" size="sm">
-                            <Eye className="h-4 w-4 mr-2" />
-                            Ver Factura
-                          </Button>
-                          {invoice.status === 'por_cobrar' && (
-                            <Button variant="outline" size="sm">
-                              <Send className="h-4 w-4 mr-2" />
-                              Enviar Recordatorio
-                            </Button>
-                          )}
-                          {(invoice.status === 'por_cobrar' || invoice.status === 'vencida') && (
-                            <Button size="sm">
-                              <CheckCircle2 className="h-4 w-4 mr-2" />
-                              Marcar como Pagada
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
