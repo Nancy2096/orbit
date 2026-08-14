@@ -1,15 +1,17 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowLeft, Library, Tag, LayoutTemplate } from "lucide-react"
+import { ArrowLeft, Library, Tag, LayoutTemplate, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CatalogManager } from "@/components/orbit-tasksflow/catalog-manager"
 import {
   TASK_TYPES_STORAGE_KEY,
   TASK_FORMATS_STORAGE_KEY,
+  AREAS_STORAGE_KEY,
   defaultTaskTypes,
   defaultTaskFormats,
+  defaultAreas,
 } from "@/lib/orbit-tasksflow/catalogs"
 
 export default function CatalogsPage() {
@@ -28,7 +30,7 @@ export default function CatalogsPage() {
             Catálogos
           </h1>
           <p className="text-muted-foreground">
-            Gestiona los catálogos de Tipo y Formato de las tareas
+            Gestiona los catálogos de Tipo, Formato y Áreas de Orbit TasksFlow
           </p>
         </div>
       </div>
@@ -42,6 +44,10 @@ export default function CatalogsPage() {
           <TabsTrigger value="formats" className="flex items-center gap-2">
             <LayoutTemplate className="h-4 w-4" />
             Formato
+          </TabsTrigger>
+          <TabsTrigger value="areas" className="flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            Áreas / Departamentos
           </TabsTrigger>
         </TabsList>
 
@@ -65,6 +71,18 @@ export default function CatalogsPage() {
             storageKey={TASK_FORMATS_STORAGE_KEY}
             defaults={defaultTaskFormats}
             itemNoun="Formato"
+            embedded
+          />
+        </TabsContent>
+
+        <TabsContent value="areas" className="mt-6">
+          <CatalogManager
+            title="Áreas / Departamentos"
+            description="Define las áreas o departamentos disponibles para los reportes"
+            icon={Building2}
+            storageKey={AREAS_STORAGE_KEY}
+            defaults={defaultAreas}
+            itemNoun="Área"
             embedded
           />
         </TabsContent>

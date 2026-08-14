@@ -9,6 +9,7 @@ export type CatalogItem = {
 
 export const TASK_TYPES_STORAGE_KEY = "orbit-tasksflow-task-types"
 export const TASK_FORMATS_STORAGE_KEY = "orbit-tasksflow-task-formats"
+export const AREAS_STORAGE_KEY = "orbit-tasksflow-areas"
 
 export const defaultTaskTypes: CatalogItem[] = [
   { id: "brochure", name: "Brochure" },
@@ -26,6 +27,13 @@ export const defaultTaskFormats: CatalogItem[] = [
   { id: "carrusel", name: "Carrusel" },
   { id: "video", name: "Video" },
   { id: "reel", name: "Reel" },
+]
+
+export const defaultAreas: CatalogItem[] = [
+  { id: "finanzas", name: "Finanzas" },
+  { id: "estrategia", name: "Estrategia" },
+  { id: "tecnologia", name: "Tecnología" },
+  { id: "diseno-creatividad", name: "Diseño & Creatividad" },
 ]
 
 function slugify(value: string) {
