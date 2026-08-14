@@ -70,6 +70,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu"
 import {
   Dialog,
@@ -346,6 +347,8 @@ const getTaskById = (id: string) => {
     history: [{ id: "h1", action: "Tarea creada", user: "Sistema", date: "2026-05-01T10:30:00" }],
     relatedTasks: [],
     tags: [],
+    // Reacciones con emoji: máximo una por usuario.
+    reactions: [] as Array<{ userId: string; userName: string; emoji: string }>,
     notes: [] as Array<{ id: string; author: { name: string; initials: string }; text: string; date: string; isPrivate: boolean; attachments: Array<{ id: string; name: string; type: string; size: string; url?: string }>; driveLinks: Array<{ id: string; name: string; url: string }> }>,
     notifyOnComplete: [],
     projectTeam: [
@@ -640,6 +643,18 @@ export function TaskDetailView({
 
   // --- Comentarios funcionales ---
   const currentUser = { id: "user-1", name: "Diana García", initials: "DG" }
+  const reactionEmojis = ["👍", "🎉", "❤️", "🔥", "👏", "🚀", "😍", "✅"]
+  const myReaction = (task.reactions ?? []).find(r => r.userId === currentUser.id)?.emoji
+
+  // Agrupa las reacciones por emoji con su conteo y quiénes reaccionaron.
+  const groupedReactions = Object.values(
+    (task.reactions ?? []).reduce((acc, r) => {
+      if (!acc[r.emoji]) acc[r.emoji] = { emoji: r.emoji, count: 0, users: [] as string[] }
+      acc[r.emoji].count += 1
+      acc[r.emoji].users.push(r.userName)
+      return acc
+    }, {} as Record<string, { emoji: string; count: number; users: string[] }>),
+  )
 
   // Registra en el historial de actividad cualquier ajuste hecho en la tarea.
   const logActivity = (action: string) => {
@@ -650,6 +665,25 @@ export function TaskDetailView({
         { id: `h-${Date.now()}`, action, user: currentUser.name, date: new Date().toISOString() },
       ],
     }))
+  }
+
+  // Reacción con emoji: un usuario puede tener solo un emoji activo a la vez.
+  // Volver a elegir el mismo emoji lo quita; elegir otro lo reemplaza.
+  const toggleReaction = (emoji: string) => {
+    setTask(prev => {
+      const reactions = prev.reactions ?? []
+      const existing = reactions.find(r => r.userId === currentUser.id)
+      let next: typeof reactions
+      if (existing && existing.emoji === emoji) {
+        next = reactions.filter(r => r.userId !== currentUser.id)
+      } else {
+        next = [
+          ...reactions.filter(r => r.userId !== currentUser.id),
+          { userId: currentUser.id, userName: currentUser.name, emoji },
+        ]
+      }
+      return { ...prev, reactions: next }
+    })
   }
 
   const addComment = () => {
@@ -732,11 +766,74 @@ export function TaskDetailView({
               <Edit className="h-4 w-4 mr-2" />
               Editar
             </Button>
-            <Button variant="ghost" size="icon" className="text-white hover:bg-white/15 hover:text-white">
-              <MoreHorizontal className="h-5 w-5" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Más acciones"
+                  className="text-white hover:bg-white/15 hover:text-white"
+                >
+                  <MoreHorizontal className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Reaccionar</DropdownMenuLabel>
+                <div className="grid grid-cols-4 gap-1 p-1">
+                  {reactionEmojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => toggleReaction(emoji)}
+                      aria-label={`Reaccionar con ${emoji}`}
+                      aria-pressed={myReaction === emoji}
+                      className={`flex h-9 items-center justify-center rounded-md text-xl transition-colors hover:bg-accent ${
+                        myReaction === emoji ? "bg-accent ring-2 ring-primary" : ""
+                      }`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+                {myReaction && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => toggleReaction(myReaction)}>
+                      <X className="h-4 w-4 mr-2" />
+                      Quitar mi reacción
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
+
+        {/* Reacciones sobre la tarea */}
+        {groupedReactions.length > 0 && (
+          <div className="relative mt-4 flex flex-wrap items-center gap-2">
+            {groupedReactions.map((r) => {
+              const mine = myReaction === r.emoji
+              return (
+                <button
+                  key={r.emoji}
+                  type="button"
+                  onClick={() => toggleReaction(r.emoji)}
+                  title={r.users.join(", ")}
+                  aria-pressed={mine}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm backdrop-blur transition-colors ${
+                    mine
+                      ? "border-white bg-white/25 text-white"
+                      : "border-white/30 bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                >
+                  <span className="text-base leading-none">{r.emoji}</span>
+                  <span className="font-semibold tabular-nums">{r.count}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Quick Info Bar */}
