@@ -829,6 +829,13 @@ const toggleTaskComplete = (taskId: string) => {
             <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs data-[state=active]:bg-blue-400/30 data-[state=active]:text-white">{project.tasks.total}</Badge>
           </TabsTrigger>
           <TabsTrigger 
+            value="rss" 
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-orange-50 dark:hover:bg-orange-950 transition-all"
+          >
+            <Rss className="h-4 w-4 shrink-0" />
+            <span>Parrilla RSS</span>
+          </TabsTrigger>
+          <TabsTrigger 
             value="overview" 
             className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-muted transition-all"
           >
@@ -878,13 +885,6 @@ const toggleTaskComplete = (taskId: string) => {
           >
             <LayoutDashboard className="h-4 w-4 shrink-0" />
             <span>Panel</span>
-          </TabsTrigger>
-          <TabsTrigger 
-            value="rss" 
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs font-medium rounded-lg data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:shadow-md hover:bg-orange-50 dark:hover:bg-orange-950 transition-all"
-          >
-            <Rss className="h-4 w-4 shrink-0" />
-            <span>Parrilla RSS</span>
           </TabsTrigger>
         </TabsList>
 
