@@ -351,9 +351,17 @@ const getTaskById = (id: string) => {
   }
 }
 
-export default function TaskDetailPage() {
+export function TaskDetailView({
+  taskId: taskIdProp,
+  embedded = false,
+  onClose,
+}: {
+  taskId?: string
+  embedded?: boolean
+  onClose?: () => void
+} = {}) {
   const params = useParams()
-  const taskId = params.id as string
+  const taskId = (taskIdProp ?? (params.id as string))
   const [activeTab, setActiveTab] = useState("overview")
   const [newComment, setNewComment] = useState("")
   const [task, setTask] = useState(() => getTaskById(taskId))
@@ -538,15 +546,21 @@ export default function TaskDetailPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/orbit-tasksflow/tasks">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
+          {embedded ? (
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Cerrar detalle">
+              <X className="h-5 w-5" />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/orbit-tasksflow/tasks">
+                <ArrowLeft className="h-5 w-5" />
+              </Link>
+            </Button>
+          )}
           <div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
               <Link href="/orbit-tasksflow/projects" className="hover:underline">Proyectos</Link>
@@ -1804,4 +1818,8 @@ export default function TaskDetailPage() {
       </Dialog>
     </div>
   )
+}
+
+export default function TaskDetailPage() {
+  return <TaskDetailView />
 }
