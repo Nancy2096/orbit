@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useTabParam } from "@/hooks/use-tab-param"
+import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
