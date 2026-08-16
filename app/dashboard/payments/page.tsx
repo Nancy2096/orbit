@@ -45,6 +45,14 @@ interface BankAccount {
   agency: { id: string; name: string } | null
 }
 
+// Cuenta agrupada para mostrar: un mismo banco compartido por varias agencias
+// se consolida en una sola tarjeta, sumando sus saldos.
+interface DisplayAccount extends BankAccount {
+  ids: string[]
+  agencyNames: string[]
+  isShared: boolean
+}
+
 interface PaidInvoice {
   id: string
   invoice_number: string
@@ -96,7 +104,7 @@ export default function IncomesPage() {
   })
 
   // Editar saldo inicial de un banco existente
-  const [editBalanceAccount, setEditBalanceAccount] = useState<BankAccount | null>(null)
+  const [editBalanceAccount, setEditBalanceAccount] = useState<DisplayAccount | null>(null)
   const [editInitialBalance, setEditInitialBalance] = useState("")
   const [savingBalance, setSavingBalance] = useState(false)
 
@@ -187,16 +195,24 @@ export default function IncomesPage() {
   const handleSaveInitialBalance = async () => {
     if (!editBalanceAccount) return
     const value = parseFloat(editInitialBalance) || 0
+    const ids = editBalanceAccount.ids
 
     setSavingBalance(true)
-    const { error } = await supabase
-      .from("bank_accounts")
-      .update({ initial_balance: value })
-      .eq("id", editBalanceAccount.id)
+    // Si el banco es compartido por varias agencias, aplica el saldo al
+    // registro representante y deja los demás en 0 para no duplicar el total.
+    const results = await Promise.all(
+      ids.map((bid, idx) =>
+        supabase
+          .from("bank_accounts")
+          .update({ initial_balance: idx === 0 ? value : 0 })
+          .eq("id", bid),
+      ),
+    )
     setSavingBalance(false)
 
-    if (error) {
-      toast.error("Error al actualizar el saldo inicial: " + error.message)
+    const failed = results.find((r) => r.error)
+    if (failed?.error) {
+      toast.error("Error al actualizar el saldo inicial: " + failed.error.message)
       return
     }
 
@@ -441,6 +457,45 @@ export default function IncomesPage() {
     return types[type] || type
   }
 
+  // Consolida bancos idénticos que existen para más de una agencia en una sola
+  // tarjeta (mismo nombre, número de cuenta/CLABE y moneda), sumando sus saldos.
+  // Un banco propio de una sola agencia se muestra con su etiqueta de agencia.
+  const displayAccounts: DisplayAccount[] = (() => {
+    const groups = new Map<string, DisplayAccount>()
+    for (const acc of bankAccounts) {
+      const hasIdentifier = Boolean(acc.account_number || acc.clabe)
+      const key = [
+        (acc.bank_name || "").trim().toLowerCase(),
+        (acc.account_number || "").trim(),
+        (acc.clabe || "").trim(),
+        acc.currency?.code || "",
+        // Para cuentas sin número/CLABE (p. ej. Payoneer), el nombre las distingue
+        hasIdentifier ? "" : (acc.account_name || "").trim().toLowerCase(),
+      ].join("|")
+
+      const existing = groups.get(key)
+      if (!existing) {
+        groups.set(key, {
+          ...acc,
+          ids: [acc.id],
+          agencyNames: acc.agency?.name ? [acc.agency.name] : [],
+          isShared: false,
+        })
+      } else {
+        existing.ids.push(acc.id)
+        existing.initial_balance += acc.initial_balance || 0
+        existing.invoices_total += acc.invoices_total || 0
+        existing.capital_total += acc.capital_total || 0
+        existing.current_balance += acc.current_balance || 0
+        if (acc.agency?.name && !existing.agencyNames.includes(acc.agency.name)) {
+          existing.agencyNames.push(acc.agency.name)
+        }
+        existing.isShared = existing.agencyNames.length > 1
+      }
+    }
+    return Array.from(groups.values())
+  })()
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -492,7 +547,7 @@ export default function IncomesPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {/* MXN Summary */}
           {(() => {
-            const mxnAccounts = bankAccounts.filter(a => a.currency?.code === "MXN")
+            const mxnAccounts = displayAccounts.filter(a => a.currency?.code === "MXN")
             const mxnTotal = mxnAccounts.reduce((sum, a) => sum + (a.current_balance || 0), 0)
             if (mxnAccounts.length === 0) return null
             return (
@@ -517,7 +572,7 @@ export default function IncomesPage() {
           
           {/* USD Summary */}
           {(() => {
-            const usdAccounts = bankAccounts.filter(a => a.currency?.code === "USD")
+            const usdAccounts = displayAccounts.filter(a => a.currency?.code === "USD")
             const usdTotal = usdAccounts.reduce((sum, a) => sum + (a.current_balance || 0), 0)
             if (usdAccounts.length === 0) return null
             return (
@@ -542,7 +597,7 @@ export default function IncomesPage() {
 
           {/* Other Currencies Summary */}
           {(() => {
-            const otherAccounts = bankAccounts.filter(a => a.currency?.code !== "MXN" && a.currency?.code !== "USD")
+            const otherAccounts = displayAccounts.filter(a => a.currency?.code !== "MXN" && a.currency?.code !== "USD")
             if (otherAccounts.length === 0) return null
             const groupedByCode = otherAccounts.reduce((acc, a) => {
               const code = a.currency?.code || "N/A"
@@ -595,16 +650,16 @@ export default function IncomesPage() {
           </h2>
           <div className="flex items-center gap-4">
             <div className="text-sm text-muted-foreground">
-              {bankAccounts.length} cuenta{bankAccounts.length !== 1 ? "s" : ""} bancaria{bankAccounts.length !== 1 ? "s" : ""}
+              {displayAccounts.length} cuenta{displayAccounts.length !== 1 ? "s" : ""} bancaria{displayAccounts.length !== 1 ? "s" : ""}
             </div>
             <Button
               size="sm"
               variant="outline"
               onClick={() => {
-                setNewCapital((prev) => ({ ...prev, bank_account_id: bankAccounts[0]?.id || "" }))
+                setNewCapital((prev) => ({ ...prev, bank_account_id: displayAccounts[0]?.ids[0] || "" }))
                 setShowCapitalDialog(true)
               }}
-              disabled={bankAccounts.length === 0}
+              disabled={displayAccounts.length === 0}
             >
               <PiggyBank className="mr-2 h-4 w-4" />
               Ingreso de Capital
@@ -629,8 +684,8 @@ export default function IncomesPage() {
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {bankAccounts.map((bank) => (
-              <Card key={bank.id} className="hover:shadow-md transition-shadow">
+            {displayAccounts.map((bank) => (
+              <Card key={bank.ids[0]} className="hover:shadow-md transition-shadow">
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
@@ -730,10 +785,14 @@ export default function IncomesPage() {
                       <Badge variant="secondary" className="text-xs">{bank.currency.code}</Badge>
                     )}
                   </div>
-                  {bank.agency && (
+                  {bank.agencyNames.length > 0 && (
                     <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-                      <Building2 className="h-3 w-3" />
-                      {bank.agency.name}
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      {bank.isShared ? (
+                        <span>Compartido: {bank.agencyNames.join(", ")}</span>
+                      ) : (
+                        <span>{bank.agencyNames[0]}</span>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -1054,6 +1113,11 @@ export default function IncomesPage() {
               <p className="text-xs text-muted-foreground">
                 Este monto es la base del saldo; se le suman las facturas cobradas y las aportaciones de capital.
               </p>
+              {editBalanceAccount?.isShared && (
+                <p className="text-xs text-muted-foreground">
+                  Este banco es compartido por {editBalanceAccount.agencyNames.join(" y ")}; el saldo inicial se aplica una sola vez a la cuenta.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -1090,8 +1154,8 @@ export default function IncomesPage() {
                   <SelectValue placeholder="Seleccionar banco" />
                 </SelectTrigger>
                 <SelectContent>
-                  {bankAccounts.map((bank) => (
-                    <SelectItem key={bank.id} value={bank.id}>
+                  {displayAccounts.map((bank) => (
+                    <SelectItem key={bank.ids[0]} value={bank.ids[0]}>
                       {bank.account_name || bank.bank_name}
                       {bank.currency?.code ? ` (${bank.currency.code})` : ""}
                     </SelectItem>
