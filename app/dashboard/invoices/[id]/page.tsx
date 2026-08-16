@@ -107,6 +107,7 @@ interface Invoice {
   paid_amount: number
   balance_due: number
   exchange_rate: number
+  bank_account_id: string | null
   payment_terms: number
   cfdi_use: string | null
   payment_method: string | null
@@ -269,6 +270,18 @@ export default function InvoiceDetailPage() {
       updateData.bank_account_id = newPayment.bank_account_id
     }
     
+    // Al marcar como pagada, salda el pendiente y aplica el pago al banco.
+    const bankForPayment = newPayment.bank_account_id || invoice?.bank_account_id || ""
+    const outstanding = invoice ? Number(invoice.balance_due ?? invoice.total_amount) : 0
+    const willRegisterPayment =
+      newStatus === "paid" && invoice?.status !== "paid" && outstanding > 0
+
+    if (willRegisterPayment) {
+      updateData.paid_amount = invoice!.total_amount
+      updateData.balance_due = 0
+      updateData.payment_date = newPayment.payment_date
+    }
+
     const { error } = await supabase
       .from("invoices")
       .update(updateData)
@@ -276,10 +289,50 @@ export default function InvoiceDetailPage() {
 
     if (error) {
       toast.error("Error al actualizar el estado: " + error.message)
-    } else {
-      toast.success("Estado actualizado correctamente")
-      setInvoice(prev => prev ? { ...prev, status: newStatus, bank_account_id: newPayment.bank_account_id || prev.bank_account_id } : null)
+      setActionLoading(false)
+      setShowStatusDialog(false)
+      return
     }
+
+    // Crea el registro de pago para que se refleje en el saldo del banco
+    if (willRegisterPayment && invoice) {
+      if (!bankForPayment) {
+        toast.warning("Factura marcada como pagada, pero sin banco seleccionado no se refleja en Bancos.")
+      } else {
+        const paymentNumber = await generatePaymentNumber()
+        const { error: paymentError } = await supabase.from("payments").insert({
+          agency_id: invoice.agency?.id,
+          invoice_id: invoice.id,
+          client_id: invoice.client?.id,
+          payment_number: paymentNumber,
+          payment_date: newPayment.payment_date,
+          amount: outstanding,
+          currency_id: invoice.currency?.id,
+          exchange_rate: invoice.exchange_rate,
+          payment_method: newPayment.payment_method,
+          reference_number: newPayment.reference_number || null,
+          bank_account_id: bankForPayment,
+          status: "completed",
+          notes: newPayment.notes || null,
+        })
+        if (paymentError) {
+          toast.error("El estado se actualizó, pero no se pudo aplicar al banco: " + paymentError.message)
+        }
+      }
+    }
+
+    toast.success("Estado actualizado correctamente")
+    setInvoice(prev =>
+      prev
+        ? {
+            ...prev,
+            status: newStatus,
+            bank_account_id: bankForPayment || prev.bank_account_id,
+            ...(willRegisterPayment ? { paid_amount: prev.total_amount, balance_due: 0 } : {}),
+          }
+        : null
+    )
+    if (willRegisterPayment) fetchPayments()
     setActionLoading(false)
     setShowStatusDialog(false)
   }

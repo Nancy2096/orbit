@@ -23,8 +23,9 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Spinner } from "@/components/ui/spinner"
-import { Search, DollarSign, TrendingUp, Calendar, Building2, Landmark, ArrowUpRight, ArrowDownRight, Eye, Plus } from "lucide-react"
+import { Search, DollarSign, TrendingUp, Calendar, Building2, Landmark, ArrowUpRight, ArrowDownRight, Eye, Plus, PiggyBank, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 
@@ -37,8 +38,19 @@ interface BankAccount {
   account_type: string
   is_primary: boolean
   current_balance: number
+  initial_balance: number
+  invoices_total: number
+  capital_total: number
   currency: { code: string; symbol: string } | null
   agency: { id: string; name: string } | null
+}
+
+// Cuenta agrupada para mostrar: un mismo banco compartido por varias agencias
+// se consolida en una sola tarjeta, sumando sus saldos.
+interface DisplayAccount extends BankAccount {
+  ids: string[]
+  agencyNames: string[]
+  isShared: boolean
 }
 
 interface PaidInvoice {
@@ -86,9 +98,26 @@ export default function IncomesPage() {
     account_number: "",
     clabe: "",
     account_type: "checking",
+    initial_balance: "",
     is_primary: false,
     is_active: true,
   })
+
+  // Editar saldo inicial de un banco existente
+  const [editBalanceAccount, setEditBalanceAccount] = useState<DisplayAccount | null>(null)
+  const [editInitialBalance, setEditInitialBalance] = useState("")
+  const [savingBalance, setSavingBalance] = useState(false)
+
+  // Ingreso de capital
+  const [showCapitalDialog, setShowCapitalDialog] = useState(false)
+  const [savingCapital, setSavingCapital] = useState(false)
+  const [newCapital, setNewCapital] = useState({
+    bank_account_id: "",
+    amount: "",
+    description: "",
+    transaction_date: new Date().toISOString().split("T")[0],
+  })
+
   const supabase = createClient()
 
   // Stats
@@ -122,6 +151,8 @@ export default function IncomesPage() {
       return
     }
 
+    const initialBalance = parseFloat(newAccount.initial_balance) || 0
+
     setSavingAccount(true)
     const { error } = await supabase.from("bank_accounts").insert({
       agency_id: newAccount.agency_id,
@@ -131,6 +162,8 @@ export default function IncomesPage() {
       account_number: newAccount.account_number || null,
       clabe: newAccount.clabe || null,
       account_type: newAccount.account_type,
+      initial_balance: initialBalance,
+      current_balance: initialBalance,
       is_primary: newAccount.is_primary,
       is_active: newAccount.is_active,
     })
@@ -152,8 +185,75 @@ export default function IncomesPage() {
       account_number: "",
       clabe: "",
       account_type: "checking",
+      initial_balance: "",
       is_primary: false,
       is_active: true,
+    })
+    fetchBankAccounts()
+  }
+
+  const handleSaveInitialBalance = async () => {
+    if (!editBalanceAccount) return
+    const value = parseFloat(editInitialBalance) || 0
+    const ids = editBalanceAccount.ids
+
+    setSavingBalance(true)
+    // Si el banco es compartido por varias agencias, aplica el saldo al
+    // registro representante y deja los demás en 0 para no duplicar el total.
+    const results = await Promise.all(
+      ids.map((bid, idx) =>
+        supabase
+          .from("bank_accounts")
+          .update({ initial_balance: idx === 0 ? value : 0 })
+          .eq("id", bid),
+      ),
+    )
+    setSavingBalance(false)
+
+    const failed = results.find((r) => r.error)
+    if (failed?.error) {
+      toast.error("Error al actualizar el saldo inicial: " + failed.error.message)
+      return
+    }
+
+    toast.success("Saldo inicial actualizado")
+    setEditBalanceAccount(null)
+    setEditInitialBalance("")
+    fetchBankAccounts()
+  }
+
+  const handleSaveCapital = async () => {
+    const amount = parseFloat(newCapital.amount) || 0
+    if (!newCapital.bank_account_id || amount <= 0) {
+      toast.error("Selecciona un banco e ingresa un monto válido")
+      return
+    }
+
+    const bank = bankAccounts.find((b) => b.id === newCapital.bank_account_id)
+
+    setSavingCapital(true)
+    const { error } = await supabase.from("equity_transactions").insert({
+      bank_account_id: newCapital.bank_account_id,
+      agency_id: bank?.agency?.id || null,
+      transaction_type: "capital_contribution",
+      amount,
+      description: newCapital.description || "Ingreso de capital",
+      transaction_date: newCapital.transaction_date,
+    })
+    setSavingCapital(false)
+
+    if (error) {
+      toast.error("Error al registrar el ingreso de capital: " + error.message)
+      return
+    }
+
+    toast.success("Ingreso de capital registrado exitosamente")
+    setShowCapitalDialog(false)
+    setNewCapital({
+      bank_account_id: "",
+      amount: "",
+      description: "",
+      transaction_date: new Date().toISOString().split("T")[0],
     })
     fetchBankAccounts()
   }
@@ -162,7 +262,7 @@ export default function IncomesPage() {
     let query = supabase
       .from("bank_accounts")
       .select(`
-        id, bank_name, account_name, account_number, clabe, account_type, is_primary, current_balance,
+        id, bank_name, account_name, account_number, clabe, account_type, is_primary, current_balance, initial_balance,
         currency:currencies(code, symbol),
         agency:agencies(id, name)
       `)
@@ -182,32 +282,56 @@ export default function IncomesPage() {
     }
     
     if (data) {
-      // Fetch paid invoices to calculate balances per bank account
       const bankIds = data.map((b: Record<string, unknown>) => b.id as string)
-      
-      const { data: paidInvoices } = await supabase
-        .from("invoices")
-        .select("bank_account_id, total_amount")
-        .eq("status", "paid")
+
+      // Pagos recibidos por banco (fuente de verdad: tabla payments).
+      // Cada pago registrado se aplica al banco seleccionado, soportando pagos parciales.
+      const { data: bankPayments } = await supabase
+        .from("payments")
+        .select("bank_account_id, amount, status")
         .in("bank_account_id", bankIds)
-      
-      // Calculate balance per bank account from paid invoices
-      const balanceByBank: Record<string, number> = {}
-      if (paidInvoices) {
-        paidInvoices.forEach((inv: { bank_account_id: string | null; total_amount: number }) => {
-          if (inv.bank_account_id) {
-            balanceByBank[inv.bank_account_id] = (balanceByBank[inv.bank_account_id] || 0) + (inv.total_amount || 0)
-          }
+
+      const invoicesByBank: Record<string, number> = {}
+      if (bankPayments) {
+        bankPayments.forEach((p: { bank_account_id: string | null; amount: number; status: string | null }) => {
+          // Ignora pagos cancelados/reembolsados; cuenta pendientes y completados.
+          if (!p.bank_account_id || p.status === "cancelled" || p.status === "refunded") return
+          invoicesByBank[p.bank_account_id] = (invoicesByBank[p.bank_account_id] || 0) + (p.amount || 0)
         })
       }
-      
-      const mapped = data.map((bank: Record<string, unknown>) => ({
-        ...bank,
-        currency: Array.isArray(bank.currency) ? bank.currency[0] : bank.currency,
-        agency: Array.isArray(bank.agency) ? bank.agency[0] : bank.agency,
-        // Use calculated balance from paid invoices, fallback to current_balance if no invoices
-        current_balance: balanceByBank[bank.id as string] || (bank.current_balance as number) || 0,
-      })) as BankAccount[]
+
+      // Aportaciones de capital por banco
+      const { data: capitalTx } = await supabase
+        .from("equity_transactions")
+        .select("bank_account_id, amount, transaction_type")
+        .in("bank_account_id", bankIds)
+
+      const capitalByBank: Record<string, number> = {}
+      if (capitalTx) {
+        capitalTx.forEach((tx: { bank_account_id: string | null; amount: number; transaction_type: string }) => {
+          if (!tx.bank_account_id) return
+          // Las aportaciones suman; retiros/dividendos restan del saldo del banco.
+          const sign = tx.transaction_type === "capital_contribution" ? 1 : -1
+          capitalByBank[tx.bank_account_id] = (capitalByBank[tx.bank_account_id] || 0) + sign * (tx.amount || 0)
+        })
+      }
+
+      const mapped = data.map((bank: Record<string, unknown>) => {
+        const id = bank.id as string
+        const initial = Number(bank.initial_balance) || 0
+        const invoicesTotal = invoicesByBank[id] || 0
+        const capitalTotal = capitalByBank[id] || 0
+        return {
+          ...bank,
+          currency: Array.isArray(bank.currency) ? bank.currency[0] : bank.currency,
+          agency: Array.isArray(bank.agency) ? bank.agency[0] : bank.agency,
+          initial_balance: initial,
+          invoices_total: invoicesTotal,
+          capital_total: capitalTotal,
+          // Saldo actual = saldo inicial + facturas pagadas + aportaciones de capital
+          current_balance: initial + invoicesTotal + capitalTotal,
+        }
+      }) as BankAccount[]
       setBankAccounts(mapped)
     }
   }
@@ -333,6 +457,45 @@ export default function IncomesPage() {
     return types[type] || type
   }
 
+  // Consolida bancos idénticos que existen para más de una agencia en una sola
+  // tarjeta (mismo nombre, número de cuenta/CLABE y moneda), sumando sus saldos.
+  // Un banco propio de una sola agencia se muestra con su etiqueta de agencia.
+  const displayAccounts: DisplayAccount[] = (() => {
+    const groups = new Map<string, DisplayAccount>()
+    for (const acc of bankAccounts) {
+      const hasIdentifier = Boolean(acc.account_number || acc.clabe)
+      const key = [
+        (acc.bank_name || "").trim().toLowerCase(),
+        (acc.account_number || "").trim(),
+        (acc.clabe || "").trim(),
+        acc.currency?.code || "",
+        // Para cuentas sin número/CLABE (p. ej. Payoneer), el nombre las distingue
+        hasIdentifier ? "" : (acc.account_name || "").trim().toLowerCase(),
+      ].join("|")
+
+      const existing = groups.get(key)
+      if (!existing) {
+        groups.set(key, {
+          ...acc,
+          ids: [acc.id],
+          agencyNames: acc.agency?.name ? [acc.agency.name] : [],
+          isShared: false,
+        })
+      } else {
+        existing.ids.push(acc.id)
+        existing.initial_balance += acc.initial_balance || 0
+        existing.invoices_total += acc.invoices_total || 0
+        existing.capital_total += acc.capital_total || 0
+        existing.current_balance += acc.current_balance || 0
+        if (acc.agency?.name && !existing.agencyNames.includes(acc.agency.name)) {
+          existing.agencyNames.push(acc.agency.name)
+        }
+        existing.isShared = existing.agencyNames.length > 1
+      }
+    }
+    return Array.from(groups.values())
+  })()
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -384,7 +547,7 @@ export default function IncomesPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {/* MXN Summary */}
           {(() => {
-            const mxnAccounts = bankAccounts.filter(a => a.currency?.code === "MXN")
+            const mxnAccounts = displayAccounts.filter(a => a.currency?.code === "MXN")
             const mxnTotal = mxnAccounts.reduce((sum, a) => sum + (a.current_balance || 0), 0)
             if (mxnAccounts.length === 0) return null
             return (
@@ -409,7 +572,7 @@ export default function IncomesPage() {
           
           {/* USD Summary */}
           {(() => {
-            const usdAccounts = bankAccounts.filter(a => a.currency?.code === "USD")
+            const usdAccounts = displayAccounts.filter(a => a.currency?.code === "USD")
             const usdTotal = usdAccounts.reduce((sum, a) => sum + (a.current_balance || 0), 0)
             if (usdAccounts.length === 0) return null
             return (
@@ -434,7 +597,7 @@ export default function IncomesPage() {
 
           {/* Other Currencies Summary */}
           {(() => {
-            const otherAccounts = bankAccounts.filter(a => a.currency?.code !== "MXN" && a.currency?.code !== "USD")
+            const otherAccounts = displayAccounts.filter(a => a.currency?.code !== "MXN" && a.currency?.code !== "USD")
             if (otherAccounts.length === 0) return null
             const groupedByCode = otherAccounts.reduce((acc, a) => {
               const code = a.currency?.code || "N/A"
@@ -487,8 +650,20 @@ export default function IncomesPage() {
           </h2>
           <div className="flex items-center gap-4">
             <div className="text-sm text-muted-foreground">
-              {bankAccounts.length} cuenta{bankAccounts.length !== 1 ? "s" : ""} bancaria{bankAccounts.length !== 1 ? "s" : ""}
+              {displayAccounts.length} cuenta{displayAccounts.length !== 1 ? "s" : ""} bancaria{displayAccounts.length !== 1 ? "s" : ""}
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setNewCapital((prev) => ({ ...prev, bank_account_id: displayAccounts[0]?.ids[0] || "" }))
+                setShowCapitalDialog(true)
+              }}
+              disabled={displayAccounts.length === 0}
+            >
+              <PiggyBank className="mr-2 h-4 w-4" />
+              Ingreso de Capital
+            </Button>
             <Button size="sm" onClick={() => setShowAddAccountDialog(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Agregar Cuenta
@@ -509,8 +684,8 @@ export default function IncomesPage() {
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {bankAccounts.map((bank) => (
-              <Card key={bank.id} className="hover:shadow-md transition-shadow">
+            {displayAccounts.map((bank) => (
+              <Card key={bank.ids[0]} className="hover:shadow-md transition-shadow">
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
@@ -548,7 +723,21 @@ export default function IncomesPage() {
                       ? "bg-blue-50 dark:bg-blue-950/30" 
                       : "bg-muted/50"
                   }`}>
-                    <p className="text-xs text-muted-foreground mb-1">Saldo Actual</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs text-muted-foreground">Saldo Actual</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditBalanceAccount(bank)
+                          setEditInitialBalance(String(bank.initial_balance ?? 0))
+                        }}
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Editar saldo inicial"
+                        title="Editar saldo inicial"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                     <p className={`text-xl font-bold ${
                       bank.currency?.code === "MXN" 
                         ? "text-green-600 dark:text-green-400" 
@@ -559,7 +748,29 @@ export default function IncomesPage() {
                       {bank.currency?.symbol || "$"}{(bank.current_balance || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} {bank.currency?.code || ""}
                     </p>
                   </div>
-                  
+
+                  {/* Desglose del saldo */}
+                  <div className="text-xs space-y-1 rounded-lg border p-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Saldo inicial</span>
+                      <span className="font-medium">
+                        {bank.currency?.symbol || "$"}{(bank.initial_balance || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Pagos recibidos</span>
+                      <span className="font-medium">
+                        +{bank.currency?.symbol || "$"}{(bank.invoices_total || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Aportaciones de capital</span>
+                      <span className="font-medium">
+                        {bank.capital_total >= 0 ? "+" : "-"}{bank.currency?.symbol || "$"}{Math.abs(bank.capital_total || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
                   <div className="text-sm text-muted-foreground space-y-1">
                     <div>
                       {bank.account_number ? `Cuenta: ****${bank.account_number.slice(-4)}` : "Sin numero de cuenta"}
@@ -574,10 +785,14 @@ export default function IncomesPage() {
                       <Badge variant="secondary" className="text-xs">{bank.currency.code}</Badge>
                     )}
                   </div>
-                  {bank.agency && (
+                  {bank.agencyNames.length > 0 && (
                     <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-                      <Building2 className="h-3 w-3" />
-                      {bank.agency.name}
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      {bank.isShared ? (
+                        <span>Compartido: {bank.agencyNames.join(", ")}</span>
+                      ) : (
+                        <span>{bank.agencyNames[0]}</span>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -831,21 +1046,36 @@ export default function IncomesPage() {
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="account_type">Tipo de Cuenta</Label>
-              <Select
-                value={newAccount.account_type}
-                onValueChange={(value) => setNewAccount({ ...newAccount, account_type: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="checking">Cuenta Corriente</SelectItem>
-                  <SelectItem value="savings">Cuenta de Ahorro</SelectItem>
-                  <SelectItem value="investment">Inversión</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="account_type">Tipo de Cuenta</Label>
+                <Select
+                  value={newAccount.account_type}
+                  onValueChange={(value) => setNewAccount({ ...newAccount, account_type: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="checking">Cuenta Corriente</SelectItem>
+                    <SelectItem value="savings">Cuenta de Ahorro</SelectItem>
+                    <SelectItem value="investment">Inversión</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="initial_balance">Saldo Inicial</Label>
+                <Input
+                  id="initial_balance"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={newAccount.initial_balance}
+                  onChange={(e) => setNewAccount({ ...newAccount, initial_balance: e.target.value })}
+                  placeholder="0.00"
+                />
+                <p className="text-xs text-muted-foreground">Saldo con el que arranca la cuenta.</p>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -854,6 +1084,125 @@ export default function IncomesPage() {
             </Button>
             <Button onClick={handleSaveAccount} disabled={savingAccount}>
               {savingAccount ? "Guardando..." : "Guardar Cuenta"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Editar saldo inicial */}
+      <Dialog open={!!editBalanceAccount} onOpenChange={(open) => { if (!open) { setEditBalanceAccount(null); setEditInitialBalance("") } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Saldo Inicial</DialogTitle>
+            <DialogDescription>
+              {editBalanceAccount?.account_name || editBalanceAccount?.bank_name}
+              {editBalanceAccount?.currency?.code ? ` · ${editBalanceAccount.currency.code}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_initial_balance">Saldo Inicial</Label>
+              <Input
+                id="edit_initial_balance"
+                type="number"
+                step="0.01"
+                value={editInitialBalance}
+                onChange={(e) => setEditInitialBalance(e.target.value)}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-muted-foreground">
+                Este monto es la base del saldo; se le suman las facturas cobradas y las aportaciones de capital.
+              </p>
+              {editBalanceAccount?.isShared && (
+                <p className="text-xs text-muted-foreground">
+                  Este banco es compartido por {editBalanceAccount.agencyNames.join(" y ")}; el saldo inicial se aplica una sola vez a la cuenta.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditBalanceAccount(null); setEditInitialBalance("") }}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveInitialBalance} disabled={savingBalance}>
+              {savingBalance ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Ingreso de capital */}
+      <Dialog open={showCapitalDialog} onOpenChange={setShowCapitalDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PiggyBank className="h-5 w-5" />
+              Ingreso de Capital
+            </DialogTitle>
+            <DialogDescription>
+              Registra una aportación de capital y deposítala en un banco. Se sumará a su saldo y al patrimonio en Finanzas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="capital_bank">Banco destino *</Label>
+              <Select
+                value={newCapital.bank_account_id}
+                onValueChange={(value) => setNewCapital({ ...newCapital, bank_account_id: value })}
+              >
+                <SelectTrigger id="capital_bank">
+                  <SelectValue placeholder="Seleccionar banco" />
+                </SelectTrigger>
+                <SelectContent>
+                  {displayAccounts.map((bank) => (
+                    <SelectItem key={bank.ids[0]} value={bank.ids[0]}>
+                      {bank.account_name || bank.bank_name}
+                      {bank.currency?.code ? ` (${bank.currency.code})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="capital_amount">Monto *</Label>
+                <Input
+                  id="capital_amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={newCapital.amount}
+                  onChange={(e) => setNewCapital({ ...newCapital, amount: e.target.value })}
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="capital_date">Fecha *</Label>
+                <Input
+                  id="capital_date"
+                  type="date"
+                  value={newCapital.transaction_date}
+                  onChange={(e) => setNewCapital({ ...newCapital, transaction_date: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="capital_description">Descripción</Label>
+              <Textarea
+                id="capital_description"
+                value={newCapital.description}
+                onChange={(e) => setNewCapital({ ...newCapital, description: e.target.value })}
+                placeholder="Ej: Aportación de socios, inyección de capital inicial..."
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCapitalDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveCapital} disabled={savingCapital}>
+              {savingCapital ? "Guardando..." : "Registrar Capital"}
             </Button>
           </DialogFooter>
         </DialogContent>

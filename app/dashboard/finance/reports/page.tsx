@@ -217,6 +217,19 @@ export default function FinancialReportsPage() {
       
       const { data: equityTransactions } = await equityQuery
 
+      // Obtener saldo inicial de bancos (efectivo con el que arrancan las cuentas)
+      let banksQuery = supabase
+        .from("bank_accounts")
+        .select("initial_balance")
+        .eq("is_active", true)
+
+      if (selectedAgency !== "all") {
+        banksQuery = banksQuery.eq("agency_id", selectedAgency)
+      }
+
+      const { data: banks } = await banksQuery
+      const bankInitialCash = banks?.reduce((sum, b) => sum + Number(b.initial_balance || 0), 0) || 0
+
       // Obtener nómina (gastos de personal)
       let payrollQuery = supabase
         .from("payroll_periods")
@@ -273,7 +286,9 @@ export default function FinancialReportsPage() {
       const netCashFlow = operatingCashFlow + investingCashFlow + financingCashFlow
 
       // Balance General
-      const currentAssets = paymentsReceived + (revenue - paymentsReceived) * 0.8 // Efectivo + Cuentas por cobrar
+      // Efectivo = saldo inicial de bancos + aportaciones de capital + pagos recibidos; más cuentas por cobrar
+      const cashOnHand = bankInitialCash + capitalContributions - capitalWithdrawals - dividends + paymentsReceived
+      const currentAssets = cashOnHand + (revenue - paymentsReceived) * 0.8
       const totalAssets = currentAssets + fixedAssetsValue
       const currentLiabilities = totalExpenses * 0.3 // Estimación de pasivos corrientes
       const longTermLiabilities = 0 // Se puede calcular de préstamos si los hay
@@ -304,8 +319,8 @@ export default function FinancialReportsPage() {
         investingCashFlow,
         financingCashFlow,
         netCashFlow,
-        beginningCash: 0, // Se podría calcular del período anterior
-        endingCash: netCashFlow,
+        beginningCash: bankInitialCash,
+        endingCash: bankInitialCash + netCashFlow,
         
         // Patrimonio
         initialCapital: equity - capitalContributions + capitalWithdrawals + dividends - netIncome,

@@ -276,6 +276,20 @@ if (agencyId) {
       return
     }
 
+    // Aplica el pago al banco seleccionado (solo al pasar a pagado desde otro estado, evita duplicados)
+    if (newStatus === "paid" && statusInvoice.status !== "paid") {
+      const { error: paymentError } = await createPaymentRecord(statusInvoice, {
+        amount: statusInvoice.total_amount,
+        bank_account_id: statusPaymentData.bank_account_id,
+        payment_method: statusPaymentData.payment_method,
+        payment_date: statusPaymentData.payment_date,
+        reference_number: statusPaymentData.payment_reference,
+      })
+      if (paymentError) {
+        toast.error("El estado se actualizó, pero no se pudo aplicar al banco: " + paymentError.message)
+      }
+    }
+
     toast.success(newStatus === "paid" ? "Pago registrado exitosamente" : "Estado actualizado correctamente")
 
     setStatusModalOpen(false)
@@ -363,6 +377,47 @@ if (agencyId) {
     fetchInvoices()
   }
 
+  // Registra un pago en la tabla `payments` y lo aplica al banco seleccionado.
+  // Esta tabla es la fuente de verdad para el saldo de Bancos.
+  const createPaymentRecord = async (
+    invoice: Invoice,
+    data: {
+      amount: number
+      bank_account_id: string
+      payment_method: string
+      payment_date: string
+      reference_number: string
+      notes?: string
+    }
+  ) => {
+    const agencyId = invoice.agency?.id || ((invoice as unknown as Record<string, unknown>).agency_id as string | undefined)
+    if (!agencyId) {
+      return { error: { message: "La factura no tiene una agencia asociada" } }
+    }
+
+    const year = new Date().getFullYear()
+    const { count } = await supabase
+      .from("payments")
+      .select("*", { count: "exact", head: true })
+      .eq("agency_id", agencyId)
+    const paymentNumber = `PAG-${year}-${String((count || 0) + 1).padStart(5, "0")}`
+
+    return await supabase.from("payments").insert({
+      agency_id: agencyId,
+      invoice_id: invoice.id,
+      client_id: invoice.client?.id || null,
+      payment_number: paymentNumber,
+      payment_date: data.payment_date,
+      amount: data.amount,
+      currency_id: invoice.currency?.id || null,
+      payment_method: data.payment_method,
+      reference_number: data.reference_number || null,
+      bank_account_id: data.bank_account_id || null,
+      status: "completed",
+      notes: data.notes || null,
+    })
+  }
+
   const handlePaymentSubmit = async () => {
     if (!selectedInvoice) return
 
@@ -434,8 +489,23 @@ if (agencyId) {
       return
     }
 
-setUploading(false)
-  toast.success("Pago registrado exitosamente")
+    // Aplica el pago al banco seleccionado (solo si la factura no estaba ya pagada, evita duplicados)
+    if (paymentData.status === "paid" && selectedInvoice.status !== "paid") {
+      const { error: paymentError } = await createPaymentRecord(selectedInvoice, {
+        amount: selectedInvoice.total_amount,
+        bank_account_id: paymentData.bank_account_id,
+        payment_method: paymentData.payment_method,
+        payment_date: paymentData.payment_date,
+        reference_number: paymentData.payment_reference,
+        notes: paymentData.payment_notes,
+      })
+      if (paymentError) {
+        toast.error("El pago se guardó, pero no se pudo aplicar al banco: " + paymentError.message)
+      }
+    }
+
+    setUploading(false)
+    toast.success("Pago registrado exitosamente")
     setPaymentModalOpen(false)
     fetchInvoices()
   }
