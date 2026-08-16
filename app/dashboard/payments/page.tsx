@@ -268,19 +268,19 @@ export default function IncomesPage() {
     if (data) {
       const bankIds = data.map((b: Record<string, unknown>) => b.id as string)
 
-      // Facturas pagadas por banco
-      const { data: paidInvoices } = await supabase
-        .from("invoices")
-        .select("bank_account_id, total_amount")
-        .eq("status", "paid")
+      // Pagos recibidos por banco (fuente de verdad: tabla payments).
+      // Cada pago registrado se aplica al banco seleccionado, soportando pagos parciales.
+      const { data: bankPayments } = await supabase
+        .from("payments")
+        .select("bank_account_id, amount, status")
         .in("bank_account_id", bankIds)
 
       const invoicesByBank: Record<string, number> = {}
-      if (paidInvoices) {
-        paidInvoices.forEach((inv: { bank_account_id: string | null; total_amount: number }) => {
-          if (inv.bank_account_id) {
-            invoicesByBank[inv.bank_account_id] = (invoicesByBank[inv.bank_account_id] || 0) + (inv.total_amount || 0)
-          }
+      if (bankPayments) {
+        bankPayments.forEach((p: { bank_account_id: string | null; amount: number; status: string | null }) => {
+          // Ignora pagos cancelados/reembolsados; cuenta pendientes y completados.
+          if (!p.bank_account_id || p.status === "cancelled" || p.status === "refunded") return
+          invoicesByBank[p.bank_account_id] = (invoicesByBank[p.bank_account_id] || 0) + (p.amount || 0)
         })
       }
 
@@ -703,7 +703,7 @@ export default function IncomesPage() {
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Facturas cobradas</span>
+                      <span className="text-muted-foreground">Pagos recibidos</span>
                       <span className="font-medium">
                         +{bank.currency?.symbol || "$"}{(bank.invoices_total || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
                       </span>
