@@ -167,6 +167,12 @@ interface Service {
   base_price: number | null
 }
 
+interface Product {
+  id: string
+  name: string
+  price: number | null
+}
+
 interface ProspectService {
   id: string
   service: Service
@@ -222,6 +228,7 @@ export default function ProspectDetailPage() {
   const [sources, setSources] = useState<Source[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [clientTypes, setClientTypes] = useState<ClientType[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [industries, setIndustries] = useState<Industry[]>([])
   const [salesReps, setSalesReps] = useState<SalesRep[]>([])
   const [activities, setActivities] = useState<ActivityItem[]>([])
@@ -281,6 +288,8 @@ export default function ProspectDetailPage() {
     state_province: "",
     client_type_id: "",
     industry_id: "",
+    product_id: "",
+    project_count: "",
     stage_id: "",
     source_id: "",
     estimated_value: "",
@@ -384,6 +393,8 @@ export default function ProspectDetailPage() {
 state_province: prospectData.state_province || "",
     client_type_id: prospectData.client_type_id || "",
     industry_id: prospectData.industry_id || "",
+    product_id: prospectData.product_id || "",
+    project_count: prospectData.project_count != null ? String(prospectData.project_count) : "",
     stage_id: prospectData.stage_id || "",
       source_id: prospectData.source_id || "",
       estimated_value: prospectData.estimated_value?.toString() || "",
@@ -433,6 +444,7 @@ state_province: prospectData.state_province || "",
       currenciesRes,
       clientTypesRes,
       industriesRes,
+      productsRes,
       salesRepsRes,
       activitiesRes,
       tasksRes,
@@ -447,6 +459,7 @@ state_province: prospectData.state_province || "",
       supabase.from("agency_currencies").select("currency:currencies(id, code, name), is_default").eq("agency_id", agencyId).order("is_default", { ascending: false }),
       supabase.from("client_types").select("id, name, amount").eq("agency_id", agencyId).order("name"),
       supabase.from("industries").select("id, name, description").eq("agency_id", agencyId).eq("is_active", true).order("name"),
+      supabase.from("products").select("id, name, price").eq("agency_id", agencyId).eq("is_active", true).order("name"),
       // Filter sales reps by Commercial and Direction departments only
       supabase.from("staff").select("id, first_name, last_name, department_id").eq("agency_id", agencyId).eq("is_active", true).in("department_id", deptIds.length > 0 ? deptIds : ["00000000-0000-0000-0000-000000000000"]).order("first_name"),
       supabase.from("crm_activities").select("*").eq("prospect_id", prospectId).order("activity_date", { ascending: false }),
@@ -469,6 +482,7 @@ state_province: prospectData.state_province || "",
     }
     if (clientTypesRes.data) setClientTypes(clientTypesRes.data)
     if (industriesRes.data) setIndustries(industriesRes.data)
+    if (productsRes.data) setProducts(productsRes.data)
     if (salesRepsRes.data) setSalesReps(salesRepsRes.data)
     if (activitiesRes.data) setActivities(activitiesRes.data)
     if (tasksRes.data) setTasks(tasksRes.data)
@@ -532,6 +546,8 @@ state_province: prospectData.state_province || "",
       state_province: formData.state_province || null,
       client_type_id: formData.client_type_id || null,
       industry_id: formData.industry_id || null,
+      product_id: formData.product_id || null,
+      project_count: formData.project_count.trim() === "" ? null : parseInt(formData.project_count, 10),
       stage_id: formData.stage_id,
       source_id: formData.source_id || null,
       estimated_value: prospectServices.length > 0 ? getTotalServicesValue() : null,
@@ -1722,23 +1738,50 @@ state_province: prospectData.state_province || "",
                       />
                     </div>
                   </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-<div className="space-y-2">
-                    <Label>Tipo de Cliente (Industria)</Label>
-                    <Select
-                      value={formData.industry_id}
-                      onValueChange={(value) => setFormData({ ...formData, industry_id: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecciona una industria" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {industries.map((industry) => (
-                          <SelectItem key={industry.id} value={industry.id}>{industry.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Tipo de Cliente (Industria)</Label>
+                      <Select
+                        value={formData.industry_id}
+                        onValueChange={(value) => setFormData({ ...formData, industry_id: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecciona una industria" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {industries.map((industry) => (
+                            <SelectItem key={industry.id} value={industry.id}>{industry.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Productos</Label>
+                      <Select
+                        value={formData.product_id}
+                        onValueChange={(value) => setFormData({ ...formData, product_id: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={products.length ? "Selecciona un producto" : "Sin productos definidos"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {products.map((product) => (
+                            <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Cantidad de Proyectos</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="0"
+                        value={formData.project_count}
+                        onChange={(e) => setFormData({ ...formData, project_count: e.target.value })}
+                      />
+                    </div>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
