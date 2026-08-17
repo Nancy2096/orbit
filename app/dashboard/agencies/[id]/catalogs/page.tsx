@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift, Trash2 } from "lucide-react"
+import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift, Trash2, Package } from "lucide-react"
 import Link from "next/link"
 import {
   MONTH_OPTIONS,
@@ -28,6 +28,14 @@ interface Industry {
   id: string
   name: string
   description: string | null
+  is_active: boolean
+}
+
+interface Product {
+  id: string
+  name: string
+  description: string | null
+  price: number | null
   is_active: boolean
 }
 
@@ -71,6 +79,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   const { id } = use(params)
   const [agency, setAgency] = useState<{ id: string; name: string } | null>(null)
   const [industries, setIndustries] = useState<Industry[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [referralSources, setReferralSources] = useState<ReferralSource[]>([])
   const [bonusTypes, setBonusTypes] = useState<BonusType[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,6 +89,12 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   const [editingIndustry, setEditingIndustry] = useState<Industry | null>(null)
   const [industryForm, setIndustryForm] = useState({ name: "", description: "", is_active: true })
   const [savingIndustry, setSavingIndustry] = useState(false)
+
+  // Product dialog state
+  const [productDialogOpen, setProductDialogOpen] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [productForm, setProductForm] = useState({ name: "", description: "", price: "", is_active: true })
+  const [savingProduct, setSavingProduct] = useState(false)
 
   // Referral source dialog state
   const [sourceDialogOpen, setSourceDialogOpen] = useState(false)
@@ -118,9 +133,10 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   async function fetchData() {
     setLoading(true)
 
-    const [agencyRes, industriesRes, sourcesRes, bonusTypesRes, otherAgenciesRes] = await Promise.all([
+    const [agencyRes, industriesRes, productsRes, sourcesRes, bonusTypesRes, otherAgenciesRes] = await Promise.all([
       supabase.from("agencies").select("id, name").eq("id", id).single(),
       supabase.from("industries").select("*").eq("agency_id", id).order("name"),
+      supabase.from("products").select("*").eq("agency_id", id).order("name"),
       supabase.from("referral_sources").select("*").eq("agency_id", id).order("name"),
       supabase.from("bonus_types").select("*").eq("agency_id", id).order("name"),
       supabase.from("agencies").select("id, name").neq("id", id).order("name"),
@@ -128,6 +144,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
 
     if (agencyRes.data) setAgency(agencyRes.data)
     if (industriesRes.data) setIndustries(industriesRes.data)
+    if (productsRes.data) setProducts(productsRes.data)
     if (sourcesRes.data) setReferralSources(sourcesRes.data)
     if (bonusTypesRes.data) setBonusTypes(bonusTypesRes.data)
     if (otherAgenciesRes.data) setOtherAgencies(otherAgenciesRes.data)
@@ -213,6 +230,66 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
 
     setSavingIndustry(false)
     setIndustryDialogOpen(false)
+    fetchData()
+  }
+
+  // Product handlers
+  function openNewProduct() {
+    setEditingProduct(null)
+    setProductForm({ name: "", description: "", price: "", is_active: true })
+    setProductDialogOpen(true)
+  }
+
+  function openEditProduct(product: Product) {
+    setEditingProduct(product)
+    setProductForm({
+      name: product.name,
+      description: product.description || "",
+      price: product.price != null ? String(product.price) : "",
+      is_active: product.is_active,
+    })
+    setProductDialogOpen(true)
+  }
+
+  async function saveProduct() {
+    if (!productForm.name.trim()) return
+    setSavingProduct(true)
+
+    const priceValue = productForm.price.trim() === "" ? null : parseFloat(productForm.price)
+
+    if (editingProduct) {
+      await supabase
+        .from("products")
+        .update({
+          name: productForm.name,
+          description: productForm.description || null,
+          price: priceValue,
+          is_active: productForm.is_active,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editingProduct.id)
+    } else {
+      await supabase.from("products").insert({
+        agency_id: id,
+        name: productForm.name,
+        description: productForm.description || null,
+        price: priceValue,
+        is_active: productForm.is_active,
+      })
+    }
+
+    setSavingProduct(false)
+    setProductDialogOpen(false)
+    fetchData()
+  }
+
+  async function deleteProduct(product: Product) {
+    if (!confirm(`¿Eliminar el producto "${product.name}"?`)) return
+    const { error } = await supabase.from("products").delete().eq("id", product.id)
+    if (error) {
+      console.error("[v0] deleteProduct error:", error.message)
+      return
+    }
     fetchData()
   }
 
@@ -364,7 +441,7 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
         </Button>
         <div>
           <h1 className="text-2xl font-bold">Catálogos de {agency?.name}</h1>
-          <p className="text-muted-foreground">Administra los tipos de cliente, fuentes de referencia y tipos de bono</p>
+          <p className="text-muted-foreground">Administra los tipos de cliente, productos, fuentes de referencia y tipos de bono</p>
         </div>
       </div>
 
@@ -373,6 +450,10 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
           <TabsTrigger value="industries" className="gap-2">
             <Factory className="h-4 w-4" />
             Tipo de Cliente
+          </TabsTrigger>
+          <TabsTrigger value="products" className="gap-2">
+            <Package className="h-4 w-4" />
+            Productos
           </TabsTrigger>
           <TabsTrigger value="sources" className="gap-2">
             <Megaphone className="h-4 w-4" />
@@ -481,6 +562,141 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
                           <Button variant="ghost" size="icon" onClick={() => openEditIndustry(industry)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Products Tab */}
+        <TabsContent value="products">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Productos</CardTitle>
+                <CardDescription>
+                  Define los productos de los clientes disponibles para esta agencia
+                </CardDescription>
+              </div>
+              <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={openNewProduct}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuevo Producto
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>
+                      {editingProduct ? "Editar Producto" : "Nuevo Producto"}
+                    </DialogTitle>
+                    <DialogDescription>
+                      {editingProduct ? "Modifica los datos del producto" : "Agrega un nuevo producto al catálogo"}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="product_name">Nombre *</FieldLabel>
+                      <Input
+                        id="product_name"
+                        value={productForm.name}
+                        onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                        placeholder="Ej: Consultoría, Campaña SEO, Diseño Web..."
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="product_price">Precio</FieldLabel>
+                      <Input
+                        id="product_price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={productForm.price}
+                        onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
+                        placeholder="0.00"
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="product_description">Descripción</FieldLabel>
+                      <Textarea
+                        id="product_description"
+                        value={productForm.description}
+                        onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                        placeholder="Descripción opcional..."
+                        rows={3}
+                      />
+                    </Field>
+                    <div className="flex items-center justify-between">
+                      <FieldLabel htmlFor="product_active">Activo</FieldLabel>
+                      <Switch
+                        id="product_active"
+                        checked={productForm.is_active}
+                        onCheckedChange={(checked) => setProductForm({ ...productForm, is_active: checked })}
+                      />
+                    </div>
+                  </FieldGroup>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setProductDialogOpen(false)}>
+                      Cancelar
+                    </Button>
+                    <Button onClick={saveProduct} disabled={savingProduct || !productForm.name.trim()}>
+                      {savingProduct ? "Guardando..." : "Guardar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+            <CardContent>
+              {products.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No hay productos definidos. Agrega uno para comenzar.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nombre</TableHead>
+                      <TableHead>Precio</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="w-[120px]">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {products.map((product) => (
+                      <TableRow key={product.id}>
+                        <TableCell className="font-medium">{product.name}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {product.price != null
+                            ? product.price.toLocaleString("es-MX", { style: "currency", currency: "MXN" })
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {product.description || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={product.is_active ? "default" : "secondary"}>
+                            {product.is_active ? "Activo" : "Inactivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEditProduct(product)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => deleteProduct(product)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
