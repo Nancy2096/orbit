@@ -37,6 +37,7 @@ interface Stage {
   name: string
   color: string
   sort_order: number
+  default_probability: number | null
 }
 
 interface Source {
@@ -158,18 +159,21 @@ export default function NewProspectPage() {
     // Fetch stages for this agency
     const { data: stagesData, error: stagesError } = await supabase
       .from("crm_pipeline_stages")
-      .select("id, name, color, sort_order")
+      .select("id, name, color, sort_order, default_probability")
       .eq("agency_id", selectedAgencyId)
       .eq("is_active", true)
       .order("sort_order")
 
-    console.log("[v0] Stages loaded:", stagesData, "Error:", stagesError)
-
     if (stagesData) {
       setStages(stagesData)
-      // Set first stage as default
+      // Set first stage as default, with its configured close probability
       if (stagesData.length > 0) {
-        setFormData(prev => ({ ...prev, stage_id: stagesData[0].id }))
+        const firstStage = stagesData[0]
+        setFormData(prev => ({
+          ...prev,
+          stage_id: firstStage.id,
+          probability: firstStage.default_probability != null ? firstStage.default_probability : prev.probability,
+        }))
       }
     }
 
@@ -1051,8 +1055,14 @@ const getStageColor = (color: string | null) => {
                           type="radio"
                           name="stage"
                           value={stage.id}
-                          checked={formData.stage_id === stage.id}
-                          onChange={(e) => setFormData({ ...formData, stage_id: e.target.value })}
+                            checked={formData.stage_id === stage.id}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                stage_id: e.target.value,
+                                probability: stage.default_probability != null ? stage.default_probability : formData.probability,
+                              })
+                            }
                           className="sr-only"
                         />
                         <div 

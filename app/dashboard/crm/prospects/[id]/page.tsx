@@ -94,6 +94,7 @@ interface Stage {
   sort_order: number
   is_won: boolean
   is_lost: boolean
+  default_probability: number | null
 }
 
 interface Source {
@@ -2765,6 +2766,10 @@ state_province: prospectData.state_province || "",
                         setFormData((prev) => {
                           const prevStageWon = stages.find((s) => s.id === prev.stage_id)?.is_won ?? false
                           const next = { ...prev, stage_id: stage.id }
+                          // Ajusta la probabilidad de cierre a la definida para esta etapa en "Ajustar Pipeline".
+                          if (stage.default_probability != null) {
+                            next.probability = stage.default_probability
+                          }
                           // Al pasar a una etapa "Ganado", registrar la fecha de cierre del día del cambio.
                           if (stage.is_won && !prevStageWon) {
                             next.expected_close_date = new Date().toISOString().split("T")[0]

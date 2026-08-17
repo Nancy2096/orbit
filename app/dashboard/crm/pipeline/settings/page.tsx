@@ -52,6 +52,7 @@ interface PipelineStage {
   is_won: boolean
   is_lost: boolean
   is_active: boolean
+  default_probability: number | null
 }
 
 const STAGE_COLORS = [
@@ -80,6 +81,7 @@ export default function PipelineSettingsPage() {
     color: "#3b82f6",
     is_won: false,
     is_lost: false,
+    default_probability: "50",
   })
   const supabase = createClient()
 
@@ -116,6 +118,7 @@ export default function PipelineSettingsPage() {
       color: "#3b82f6",
       is_won: false,
       is_lost: false,
+      default_probability: "50",
     })
     setDialogOpen(true)
   }
@@ -127,6 +130,7 @@ export default function PipelineSettingsPage() {
       color: stage.color || "#3b82f6",
       is_won: stage.is_won,
       is_lost: stage.is_lost,
+      default_probability: stage.default_probability != null ? String(stage.default_probability) : "50",
     })
     setDialogOpen(true)
   }
@@ -142,6 +146,12 @@ export default function PipelineSettingsPage() {
       return
     }
 
+    const probability = Math.round(Number(formData.default_probability))
+    if (Number.isNaN(probability) || probability < 0 || probability > 100) {
+      toast.error("La probabilidad debe ser un número entre 0 y 100")
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -154,6 +164,7 @@ export default function PipelineSettingsPage() {
             color: formData.color,
             is_won: formData.is_won,
             is_lost: formData.is_lost,
+            default_probability: probability,
             updated_at: new Date().toISOString(),
           })
           .eq("id", editingStage.id)
@@ -173,6 +184,7 @@ export default function PipelineSettingsPage() {
             sort_order: maxOrder + 1,
             is_won: formData.is_won,
             is_lost: formData.is_lost,
+            default_probability: probability,
             is_active: true,
           })
 
@@ -371,6 +383,9 @@ export default function PipelineSettingsPage() {
                         <Badge variant="secondary">Inactiva</Badge>
                       )}
                     </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Probabilidad de cierre: {stage.default_probability != null ? stage.default_probability : 50}%
+                    </p>
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -466,6 +481,23 @@ export default function PipelineSettingsPage() {
                   />
                 ))}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="default_probability">Probabilidad de cierre (%)</Label>
+              <Input
+                id="default_probability"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={formData.default_probability}
+                onChange={(e) => setFormData({ ...formData, default_probability: e.target.value })}
+                placeholder="Ej: 50"
+              />
+              <p className="text-xs text-muted-foreground">
+                Al mover un prospecto a esta etapa, su probabilidad de cierre se ajustará a este valor.
+              </p>
             </div>
 
             <div className="space-y-4 pt-4 border-t">
