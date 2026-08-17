@@ -170,6 +170,20 @@ export default function PipelineSettingsPage() {
           .eq("id", editingStage.id)
 
         if (error) throw error
+
+        // Propaga la nueva probabilidad a todos los prospectos de esta etapa,
+        // para que el cambio se refleje en el detalle de cada prospecto.
+        if (probability !== (editingStage.default_probability ?? null)) {
+          const { error: propagateError } = await supabase
+            .from("crm_prospects")
+            .update({ probability, updated_at: new Date().toISOString() })
+            .eq("stage_id", editingStage.id)
+          if (propagateError) {
+            console.error("[v0] Error propagando probabilidad a prospectos:", propagateError.message)
+            toast.warning("La etapa se guardó, pero no se pudo actualizar la probabilidad de sus prospectos")
+          }
+        }
+
         toast.success("Etapa actualizada correctamente")
       } else {
         // Create new stage
