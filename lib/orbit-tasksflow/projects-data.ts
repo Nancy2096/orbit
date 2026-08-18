@@ -13,6 +13,8 @@ export interface ProjectTask {
   createdAt: string
   hours: number
   description: string
+  // Área responsable de la tarea (coincide con el catálogo de Áreas).
+  area: string
 }
 
 export interface ProjectSummary {
@@ -30,10 +32,10 @@ export const projectsData: ProjectSummary[] = [
     client: "Desarrolladora Horizonte",
     account: "Horizonte Residencial",
     tasks: [
-      { id: "1-1", title: "Diseñar artes campaña leads", status: "en_progreso", priority: "alta", assignee: "DG", assigneeName: "Diana García", dueDate: "2026-05-12", createdAt: "2026-05-01", hours: 4.5, description: "Piezas gráficas para captación de leads" },
-      { id: "1-2", title: "Configurar Meta Ads", status: "pendiente", priority: "alta", assignee: "EM", assigneeName: "Eduardo Méndez", dueDate: "2026-05-11", createdAt: "2026-05-02", hours: 3, description: "Setup de audiencias y presupuestos en Meta Ads" },
-      { id: "1-3", title: "Configurar Google Ads", status: "pendiente", priority: "media", assignee: "EM", assigneeName: "Eduardo Méndez", dueDate: "2026-05-18", createdAt: "2026-05-03", hours: 3, description: "Campañas de búsqueda para leads" },
-      { id: "1-4", title: "Análisis de métricas semanales", status: "en_progreso", priority: "media", assignee: "MG", assigneeName: "María García", dueDate: "2026-05-20", createdAt: "2026-05-04", hours: 2, description: "Dashboard de performance de la campaña" },
+      { id: "1-1", title: "Diseñar artes campaña leads", status: "en_progreso", priority: "alta", assignee: "DG", assigneeName: "Diana García", dueDate: "2026-05-12", createdAt: "2026-05-01", hours: 4.5, description: "Piezas gráficas para captación de leads", area: "Diseño & Creatividad" },
+      { id: "1-2", title: "Configurar Meta Ads", status: "pendiente", priority: "alta", assignee: "EM", assigneeName: "Eduardo Méndez", dueDate: "2026-05-11", createdAt: "2026-05-02", hours: 3, description: "Setup de audiencias y presupuestos en Meta Ads", area: "Estrategia" },
+      { id: "1-3", title: "Configurar Google Ads", status: "pendiente", priority: "media", assignee: "EM", assigneeName: "Eduardo Méndez", dueDate: "2026-05-18", createdAt: "2026-05-03", hours: 3, description: "Campañas de búsqueda para leads", area: "Estrategia" },
+      { id: "1-4", title: "Análisis de métricas semanales", status: "en_progreso", priority: "media", assignee: "MG", assigneeName: "María García", dueDate: "2026-05-20", createdAt: "2026-05-04", hours: 2, description: "Dashboard de performance de la campaña", area: "Finanzas" },
     ],
   },
   {
@@ -42,9 +44,9 @@ export const projectsData: ProjectSummary[] = [
     client: "Torre Central Living",
     account: "Torre Central",
     tasks: [
-      { id: "2-1", title: "Revisar copies landing", status: "en_progreso", priority: "media", assignee: "ML", assigneeName: "María López", dueDate: "2026-05-13", createdAt: "2026-05-02", hours: 2, description: "Ajuste de textos de la landing page" },
-      { id: "2-2", title: "Subir cambios a web", status: "vencido", priority: "alta", assignee: "CR", assigneeName: "Carlos Ruiz", dueDate: "2026-05-10", createdAt: "2026-05-01", hours: 3, description: "Deploy de cambios solicitados por el cliente" },
-      { id: "2-3", title: "Optimizar velocidad de carga", status: "pendiente", priority: "media", assignee: "CR", assigneeName: "Carlos Ruiz", dueDate: "2026-05-19", createdAt: "2026-05-05", hours: 5, description: "Mejorar Core Web Vitals de la landing" },
+      { id: "2-1", title: "Revisar copies landing", status: "en_progreso", priority: "media", assignee: "ML", assigneeName: "María López", dueDate: "2026-05-13", createdAt: "2026-05-02", hours: 2, description: "Ajuste de textos de la landing page", area: "Diseño & Creatividad" },
+      { id: "2-2", title: "Subir cambios a web", status: "vencido", priority: "alta", assignee: "CR", assigneeName: "Carlos Ruiz", dueDate: "2026-05-10", createdAt: "2026-05-01", hours: 3, description: "Deploy de cambios solicitados por el cliente", area: "Tecnología" },
+      { id: "2-3", title: "Optimizar velocidad de carga", status: "pendiente", priority: "media", assignee: "CR", assigneeName: "Carlos Ruiz", dueDate: "2026-05-19", createdAt: "2026-05-05", hours: 5, description: "Mejorar Core Web Vitals de la landing", area: "Tecnología" },
     ],
   },
   {
@@ -53,10 +55,10 @@ export const projectsData: ProjectSummary[] = [
     client: "Residencial Bosques",
     account: "Bosques",
     tasks: [
-      { id: "3-1", title: "Calendario redes mayo", status: "en_progreso", priority: "alta", assignee: "LV", assigneeName: "Laura Vega", dueDate: "2026-05-14", createdAt: "2026-05-01", hours: 5, description: "Parrilla de contenidos para redes sociales" },
-      { id: "3-2", title: "Video promocional", status: "en_progreso", priority: "alta", assignee: "PM", assigneeName: "Pedro Martínez", dueDate: "2026-05-16", createdAt: "2026-05-03", hours: 8, description: "Video promocional del residencial" },
-      { id: "3-3", title: "Diseño logo nuevo", status: "pendiente", priority: "alta", assignee: "DG", assigneeName: "Diana García", dueDate: "2026-05-20", createdAt: "2026-05-06", hours: 6, description: "Propuesta de identidad visual" },
-      { id: "3-4", title: "Manual de marca", status: "pendiente", priority: "media", assignee: "ML", assigneeName: "María López", dueDate: "2026-05-25", createdAt: "2026-05-07", hours: 10, description: "Documento con lineamientos de marca" },
+      { id: "3-1", title: "Calendario redes mayo", status: "en_progreso", priority: "alta", assignee: "LV", assigneeName: "Laura Vega", dueDate: "2026-05-14", createdAt: "2026-05-01", hours: 5, description: "Parrilla de contenidos para redes sociales", area: "Estrategia" },
+      { id: "3-2", title: "Video promocional", status: "en_progreso", priority: "alta", assignee: "PM", assigneeName: "Pedro Martínez", dueDate: "2026-05-16", createdAt: "2026-05-03", hours: 8, description: "Video promocional del residencial", area: "Diseño & Creatividad" },
+      { id: "3-3", title: "Diseño logo nuevo", status: "pendiente", priority: "alta", assignee: "DG", assigneeName: "Diana García", dueDate: "2026-05-20", createdAt: "2026-05-06", hours: 6, description: "Propuesta de identidad visual", area: "Diseño & Creatividad" },
+      { id: "3-4", title: "Manual de marca", status: "pendiente", priority: "media", assignee: "ML", assigneeName: "María López", dueDate: "2026-05-25", createdAt: "2026-05-07", hours: 10, description: "Documento con lineamientos de marca", area: "Diseño & Creatividad" },
     ],
   },
   {
@@ -65,9 +67,9 @@ export const projectsData: ProjectSummary[] = [
     client: "Grupo Inmobiliario Altiva",
     account: "Altiva",
     tasks: [
-      { id: "4-1", title: "Reporte mensual abril", status: "completado", priority: "media", assignee: "AT", assigneeName: "Ana Torres", dueDate: "2026-05-05", createdAt: "2026-04-28", hours: 3, description: "Reporte de posicionamiento del mes anterior" },
-      { id: "4-2", title: "Auditoría de keywords", status: "en_progreso", priority: "alta", assignee: "AT", assigneeName: "Ana Torres", dueDate: "2026-05-15", createdAt: "2026-05-02", hours: 6, description: "Revisión y actualización de keywords objetivo" },
-      { id: "4-3", title: "Optimización on-page", status: "pendiente", priority: "media", assignee: "CR", assigneeName: "Carlos Ruiz", dueDate: "2026-05-22", createdAt: "2026-05-05", hours: 8, description: "Mejoras de contenido y metadatos" },
+      { id: "4-1", title: "Reporte mensual abril", status: "completado", priority: "media", assignee: "AT", assigneeName: "Ana Torres", dueDate: "2026-05-05", createdAt: "2026-04-28", hours: 3, description: "Reporte de posicionamiento del mes anterior", area: "Estrategia" },
+      { id: "4-2", title: "Auditoría de keywords", status: "en_progreso", priority: "alta", assignee: "AT", assigneeName: "Ana Torres", dueDate: "2026-05-15", createdAt: "2026-05-02", hours: 6, description: "Revisión y actualización de keywords objetivo", area: "Estrategia" },
+      { id: "4-3", title: "Optimización on-page", status: "pendiente", priority: "media", assignee: "CR", assigneeName: "Carlos Ruiz", dueDate: "2026-05-22", createdAt: "2026-05-05", hours: 8, description: "Mejoras de contenido y metadatos", area: "Tecnología" },
     ],
   },
   {
@@ -76,9 +78,9 @@ export const projectsData: ProjectSummary[] = [
     client: "Nova Arquitectura",
     account: "Nova",
     tasks: [
-      { id: "5-1", title: "Render exterior torre", status: "vencido", priority: "alta", assignee: "RS", assigneeName: "Roberto Sánchez", dueDate: "2026-05-08", createdAt: "2026-04-30", hours: 12, description: "Render fotorrealista del exterior" },
-      { id: "5-2", title: "Render lobby", status: "en_progreso", priority: "alta", assignee: "RS", assigneeName: "Roberto Sánchez", dueDate: "2026-05-17", createdAt: "2026-05-04", hours: 10, description: "Render del lobby principal" },
-      { id: "5-3", title: "Recorrido virtual", status: "pendiente", priority: "media", assignee: "PM", assigneeName: "Pedro Martínez", dueDate: "2026-05-28", createdAt: "2026-05-08", hours: 20, description: "Tour virtual 360 del desarrollo" },
+      { id: "5-1", title: "Render exterior torre", status: "vencido", priority: "alta", assignee: "RS", assigneeName: "Roberto Sánchez", dueDate: "2026-05-08", createdAt: "2026-04-30", hours: 12, description: "Render fotorrealista del exterior", area: "Diseño & Creatividad" },
+      { id: "5-2", title: "Render lobby", status: "en_progreso", priority: "alta", assignee: "RS", assigneeName: "Roberto Sánchez", dueDate: "2026-05-17", createdAt: "2026-05-04", hours: 10, description: "Render del lobby principal", area: "Diseño & Creatividad" },
+      { id: "5-3", title: "Recorrido virtual", status: "pendiente", priority: "media", assignee: "PM", assigneeName: "Pedro Martínez", dueDate: "2026-05-28", createdAt: "2026-05-08", hours: 20, description: "Tour virtual 360 del desarrollo", area: "Tecnología" },
     ],
   },
   {
@@ -87,9 +89,9 @@ export const projectsData: ProjectSummary[] = [
     client: "Desarrolladora Horizonte",
     account: "Horizonte Comercial",
     tasks: [
-      { id: "6-1", title: "Cierre de campaña abril", status: "completado", priority: "media", assignee: "EM", assigneeName: "Eduardo Méndez", dueDate: "2026-05-02", createdAt: "2026-04-25", hours: 2, description: "Reporte final de resultados de abril" },
-      { id: "6-2", title: "Optimización de pauta", status: "en_progreso", priority: "alta", assignee: "JP", assigneeName: "Juan Pérez", dueDate: "2026-05-12", createdAt: "2026-05-03", hours: 4, description: "Ajuste de presupuestos según rendimiento" },
-      { id: "6-3", title: "Nuevos creativos", status: "pendiente", priority: "media", assignee: "DG", assigneeName: "Diana García", dueDate: "2026-05-21", createdAt: "2026-05-06", hours: 6, description: "Set de creativos para la siguiente fase" },
+      { id: "6-1", title: "Cierre de campaña abril", status: "completado", priority: "media", assignee: "EM", assigneeName: "Eduardo Méndez", dueDate: "2026-05-02", createdAt: "2026-04-25", hours: 2, description: "Reporte final de resultados de abril", area: "Finanzas" },
+      { id: "6-2", title: "Optimización de pauta", status: "en_progreso", priority: "alta", assignee: "JP", assigneeName: "Juan Pérez", dueDate: "2026-05-12", createdAt: "2026-05-03", hours: 4, description: "Ajuste de presupuestos según rendimiento", area: "Estrategia" },
+      { id: "6-3", title: "Nuevos creativos", status: "pendiente", priority: "media", assignee: "DG", assigneeName: "Diana García", dueDate: "2026-05-21", createdAt: "2026-05-06", hours: 6, description: "Set de creativos para la siguiente fase", area: "Diseño & Creatividad" },
     ],
   },
 ]
