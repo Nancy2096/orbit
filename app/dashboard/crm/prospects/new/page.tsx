@@ -37,6 +37,7 @@ interface Stage {
   name: string
   color: string
   sort_order: number
+  default_probability: number | null
 }
 
 interface Source {
@@ -77,6 +78,12 @@ interface Service {
   base_price: number | null
 }
 
+interface Product {
+  id: string
+  name: string
+  price: number | null
+}
+
 interface SelectedService {
   service_id: string
   quantity: number
@@ -91,6 +98,7 @@ export default function NewProspectPage() {
   const [sources, setSources] = useState<Source[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [clientTypes, setClientTypes] = useState<ClientType[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [salesReps, setSalesReps] = useState<SalesRep[]>([])
   const [additionalContacts, setAdditionalContacts] = useState<AdditionalContact[]>([])
   const [services, setServices] = useState<Service[]>([])
@@ -112,6 +120,8 @@ export default function NewProspectPage() {
     country: "",
     state_province: "",
     client_type_id: "",
+    product_id: "",
+    project_count: "",
     stage_id: "",
     source_id: "",
     estimated_value: "",
@@ -149,18 +159,21 @@ export default function NewProspectPage() {
     // Fetch stages for this agency
     const { data: stagesData, error: stagesError } = await supabase
       .from("crm_pipeline_stages")
-      .select("id, name, color, sort_order")
+      .select("id, name, color, sort_order, default_probability")
       .eq("agency_id", selectedAgencyId)
       .eq("is_active", true)
       .order("sort_order")
 
-    console.log("[v0] Stages loaded:", stagesData, "Error:", stagesError)
-
     if (stagesData) {
       setStages(stagesData)
-      // Set first stage as default
+      // Set first stage as default, with its configured close probability
       if (stagesData.length > 0) {
-        setFormData(prev => ({ ...prev, stage_id: stagesData[0].id }))
+        const firstStage = stagesData[0]
+        setFormData(prev => ({
+          ...prev,
+          stage_id: firstStage.id,
+          probability: firstStage.default_probability != null ? firstStage.default_probability : prev.probability,
+        }))
       }
     }
 
@@ -185,6 +198,16 @@ export default function NewProspectPage() {
       .order("display_order")
 
     if (clientTypesData) setClientTypes(clientTypesData)
+
+    // Fetch products defined for this agency (in Agencias → Catálogos → Productos)
+    const { data: productsData } = await supabase
+      .from("products")
+      .select("id, name, price")
+      .eq("agency_id", selectedAgencyId)
+      .eq("is_active", true)
+      .order("name")
+
+    if (productsData) setProducts(productsData)
 
     // Fetch currencies
     const { data: currenciesData } = await supabase
@@ -280,6 +303,8 @@ export default function NewProspectPage() {
       country: formData.country || null,
       state_province: formData.state_province || null,
       client_type_id: formData.client_type_id || null,
+      product_id: formData.product_id || null,
+      project_count: formData.project_count.trim() === "" ? null : parseInt(formData.project_count, 10),
       stage_id: formData.stage_id,
       source_id: formData.source_id || null,
       estimated_value: estimatedValueFromServices > 0 ? estimatedValueFromServices : null,
@@ -513,7 +538,7 @@ const getStageColor = (color: string | null) => {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label htmlFor="client_type_id">Tipo de Cliente</Label>
                     <Select
@@ -531,6 +556,36 @@ const getStageColor = (color: string | null) => {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="product_id">Productos</Label>
+                    <Select
+                      value={formData.product_id}
+                      onValueChange={(value) => setFormData({ ...formData, product_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={products.length ? "Selecciona un producto" : "Sin productos definidos"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {products.map((product) => (
+                          <SelectItem key={product.id} value={product.id}>
+                            {product.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="project_count">Cantidad de Proyectos</Label>
+                    <Input
+                      id="project_count"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={formData.project_count}
+                      onChange={(e) => setFormData({ ...formData, project_count: e.target.value })}
+                    />
                   </div>
                 </div>
 
@@ -1000,8 +1055,14 @@ const getStageColor = (color: string | null) => {
                           type="radio"
                           name="stage"
                           value={stage.id}
-                          checked={formData.stage_id === stage.id}
-                          onChange={(e) => setFormData({ ...formData, stage_id: e.target.value })}
+                            checked={formData.stage_id === stage.id}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                stage_id: e.target.value,
+                                probability: stage.default_probability != null ? stage.default_probability : formData.probability,
+                              })
+                            }
                           className="sr-only"
                         />
                         <div 

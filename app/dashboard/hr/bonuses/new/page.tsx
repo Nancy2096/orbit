@@ -41,6 +41,13 @@ export default function NewBonusPage() {
   const [saving, setSaving] = useState(false)
   const [staff, setStaff] = useState<Staff[]>([])
   const [currentUser, setCurrentUser] = useState<CurrentUserInfo | null>(null)
+  // Tipo de bono de Capacitación de la agencia (define benefit_type/benefit_value
+  // para calcular el monto: sueldo / 30.5 * días).
+  const [bonusType, setBonusType] = useState<{
+    id: string
+    benefit_type: string
+    benefit_value: number
+  } | null>(null)
   // Indica si el usuario logueado tiene su propio registro de personal en esta
   // agencia. Los usuarios globales normalmente no lo tienen.
   const [hasOwnStaffRecord, setHasOwnStaffRecord] = useState(false)
@@ -65,7 +72,7 @@ export default function NewBonusPage() {
     if (!selectedAgencyId) return
     setLoading(true)
     try {
-      const [staffRes, userInfo] = await Promise.all([
+      const [staffRes, typesRes, userInfo] = await Promise.all([
         supabase
           .from("staff")
           .select("id, first_name, last_name, email, agency_id, payroll_agency_id, monthly_salary, user_id")
@@ -75,12 +82,28 @@ export default function NewBonusPage() {
           .or(`agency_id.eq.${selectedAgencyId},payroll_agency_id.eq.${selectedAgencyId}`)
           .eq("is_active", true)
           .order("first_name"),
+        supabase
+          .from("bonus_types")
+          .select("id, name, benefit_type, benefit_value")
+          .eq("agency_id", selectedAgencyId)
+          .eq("is_active", true),
         getCurrentUserInfo(),
       ])
 
       const staffList = staffRes.data || []
       setStaff(staffList)
       setCurrentUser(userInfo)
+
+      // Localiza el tipo de bono de Capacitación en el catálogo de la agencia.
+      const capacitacion =
+        (typesRes.data || []).find((t: any) => t.name?.toLowerCase().includes("capacit")) || null
+      if (capacitacion) {
+        setBonusType({
+          id: capacitacion.id,
+          benefit_type: capacitacion.benefit_type,
+          benefit_value: Number(capacitacion.benefit_value),
+        })
+      }
 
       // Por defecto, el solicitante es el usuario logueado (si tiene registro de
       // staff en esta agencia).
@@ -109,13 +132,24 @@ export default function NewBonusPage() {
 
     setSaving(true)
     try {
+      // Calcula el monto del bono: sueldo mensual / 30.5 * días de sueldo.
+      const member = staff.find((s) => s.id === formData.staff_id) || null
+      const days = bonusType ? Number(bonusType.benefit_value) || 0 : 0
+      const amount =
+        bonusType?.benefit_type === "salary_days"
+          ? ((Number(member?.monthly_salary) || 0) / 30.5) * days
+          : 0
+
       const { data, error } = await supabase
         .from("bonuses")
         .insert({
           agency_id: selectedAgencyId,
           staff_id: formData.staff_id,
+          bonus_type_id: bonusType?.id ?? null,
           bonus_type: "other",
-          amount: 0,
+          amount,
+          benefit_type: bonusType?.benefit_type ?? null,
+          benefit_value: bonusType ? Number(bonusType.benefit_value) : null,
           course_name: formData.course_name.trim(),
           course_hours: formData.course_hours ? Number(formData.course_hours) : null,
           agency_impact: formData.agency_impact.trim() || null,

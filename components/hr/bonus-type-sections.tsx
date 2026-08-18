@@ -62,7 +62,7 @@ function describeBenefit(type: BonusType, staff?: StaffMember | null) {
   }
   if (type.benefit_type === "salary_days") {
     if (staff?.monthly_salary) {
-      const amount = (Number(staff.monthly_salary) / 30) * Number(type.benefit_value)
+      const amount = (Number(staff.monthly_salary) / 30.5) * Number(type.benefit_value)
       return `${type.benefit_value} día(s) de sueldo (${formatCurrency(amount)})`
     }
     return `${type.benefit_value} día(s) de sueldo`
@@ -73,7 +73,7 @@ function describeBenefit(type: BonusType, staff?: StaffMember | null) {
 function computeAmount(type: BonusType, staff?: StaffMember | null) {
   if (type.benefit_type === "money") return Number(type.benefit_value) || 0
   if (type.benefit_type === "salary_days") {
-    const dailySalary = (Number(staff?.monthly_salary) || 0) / 30
+    const dailySalary = (Number(staff?.monthly_salary) || 0) / 30.5
     return dailySalary * (Number(type.benefit_value) || 0)
   }
   return 0
@@ -462,7 +462,7 @@ export function BonusTypePanel({ agencyId, matchNames, label, requestMode }: Bon
           <div className="rounded-lg border bg-muted/40 p-4">
             <p className="mb-1 text-sm text-muted-foreground">Monto del bono:</p>
             <p className="text-2xl font-semibold text-foreground">
-              {describeBenefit(bonusType, requestMode === "direct" ? requestMember : null)}
+              {describeBenefit(bonusType, requestMember)}
             </p>
             {bonusType.description && (
               <p className="mt-1 text-sm text-muted-foreground">{bonusType.description}</p>

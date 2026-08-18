@@ -105,6 +105,7 @@ import {
   FileImage,
   Download,
   Trash,
+  Filter,
   X
 } from "lucide-react"
 
@@ -487,12 +488,12 @@ const mockProject = {
 }
 
 const mockTasks = [
-  { id: "1", title: "Diseño de key visuals", status: "completado", priority: "alta", assignee: "AL", assigneeName: "Ana López", dueDate: "2024-03-15", createdAt: "2024-03-01", hours: 16, description: "Crear los key visuals para la campaña de Q2" },
-  { id: "2", title: "Desarrollo de contenido para redes", status: "en_progreso", priority: "alta", assignee: "CR", assigneeName: "Carlos Ruiz", dueDate: "2024-04-01", createdAt: "2024-03-10", hours: 24, description: "Contenido para Instagram, Facebook y TikTok" },
-  { id: "3", title: "Configuración de campañas en Meta", status: "en_progreso", priority: "media", assignee: "JP", assigneeName: "Juan Pérez", dueDate: "2024-04-10", createdAt: "2024-03-15", hours: 8, description: "Setup de audiencias y presupuestos en Meta Ads" },
-  { id: "4", title: "Producción de videos cortos", status: "pendiente", priority: "alta", assignee: "AL", assigneeName: "Ana López", dueDate: "2024-04-20", createdAt: "2024-03-20", hours: 32, description: "Videos para reels y TikTok" },
-  { id: "5", title: "Análisis de métricas semanales", status: "en_progreso", priority: "media", assignee: "MG", assigneeName: "María García", dueDate: "2024-04-05", createdAt: "2024-03-25", hours: 4, description: "Dashboard con métricas de performance" },
-  { id: "6", title: "Optimización de pauta", status: "vencido", priority: "alta", assignee: "JP", assigneeName: "Juan Pérez", dueDate: "2024-03-25", createdAt: "2024-03-05", hours: 12, description: "Ajustar presupuestos según rendimiento" },
+  { id: "1", title: "Diseño de key visuals", status: "completado", priority: "alta", assignee: "AL", assigneeName: "Ana López", dueDate: "2024-03-15", createdAt: "2024-03-01", hours: 16, description: "Crear los key visuals para la campaña de Q2", area: "Diseño & Creatividad" },
+  { id: "2", title: "Desarrollo de contenido para redes", status: "en_progreso", priority: "alta", assignee: "CR", assigneeName: "Carlos Ruiz", dueDate: "2024-04-01", createdAt: "2024-03-10", hours: 24, description: "Contenido para Instagram, Facebook y TikTok", area: "Diseño & Creatividad" },
+  { id: "3", title: "Configuración de campañas en Meta", status: "en_progreso", priority: "media", assignee: "JP", assigneeName: "Juan Pérez", dueDate: "2024-04-10", createdAt: "2024-03-15", hours: 8, description: "Setup de audiencias y presupuestos en Meta Ads", area: "Estrategia" },
+  { id: "4", title: "Producción de videos cortos", status: "pendiente", priority: "alta", assignee: "AL", assigneeName: "Ana López", dueDate: "2024-04-20", createdAt: "2024-03-20", hours: 32, description: "Videos para reels y TikTok", area: "Diseño & Creatividad" },
+  { id: "5", title: "Análisis de métricas semanales", status: "en_progreso", priority: "media", assignee: "MG", assigneeName: "María García", dueDate: "2024-04-05", createdAt: "2024-03-25", hours: 4, description: "Dashboard con métricas de performance", area: "Finanzas" },
+  { id: "6", title: "Optimización de pauta", status: "vencido", priority: "alta", assignee: "JP", assigneeName: "Juan Pérez", dueDate: "2024-03-25", createdAt: "2024-03-05", hours: 12, description: "Ajustar presupuestos según rendimiento", area: "Estrategia" },
 ]
 
 const statusConfig = {
@@ -533,6 +534,16 @@ export default function ProjectDetailPage() {
   const [showEditTaskDialog, setShowEditTaskDialog] = useState(false)
   const [editingTask, setEditingTask] = useState<any>(null)
   const [tasks, setTasks] = useState(() => getProjectSummary(projectId)?.tasks ?? mockTasks)
+  // Filtro por área para la tabla de tareas de la cuenta.
+  const [taskAreaFilter, setTaskAreaFilter] = useState<string>("all")
+  // Áreas disponibles a partir de las tareas actuales (para poblar el filtro).
+  const taskAreaOptions = Array.from(
+    new Set((tasks as any[]).map((t) => t.area).filter(Boolean) as string[])
+  ).sort((a, b) => a.localeCompare(b))
+  // Tareas visibles según el área seleccionada.
+  const filteredTasks = (tasks as any[]).filter(
+    (t) => taskAreaFilter === "all" || t.area === taskAreaFilter
+  )
   // Los avisos vuelven a mostrarse cada vez que se entra a la cuenta.
   const [alertDismissed, setAlertDismissed] = useState(false)
 
@@ -623,6 +634,13 @@ export default function ProjectDetailPage() {
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{task.description}</p>
+        </TableCell>
+        <TableCell>
+          {task.area ? (
+            <Badge variant="secondary" className="font-normal">{task.area}</Badge>
+          ) : (
+            <span className="text-xs text-muted-foreground">Sin área</span>
+          )}
         </TableCell>
         <TableCell>
           <div className="flex items-center gap-2">
@@ -1235,20 +1253,36 @@ const toggleTaskComplete = (taskId: string) => {
                   {tasks.filter(t => t.status === "completado").length} de {tasks.length} completadas
                 </CardDescription>
               </div>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Nueva Tarea
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* Filtro por área: muestra solo las tareas del área seleccionada. */}
+                <Select value={taskAreaFilter} onValueChange={setTaskAreaFilter}>
+                  <SelectTrigger className="w-[190px]">
+                    <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                    <SelectValue placeholder="Filtrar por área" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las áreas</SelectItem>
+                    {taskAreaOptions.map((area) => (
+                      <SelectItem key={area} value={area}>{area}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Nueva Tarea
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {(() => {
-                const activeTasks = tasks.filter(t => t.status !== "completado")
+                const activeTasks = filteredTasks.filter(t => t.status !== "completado")
                 return activeTasks.length > 0 ? (
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-8"></TableHead>
                         <TableHead>Tarea</TableHead>
+                        <TableHead>Área</TableHead>
                         <TableHead>Estado</TableHead>
                         <TableHead>Prioridad</TableHead>
                         <TableHead>Asignado</TableHead>
@@ -1263,7 +1297,9 @@ const toggleTaskComplete = (taskId: string) => {
                   </Table>
                 ) : (
                   <p className="text-center text-sm text-muted-foreground py-8">
-                    No hay tareas pendientes. ¡Buen trabajo!
+                    {taskAreaFilter === "all"
+                      ? "No hay tareas pendientes. ¡Buen trabajo!"
+                      : "No hay tareas pendientes para el área seleccionada."}
                   </p>
                 )
               })()}
@@ -1298,6 +1334,7 @@ const toggleTaskComplete = (taskId: string) => {
                       <TableRow>
                         <TableHead className="w-8"></TableHead>
                         <TableHead>Tarea</TableHead>
+                        <TableHead>Área</TableHead>
                         <TableHead>Estado</TableHead>
                         <TableHead>Prioridad</TableHead>
                         <TableHead>Asignado</TableHead>
@@ -1307,7 +1344,7 @@ const toggleTaskComplete = (taskId: string) => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tasks.filter(t => t.status === "completado").map((task) => renderTaskRow(task))}
+                      {filteredTasks.filter(t => t.status === "completado").map((task) => renderTaskRow(task))}
                     </TableBody>
                   </Table>
                 </CardContent>

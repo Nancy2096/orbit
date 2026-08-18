@@ -122,6 +122,20 @@ async function getOperationsData(agencyId: string | null) {
   const currencyOf = (a: AccountRow) =>
     a.retainer_currency_id ? codeOf(a.retainer_currency_id) : inferCurrency(a.id) || "—"
 
+  // Filas por cuenta y por proyecto para las gráficas de participación
+  // (porcentaje de cada una respecto al monto total). Incluye la fecha de alta
+  // para poder filtrar por mes o rango personalizado desde el cliente.
+  const shareRows = [...retainers, ...projects]
+    .map((a) => ({
+      id: a.id,
+      name: a.account_name || "Sin nombre",
+      type: a.account_type === "project" ? ("project" as const) : ("retainer" as const),
+      amount: amt(a),
+      currency: currencyOf(a),
+      createdAt: a.created_at,
+    }))
+    .filter((r) => r.amount > 0)
+
   // Ingreso mensual por moneda: suma del total contratado de cuentas retainer
   // activas MÁS proyectos activos, igual que los totales de esas secciones.
   const mrrByCurrency: Record<string, number> = {}
@@ -241,6 +255,7 @@ async function getOperationsData(agencyId: string | null) {
     topAccountsMXN,
     topAccountsUSD,
     clientsByType,
+    shareRows,
     projection,
     unitByType: [
       { type: "Retainer activas", count: activeRetainers.length },
