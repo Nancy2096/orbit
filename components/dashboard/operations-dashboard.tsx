@@ -1,12 +1,16 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useMemo, useState, useTransition, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { OperationsData } from "@/app/dashboard/operations/page"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import {
   Select,
   SelectContent,
@@ -43,6 +47,7 @@ import {
   Target,
   Gauge,
   Percent,
+  X,
 } from "lucide-react"
 import { ObjectiveGauge } from "@/components/dashboard/objective-gauge"
 
@@ -111,16 +116,19 @@ function SharePie({
   title,
   description,
   share,
+  controls,
 }: {
   title: string
   description: string
   share: ShareResult
+  controls?: ReactNode
 }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
+        {controls ? <div className="pt-2">{controls}</div> : null}
       </CardHeader>
       <CardContent>
         {share.items.length === 0 ? (
@@ -216,8 +224,13 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
   const [fromDate, setFromDate] = useState<string>("")
   const [toDate, setToDate] = useState<string>("")
 
-  const { accountsShare, projectsShare } = useMemo(() => {
-    const inRange = (createdAt: string | null) => {
+  // Cuentas seleccionadas para combinar en una sola rebanada (mismo cliente) y
+  // nombre opcional para ese grupo.
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([])
+  const [groupLabel, setGroupLabel] = useState<string>("")
+
+  const inRange = useMemo(() => {
+    return (createdAt: string | null) => {
       if (rangeMode === "all") return true
       if (!createdAt) return false
       const d = createdAt.slice(0, 10)
@@ -226,12 +239,48 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
       if (toDate && d > toDate) return false
       return true
     }
+  }, [rangeMode, month, fromDate, toDate])
 
+  // Cuentas disponibles en el periodo, para poblar el selector de agrupación.
+  const accountOptions = useMemo(
+    () =>
+      data.shareRows
+        .filter((r) => r.type === "retainer" && inRange(r.createdAt))
+        .sort((a, b) => b.amount - a.amount),
+    [data.shareRows, inRange],
+  )
+
+  const { accountsShare, projectsShare } = useMemo(() => {
     const build = (type: "retainer" | "project"): ShareResult => {
       const rows = data.shareRows.filter((r) => r.type === type && inRange(r.createdAt))
       const total = rows.reduce((sum, r) => sum + r.amount, 0)
       const sorted = [...rows].sort((a, b) => b.amount - a.amount)
-      // Se muestran TODAS las cuentas/proyectos, sin agrupar en "Otros".
+
+      // Solo para Cuentas: combinar las seleccionadas en una única rebanada.
+      const selected = type === "retainer" ? new Set(selectedAccountIds) : new Set<string>()
+      const grouped = sorted.filter((r) => selected.has(r.id))
+
+      if (grouped.length > 1) {
+        const groupTotal = grouped.reduce((sum, r) => sum + r.amount, 0)
+        const rest = sorted.filter((r) => !selected.has(r.id))
+        const groupItem: ShareItem = {
+          name: groupLabel.trim() || `Grupo (${grouped.length} cuentas)`,
+          value: groupTotal,
+          currency: "",
+          pct: total ? (groupTotal / total) * 100 : 0,
+          fill: shareColor(0),
+        }
+        const restItems: ShareItem[] = rest.map((r, i) => ({
+          name: r.name,
+          value: r.amount,
+          currency: r.currency,
+          pct: total ? (r.amount / total) * 100 : 0,
+          fill: shareColor(i + 1),
+        }))
+        return { items: [groupItem, ...restItems], total, count: rows.length }
+      }
+
+      // Se muestran TODAS las cuentas/proyectos, sin agrupar.
       const items: ShareItem[] = sorted.map((r, i) => ({
         name: r.name,
         value: r.amount,
@@ -243,7 +292,7 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
     }
 
     return { accountsShare: build("retainer"), projectsShare: build("project") }
-  }, [data.shareRows, rangeMode, month, fromDate, toDate])
+  }, [data.shareRows, inRange, selectedAccountIds, groupLabel])
 
   const statusData = useMemo(
     () =>
@@ -670,6 +719,81 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
             title="Cuentas por participación"
             description={`${accountsShare.count} cuentas con monto en el periodo.`}
             share={accountsShare}
+            controls={
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="gap-2">
+                        <Layers className="size-4" aria-hidden="true" />
+                        {selectedAccountIds.length > 0
+                          ? `${selectedAccountIds.length} cuenta(s) seleccionada(s)`
+                          : "Agrupar cuentas"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[280px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Buscar cuenta..." />
+                        <CommandList>
+                          <CommandEmpty>Sin cuentas en el periodo.</CommandEmpty>
+                          <CommandGroup>
+                            {accountOptions.map((a) => {
+                              const checked = selectedAccountIds.includes(a.id)
+                              return (
+                                <CommandItem
+                                  key={a.id}
+                                  value={a.name}
+                                  onSelect={() =>
+                                    setSelectedAccountIds((prev) =>
+                                      checked ? prev.filter((id) => id !== a.id) : [...prev, a.id],
+                                    )
+                                  }
+                                  className="gap-2"
+                                >
+                                  <Checkbox checked={checked} className="pointer-events-none" />
+                                  <span className="flex-1 truncate">{a.name}</span>
+                                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                    {formatMoney(a.amount, a.currency)}
+                                  </span>
+                                </CommandItem>
+                              )
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  {selectedAccountIds.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1 text-muted-foreground"
+                      onClick={() => {
+                        setSelectedAccountIds([])
+                        setGroupLabel("")
+                      }}
+                    >
+                      <X className="size-4" aria-hidden="true" />
+                      Limpiar
+                    </Button>
+                  )}
+                </div>
+                {selectedAccountIds.length > 1 && (
+                  <Input
+                    value={groupLabel}
+                    onChange={(e) => setGroupLabel(e.target.value)}
+                    placeholder="Nombre del grupo (ej. Grupo Cliente X)"
+                    className="h-8 max-w-[280px]"
+                    aria-label="Nombre del grupo"
+                  />
+                )}
+                {selectedAccountIds.length === 1 && (
+                  <p className="text-xs text-muted-foreground">
+                    Selecciona al menos 2 cuentas para combinarlas en una sola rebanada.
+                  </p>
+                )}
+              </div>
+            }
           />
           <SharePie
             title="Proyectos por participación"
