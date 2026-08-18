@@ -287,20 +287,27 @@ export default function ExpensesPage() {
       fetchAccountsByAgency(expenseForm.agency_id)
       fetchVendorsByAgency(expenseForm.agency_id)
       fetchStaffByAgency(expenseForm.agency_id)
-      // Fetch approvers for current user
-      if (expenseForm.requested_by_id) {
-        fetchApproversForStaff(expenseForm.requested_by_id, expenseForm.agency_id)
-      }
     } else {
-      // Reset form lists when no agency selected
+      // Reset agency-dependent lists when no agency selected
       setFormCategories([])
       setProjects([])
       setAccounts([])
       setVendors([])
       setStaffList([])
+    }
+  }, [expenseForm.agency_id])
+
+  // La lista de aprobadores depende del SOLICITANTE (cadena de mando por
+  // reports_to_id), NO de la agencia: los jefes pueden ser globales
+  // (agency_id nulo, ej. Director General, Directora de Operaciones). Por eso
+  // se resuelve de forma independiente al agency_id seleccionado.
+  useEffect(() => {
+    if (expenseForm.requested_by_id) {
+      fetchApproversForStaff(expenseForm.requested_by_id, expenseForm.agency_id)
+    } else {
       setApproversList([])
     }
-  }, [expenseForm.agency_id, expenseForm.requested_by_id])
+  }, [expenseForm.requested_by_id])
 
   // Al abrir el formulario de un gasto nuevo con agencia seleccionada, se
   // consulta el siguiente número consecutivo para mostrarlo como referencia.
