@@ -362,17 +362,22 @@ useEffect(() => {
 const fetchAccounts = async (clientId: string, agencyId: string) => {
     if (!clientId || !agencyId) return
     
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("accounts")
-      .select("id, account_name, client_id, sales_rep_id, account_manager_id")
+      .select("id, account_name, client_id, sales_advisor_id, account_manager_id")
       .eq("client_id", clientId)
       .eq("agency_id", agencyId)
       .order("account_name")
+    if (error) {
+      console.error("[v0] Error fetching accounts:", error)
+      setAccounts([])
+      return
+    }
     if (data) setAccounts(data.map(a => ({ 
       id: a.id, 
       name: a.account_name, 
       client_id: a.client_id,
-      sales_rep_id: a.sales_rep_id,
+      sales_rep_id: a.sales_advisor_id,
       account_manager_id: a.account_manager_id
     })))
   }
