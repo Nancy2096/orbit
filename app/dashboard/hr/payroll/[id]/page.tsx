@@ -379,7 +379,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             .in("status", ["approved", "paid"]),
           supabase
             .from("commissions")
-            .select("id, staff_id, commission_type, description, commission_amount, status, period_date, created_at")
+            .select("id, staff_id, commission_type, description, commission_amount, status, period_date, created_at, paid_at")
             .in("staff_id", staffIds)
             .in("status", ["approved", "paid"]),
           // Préstamos vigentes (activos/aprobados) con saldo pendiente.
@@ -399,7 +399,18 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           bonusesByStaff[b.staff_id] = (bonusesByStaff[b.staff_id] || 0) + Number(b.amount || 0)
         }
         for (const c of commissionsRes.data || []) {
-          if (!inPeriod(c.period_date, c.created_at)) continue
+          // Reglas de inclusión de comisiones citas en el periodo:
+          // - Pagada: se muestra en el periodo en que se registró el pago (paid_at).
+          // - Aprobada y pendiente: se arrastra a este periodo (mientras se haya
+          //   generado a más tardar al cierre del periodo), hasta que se pague. Así
+          //   toda comisión aprobada se incluye en la nómina aunque se haya creado
+          //   antes del inicio del periodo.
+          const createdOnOrBeforeEnd = String(c.created_at || "").slice(0, 10) <= end
+          const include =
+            c.status === "paid"
+              ? inPeriod(c.paid_at, c.created_at)
+              : createdOnOrBeforeEnd
+          if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
           if (!commissionItemsByStaff[c.staff_id]) commissionItemsByStaff[c.staff_id] = []
