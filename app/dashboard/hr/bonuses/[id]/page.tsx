@@ -68,6 +68,7 @@ interface Bonus {
   videocall_done: boolean
   rejection_reason: string | null
   rejected_at: string | null
+  approved_at: string | null
   paid_at: string | null
   staff: {
     id: string
@@ -265,11 +266,18 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
       "Evidencias completas. Enviado a autorización de pago.",
     )
 
-  // Paso 4: autorización de pago (Dirección de Operaciones)
+  // Paso 4: autorización de pago (Dirección de Operaciones).
+  // Autorizar NO marca el bono como pagado: lo deja "aprobado" y listo para
+  // incluirse en la próxima nómina. El estatus pasa a "pagado" únicamente cuando
+  // la nómina que lo incluye se marca como pagada.
   const authorizePayment = () =>
     patchBonus(
-      { workflow_stage: BONUS_STAGES.PAID, status: "paid", paid_at: new Date().toISOString() },
-      "Pago autorizado. Bono completado.",
+      {
+        workflow_stage: BONUS_STAGES.AUTHORIZED,
+        status: "approved",
+        approved_at: bonus?.approved_at || new Date().toISOString(),
+      },
+      "Pago autorizado. El bono se pagará en la próxima nómina.",
     )
 
   const formatDate = (dateString: string | null) => {
@@ -646,6 +654,23 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
             </Card>
           )}
 
+          {/* Autorizado: pendiente de pago en la próxima nómina */}
+          {stage === BONUS_STAGES.AUTHORIZED && (
+            <Card className="border-teal-200 dark:border-teal-900">
+              <CardContent className="flex items-start gap-3 p-4">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 text-teal-600" />
+                <div>
+                  <p className="font-medium text-teal-700 dark:text-teal-400">Bono autorizado</p>
+                  <p className="text-sm text-muted-foreground">
+                    El pago fue autorizado{bonus.approved_at ? ` el ${formatDate(bonus.approved_at)}` : ""}. Se
+                    pagará en la próxima nómina; al marcarse esa nómina como pagada, el bono pasará a
+                    &quot;Pagado&quot;.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Completado */}
           {stage === BONUS_STAGES.PAID && (
             <Card className="border-green-200 dark:border-green-900">
@@ -654,7 +679,7 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
                 <div>
                   <p className="font-medium text-green-700 dark:text-green-400">Bono pagado</p>
                   <p className="text-sm text-muted-foreground">
-                    El proceso se completó. Pago autorizado el {formatDate(bonus.paid_at)}.
+                    El proceso se completó. Pagado el {formatDate(bonus.paid_at)}.
                   </p>
                 </div>
               </CardContent>

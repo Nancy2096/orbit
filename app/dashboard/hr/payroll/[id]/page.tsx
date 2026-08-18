@@ -122,11 +122,18 @@ interface LoanDeductionItem {
   payments_made: number
 }
 
+interface BonusItem {
+  id: string
+  amount: number
+  status: string
+}
+
 interface PayrollEntry {
   staff_id: string
   staff: Staff
   base_salary: number
   bonuses: number
+  bonusItems: BonusItem[]
   commissions: number
   commissionItems: CommissionItem[]
   finiquito: number
@@ -355,6 +362,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // respaldo, y filtramos en JS para no excluir registros con fecha nula.
       const staffIds = (staffData || []).map((s) => s.id)
       const bonusesByStaff: Record<string, number> = {}
+      const bonusItemsByStaff: Record<string, BonusItem[]> = {}
       const commissionsByStaff: Record<string, number> = {}
       const commissionItemsByStaff: Record<string, CommissionItem[]> = {}
       // Descuentos de préstamos activos (del apartado Préstamos) por colaborador.
@@ -374,7 +382,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
           supabase
             .from("bonuses")
-            .select("staff_id, amount, benefit_type, status, effective_date, created_at")
+            .select("id, staff_id, amount, benefit_type, status, effective_date, created_at, paid_at")
             .in("staff_id", staffIds)
             .in("status", ["approved", "paid"]),
           supabase
@@ -395,8 +403,25 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         for (const b of bonusesRes.data || []) {
           // Los bonos de "días libres" no representan un monto en dinero
           if (b.benefit_type === "free_days") continue
-          if (!inPeriod(b.effective_date, b.created_at)) continue
+          // Reglas de inclusión de bonos en el periodo (igual que las comisiones):
+          // - Pagado: se muestra en el periodo en que se registró el pago (paid_at).
+          // - Aprobado y pendiente: se arrastra al periodo actual (mientras se haya
+          //   registrado a más tardar al cierre del periodo), hasta que se pague.
+          //   Así todo bono aprobado entra en la nómina más próxima aunque se haya
+          //   aprobado antes del inicio del periodo.
+          const createdOnOrBeforeEnd = String(b.effective_date || b.created_at || "").slice(0, 10) <= end
+          const include =
+            b.status === "paid"
+              ? inPeriod(b.paid_at, b.created_at)
+              : createdOnOrBeforeEnd
+          if (!include) continue
           bonusesByStaff[b.staff_id] = (bonusesByStaff[b.staff_id] || 0) + Number(b.amount || 0)
+          if (!bonusItemsByStaff[b.staff_id]) bonusItemsByStaff[b.staff_id] = []
+          bonusItemsByStaff[b.staff_id].push({
+            id: b.id,
+            amount: Number(b.amount || 0),
+            status: b.status,
+          })
         }
         for (const c of commissionsRes.data || []) {
           // Reglas de inclusión de comisiones citas en el periodo:
@@ -470,6 +495,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           staff: staff,
           base_salary: baseSalary,
           bonuses: bonuses,
+          bonusItems: bonusItemsByStaff[staff.id] || [],
           commissions: commissions,
           commissionItems: commissionItemsByStaff[staff.id] || [],
           finiquito: finiquito,
@@ -733,6 +759,29 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         }
       }
 
+      // Marcar como pagados los bonos incluidos en este periodo que aún no lo
+      // estén, registrando su fecha de pago. El bono pasa a "pagado" solo aquí,
+      // cuando la nómina que lo incluye se marca como pagada.
+      const bonusIdsToPay = entries
+        .flatMap((e) => e.bonusItems)
+        .filter((b) => b.status !== "paid")
+        .map((b) => b.id)
+
+      let paidBonusesCount = 0
+      if (bonusIdsToPay.length > 0) {
+        const { error: bonusError } = await supabase
+          .from("bonuses")
+          .update({ status: "paid", paid_at: new Date().toISOString(), workflow_stage: "paid" })
+          .in("id", bonusIdsToPay)
+
+        if (bonusError) {
+          console.error("Error updating bonuses:", bonusError)
+          toast.error("La nómina se marcó como pagada, pero no se pudieron actualizar los bonos")
+        } else {
+          paidBonusesCount = bonusIdsToPay.length
+        }
+      }
+
       // Marcar como liquidados los finiquitos incluidos en este periodo, para
       // que no se vuelvan a considerar en nóminas futuras.
       const finiquitoStaffIds = entries
@@ -808,6 +857,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           commissionItems: e.commissionItems.map((c) =>
             commissionIdsToPay.includes(c.id) ? { ...c, status: "paid" } : c,
           ),
+          bonusItems: e.bonusItems.map((b) =>
+            bonusIdsToPay.includes(b.id) ? { ...b, status: "paid" } : b,
+          ),
           staff: finiquitoStaffIds.includes(e.staff_id)
             ? { ...e.staff, finiquito_paid_at: paidAt }
             : e.staff,
@@ -816,6 +868,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       const extras = [
         paidCommissionsCount > 0 ? `${paidCommissionsCount} comisión(es)` : null,
+        paidBonusesCount > 0 ? `${paidBonusesCount} bono(s)` : null,
         paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
         paidLoansCount > 0 ? `${paidLoansCount} pago(s) de préstamo` : null,
       ].filter(Boolean)

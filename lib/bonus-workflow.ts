@@ -5,7 +5,8 @@ export const BONUS_STAGES = {
   PENDING_MANAGER: "pending_manager", // Paso 2: espera autorización del jefe/dirección
   PENDING_EVIDENCE: "pending_evidence", // Paso 3: testigos (certificado, presentación, videollamada)
   PENDING_PAYMENT: "pending_payment", // Paso 4: espera autorización de pago (Dir. Operaciones)
-  PAID: "paid", // Pagado / completado
+  AUTHORIZED: "authorized", // Autorizado para pago: se pagará en la próxima nómina
+  PAID: "paid", // Pagado / completado (al pagarse la nómina que lo incluye)
   REJECTED: "rejected", // Rechazado en cualquier autorización
   LEGACY: "legacy", // Bonos previos al flujo (compatibilidad)
 } as const
@@ -16,6 +17,7 @@ export const STAGE_LABELS: Record<string, string> = {
   pending_manager: "Pendiente de autorización",
   pending_evidence: "Pendiente de evidencia",
   pending_payment: "Pendiente de pago",
+  authorized: "Autorizado · pendiente de nómina",
   paid: "Pagado",
   rejected: "Rechazado",
   legacy: "Registrado",
@@ -25,6 +27,7 @@ export const STAGE_BADGE_STYLES: Record<string, string> = {
   pending_manager: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
   pending_evidence: "bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300",
   pending_payment: "bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300",
+  authorized: "bg-teal-100 text-teal-800 dark:bg-teal-950/40 dark:text-teal-300",
   paid: "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300",
   rejected: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300",
   legacy: "bg-muted text-muted-foreground",
@@ -48,6 +51,7 @@ export function activeStepIndex(stage: string): number {
       return 2
     case BONUS_STAGES.PENDING_PAYMENT:
       return 3
+    case BONUS_STAGES.AUTHORIZED:
     case BONUS_STAGES.PAID:
       return 4
     default:

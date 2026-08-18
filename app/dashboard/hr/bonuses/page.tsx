@@ -37,7 +37,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins, GraduationCap, Trash2 } from "lucide-react"
+import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins, GraduationCap, Trash2, RefreshCw } from "lucide-react"
 import { DepartmentFilter } from "@/components/hr/department-filter"
 import { BonusTypePanel } from "@/components/hr/bonus-type-sections"
 import { useAgency } from "@/contexts/agency-context"
@@ -55,6 +55,8 @@ interface Bonus {
   status: string
   effective_date: string | null
   created_at: string
+  approved_at: string | null
+  paid_at: string | null
   course_name: string | null
   workflow_stage: string | null
   staff: {
@@ -98,21 +100,6 @@ const typeLabels: Record<string, string> = {
   attendance: "Asistencia",
   seniority: "Antigüedad",
   other: "Otro",
-}
-
-interface StaffRecord {
-  staffId: string
-  name: string
-  department: string | null
-  isActive: boolean
-  count: number
-  total: number
-  paid: number
-  pending: number
-  lastDate: string | null
-  latestBonusId: string
-  // Todos los bonos del empleado (para eliminar el registro completo).
-  bonusIds: string[]
 }
 
 export default function BonusesPage() {
@@ -233,25 +220,61 @@ export default function BonusesPage() {
     }
   }
 
-  // Eliminación del registro completo de un empleado (todos sus bonos).
-  const [recordToDelete, setRecordToDelete] = useState<StaffRecord | null>(null)
+  // Eliminación de un bono individual.
+  const [bonusToDelete, setBonusToDelete] = useState<Bonus | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const handleDeleteRecord = async () => {
-    if (!recordToDelete) return
+  const handleDeleteBonus = async () => {
+    if (!bonusToDelete) return
     setDeleting(true)
     try {
-      const { error } = await supabase
-        .from("bonuses")
-        .delete()
-        .in("id", recordToDelete.bonusIds)
+      const { error } = await supabase.from("bonuses").delete().eq("id", bonusToDelete.id)
       if (error) throw error
-      setRecordToDelete(null)
+      setBonusToDelete(null)
       await fetchData()
     } catch (error) {
-      console.error("Error deleting bonus record:", error)
+      console.error("Error deleting bonus:", error)
     } finally {
       setDeleting(false)
+    }
+  }
+
+  // Cambio manual de estatus (con confirmación). Permite Aprobado, Pagado y
+  // Cancelado. Al pasar a "aprobado" o "pagado" se registra la fecha
+  // correspondiente si aún no existe, y se ajusta la etapa del flujo.
+  const [statusChangeBonus, setStatusChangeBonus] = useState<Bonus | null>(null)
+  const [statusChangeTarget, setStatusChangeTarget] = useState<string>("")
+  const [changingStatus, setChangingStatus] = useState(false)
+
+  const closeStatusChange = () => {
+    setStatusChangeBonus(null)
+    setStatusChangeTarget("")
+  }
+
+  const handleChangeStatus = async () => {
+    if (!statusChangeBonus || !statusChangeTarget) return
+    setChangingStatus(true)
+    try {
+      const now = new Date().toISOString()
+      const updates: Record<string, unknown> = { status: statusChangeTarget }
+      if (statusChangeTarget === "approved") {
+        updates.approved_at = statusChangeBonus.approved_at || now
+        updates.workflow_stage = "authorized"
+      } else if (statusChangeTarget === "paid") {
+        updates.approved_at = statusChangeBonus.approved_at || now
+        updates.paid_at = statusChangeBonus.paid_at || now
+        updates.workflow_stage = "paid"
+      } else if (statusChangeTarget === "cancelled") {
+        updates.workflow_stage = "rejected"
+      }
+      const { error } = await supabase.from("bonuses").update(updates).eq("id", statusChangeBonus.id)
+      if (error) throw error
+      closeStatusChange()
+      await fetchData()
+    } catch (error) {
+      console.error("Error changing bonus status:", error)
+    } finally {
+      setChangingStatus(false)
     }
   }
 
@@ -280,44 +303,18 @@ export default function BonusesPage() {
     }).format(amount)
   }
 
-  // Registro por personal activo: agrupa los bonos por empleado (solo activos)
-  const staffRecords: StaffRecord[] = Object.values(
-    filteredBonuses.reduce((acc: Record<string, StaffRecord>, bonus) => {
-      const staff = bonus.staff
-      if (!staff || !staff.is_active) return acc
-
-      const amount = Number(bonus.amount || 0)
-      const dateRef = bonus.effective_date || bonus.created_at
-
-      if (!acc[staff.id]) {
-        acc[staff.id] = {
-          staffId: staff.id,
-          name: `${staff.first_name} ${staff.last_name}`,
-          department: staff.department?.name || null,
-          isActive: staff.is_active,
-          count: 0,
-          total: 0,
-          paid: 0,
-          pending: 0,
-          lastDate: null,
-          latestBonusId: bonus.id,
-          bonusIds: [],
-        }
-      }
-
-      const record = acc[staff.id]
-      record.bonusIds.push(bonus.id)
-      record.count += 1
-      record.total += amount
-      if (bonus.status === "paid") record.paid += amount
-      if (bonus.status === "pending" || bonus.status === "approved") record.pending += amount
-      if (!record.lastDate || new Date(dateRef) > new Date(record.lastDate)) {
-        record.lastDate = dateRef
-        record.latestBonusId = bonus.id
-      }
-      return acc
-    }, {})
-  ).sort((a, b) => b.total - a.total)
+  // Registro por personal activo: se listan los bonos individualmente (solo del
+  // personal activo), ordenados por empleado y por fecha más reciente.
+  const staffBonuses = filteredBonuses
+    .filter((bonus) => bonus.staff?.is_active)
+    .sort((a, b) => {
+      const nameA = `${a.staff?.first_name || ""} ${a.staff?.last_name || ""}`
+      const nameB = `${b.staff?.first_name || ""} ${b.staff?.last_name || ""}`
+      if (nameA !== nameB) return nameA.localeCompare(nameB)
+      const dateA = a.effective_date || a.created_at
+      const dateB = b.effective_date || b.created_at
+      return new Date(dateB).getTime() - new Date(dateA).getTime()
+    })
 
   // Stats
   const totalBonuses = bonuses.reduce((sum, b) => sum + Number(b.amount || 0), 0)
@@ -537,9 +534,9 @@ export default function BonusesPage() {
                 )}
               </TabsContent>
 
-              {/* Tab: registro por personal activo */}
+              {/* Tab: registro por personal activo (cada bono individual) */}
               <TabsContent value="staff" className="mt-6">
-                {staffRecords.length === 0 ? (
+                {staffBonuses.length === 0 ? (
                   <Empty>
                     <EmptyMedia variant="icon">
                       <Users className="h-6 w-6" />
@@ -555,41 +552,48 @@ export default function BonusesPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Empleado</TableHead>
-                          <TableHead>Departamento</TableHead>
-                          <TableHead className="text-center">Bonos</TableHead>
-                          <TableHead className="text-right">Total</TableHead>
-                          <TableHead className="text-right">Pagado</TableHead>
-                          <TableHead className="text-right">Pendiente</TableHead>
-                          <TableHead>Último bono</TableHead>
-                          <TableHead className="w-[180px]">Acciones</TableHead>
+                          <TableHead>Bono</TableHead>
+                          <TableHead className="text-right">Monto</TableHead>
+                          <TableHead>Estatus</TableHead>
+                          <TableHead>Fecha de aprobación</TableHead>
+                          <TableHead>Fecha de pago</TableHead>
+                          <TableHead className="w-[220px]">Acciones</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {staffRecords.map((record) => (
-                          <TableRow key={record.staffId}>
-                            <TableCell className="font-medium">{record.name}</TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {record.department || "-"}
+                        {staffBonuses.map((bonus) => (
+                          <TableRow key={bonus.id}>
+                            <TableCell className="font-medium">
+                              {bonus.staff?.first_name} {bonus.staff?.last_name}
                             </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="secondary">{record.count}</Badge>
+                            <TableCell className="max-w-[220px]">
+                              <div className="truncate font-medium">
+                                {bonus.course_name || typeLabels[bonus.bonus_type] || bonus.bonus_type}
+                              </div>
+                              {bonus.staff?.department?.name && (
+                                <div className="truncate text-xs text-muted-foreground">
+                                  {bonus.staff.department.name}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell className="text-right font-medium">
-                              {formatCurrency(record.total)}
-                            </TableCell>
-                            <TableCell className="text-right text-green-600">
-                              {formatCurrency(record.paid)}
-                            </TableCell>
-                            <TableCell className="text-right text-amber-600">
-                              {formatCurrency(record.pending)}
+                              {formatCurrency(Number(bonus.amount || 0))}
                             </TableCell>
                             <TableCell>
-                              {record.lastDate ? formatDate(record.lastDate) : "-"}
+                              <Badge variant={statusColors[bonus.status]}>
+                                {statusLabels[bonus.status] || bonus.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {bonus.approved_at ? formatDate(bonus.approved_at) : "-"}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {bonus.paid_at ? formatDate(bonus.paid_at) : "-"}
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1">
                                 <Button variant="ghost" size="sm" asChild>
-                                  <Link href={`/dashboard/hr/bonuses/${record.latestBonusId}`}>
+                                  <Link href={`/dashboard/hr/bonuses/${bonus.id}`}>
                                     <Eye className="mr-1 h-4 w-4" />
                                     Ver
                                   </Link>
@@ -597,11 +601,22 @@ export default function BonusesPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="text-destructive hover:text-destructive"
-                                  onClick={() => setRecordToDelete(record)}
+                                  onClick={() => {
+                                    setStatusChangeBonus(bonus)
+                                    setStatusChangeTarget("")
+                                  }}
                                 >
-                                  <Trash2 className="mr-1 h-4 w-4" />
-                                  Eliminar
+                                  <RefreshCw className="mr-1 h-4 w-4" />
+                                  Estatus
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => setBonusToDelete(bonus)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="sr-only">Eliminar bono</span>
                                 </Button>
                               </div>
                             </TableCell>
@@ -708,13 +723,14 @@ export default function BonusesPage() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!recordToDelete} onOpenChange={(open) => !open && setRecordToDelete(null)}>
+      {/* Confirmación para eliminar un bono individual */}
+      <AlertDialog open={!!bonusToDelete} onOpenChange={(open) => !open && setBonusToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Eliminar registro completo</AlertDialogTitle>
+            <AlertDialogTitle>Eliminar bono</AlertDialogTitle>
             <AlertDialogDescription>
-              {recordToDelete
-                ? `Se eliminarán permanentemente los ${recordToDelete.count} bono(s) de ${recordToDelete.name} por un total de ${formatCurrency(recordToDelete.total)}. Esta acción no se puede deshacer.`
+              {bonusToDelete
+                ? `Se eliminará permanentemente el bono de ${bonusToDelete.staff?.first_name} ${bonusToDelete.staff?.last_name} por ${formatCurrency(Number(bonusToDelete.amount || 0))}. Esta acción no se puede deshacer.`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -723,13 +739,58 @@ export default function BonusesPage() {
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault()
-                handleDeleteRecord()
+                handleDeleteBonus()
               }}
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting ? <Spinner className="mr-2 h-4 w-4" /> : <Trash2 className="mr-2 h-4 w-4" />}
               Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cambio de estatus con confirmación */}
+      <AlertDialog open={!!statusChangeBonus} onOpenChange={(open) => !open && closeStatusChange()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cambiar estatus del bono</AlertDialogTitle>
+            <AlertDialogDescription>
+              {statusChangeBonus
+                ? `Bono de ${statusChangeBonus.staff?.first_name} ${statusChangeBonus.staff?.last_name} por ${formatCurrency(Number(statusChangeBonus.amount || 0))}. Estatus actual: ${statusLabels[statusChangeBonus.status] || statusChangeBonus.status}. Selecciona el nuevo estatus; el cambio se aplicará al confirmar.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Select value={statusChangeTarget} onValueChange={setStatusChangeTarget}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona un estatus" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="approved">Aprobado</SelectItem>
+                <SelectItem value="paid">Pagado</SelectItem>
+                <SelectItem value="cancelled">Cancelado</SelectItem>
+              </SelectContent>
+            </Select>
+            {statusChangeTarget === "paid" && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Normalmente el estatus &quot;Pagado&quot; se asigna automáticamente cuando la nómina que
+                incluye el bono se marca como pagada. Úsalo manualmente solo para ajustes.
+              </p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={changingStatus}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleChangeStatus()
+              }}
+              disabled={changingStatus || !statusChangeTarget || statusChangeTarget === statusChangeBonus?.status}
+            >
+              {changingStatus ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Confirmar cambio
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
