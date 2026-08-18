@@ -1,68 +1,64 @@
-import { auth } from "@/auth"
-import { NextResponse } from "next/server"
-
-const CALENDAR_API = "https://www.googleapis.com/calendar/v3"
-
-export async function GET() {
-  const session = await auth()
-  // @ts-expect-error — campo custom
-  const accessToken = session?.access_token
-  if (!accessToken) {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-  }
-
-  const params = new URLSearchParams({
-    timeMin: new Date().toISOString(),
-    maxResults: "20",
-    singleEvents: "true",
-    orderBy: "startTime",
-  })
-
-  const res = await fetch(
-    `${CALENDAR_API}/calendars/primary/events?${params}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  )
-  const data = await res.json()
-  if (!res.ok) return NextResponse.json(data, { status: res.status })
-  return NextResponse.json(data.items)
-}
+import { createClient } from "@/lib/supabase/server"
 
 export async function POST(request: Request) {
-  const session = await auth()
-  // @ts-expect-error — campo custom
-  const accessToken = session?.access_token
-  if (!accessToken) {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+  // 1. Usuario logueado (Supabase Auth)
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser()
+
+  if (error || !user) {
+    return Response.json({ error: "No autenticado" }, { status: 401 })
   }
 
+  // 2. Datos de la cita que manda el formulario
   const body = await request.json()
+  const { titulo, descripcion, inicio, fin, invitados } = body
 
-  const evento = {
-    summary: body.titulo,
-    description: body.descripcion ?? "",
-    start: { dateTime: body.inicio, timeZone: "America/Mexico_City" },
-    end: { dateTime: body.fin, timeZone: "America/Mexico_City" },
-    attendees: (body.invitados ?? []).map((email: string) => ({ email })),
-    reminders: { useDefault: true },
+  if (!titulo || !inicio || !fin) {
+    return Response.json(
+      { error: "Faltan datos: titulo, inicio o fin" },
+      { status: 400 }
+    )
   }
 
-  const res = await fetch(
-    `${CALENDAR_API}/calendars/primary/events?sendUpdates=all`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(evento),
-    }
-  )
-  const data = await res.json()
-  if (!res.ok) return NextResponse.json(data, { status: res.status })
+  // 3. Enviar la cita a Make
+  const webhookUrl = process.env.MAKE_WEBHOOK_URL
+  if (!webhookUrl) {
+    return Response.json(
+      { error: "MAKE_WEBHOOK_URL no está configurada" },
+      { status: 500 }
+    )
+  }
 
-  return NextResponse.json({
-    id: data.id,
-    link: data.htmlLink,
-    meet: data.hangoutLink ?? null,
-  })
+  try {
+    const res = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        comercial: user.email, // identifica al comercial → Make elige su calendario
+        titulo,
+        descripcion: descripcion ?? "",
+        inicio, // ISO 8601, ej. "2026-08-20T15:00:00-06:00"
+        fin, // ISO 8601
+        invitados: invitados ?? [], // array de correos
+      }),
+    })
+
+    if (!res.ok) {
+      const texto = await res.text()
+      return Response.json(
+        { error: "Make respondió con error", detalle: texto },
+        { status: 502 }
+      )
+    }
+
+    return Response.json({ ok: true })
+  } catch (e) {
+    return Response.json(
+      { error: "No se pudo contactar a Make", detalle: String(e) },
+      { status: 502 }
+    )
+  }
 }
