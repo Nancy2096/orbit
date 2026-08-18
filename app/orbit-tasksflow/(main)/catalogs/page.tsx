@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowLeft, Library, Tag, LayoutTemplate, Building2 } from "lucide-react"
+import { ArrowLeft, Library, Tag, LayoutTemplate, Building2, CircleDot } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CatalogManager } from "@/components/orbit-tasksflow/catalog-manager"
@@ -9,9 +9,11 @@ import {
   TASK_TYPES_STORAGE_KEY,
   TASK_FORMATS_STORAGE_KEY,
   AREAS_STORAGE_KEY,
+  TASK_STATUSES_STORAGE_KEY,
   defaultTaskTypes,
   defaultTaskFormats,
   defaultAreas,
+  defaultTaskStatuses,
 } from "@/lib/orbit-tasksflow/catalogs"
 
 export default function CatalogsPage() {
@@ -30,7 +32,7 @@ export default function CatalogsPage() {
             Catálogos
           </h1>
           <p className="text-muted-foreground">
-            Gestiona los catálogos de Tipo, Formato y Áreas de Orbit TasksFlow
+            Gestiona los catálogos de Tipo, Formato, Áreas y Estado de Tareas de Orbit TasksFlow
           </p>
         </div>
       </div>
@@ -48,6 +50,10 @@ export default function CatalogsPage() {
           <TabsTrigger value="areas" className="flex items-center gap-2">
             <Building2 className="h-4 w-4" />
             Áreas / Departamentos
+          </TabsTrigger>
+          <TabsTrigger value="statuses" className="flex items-center gap-2">
+            <CircleDot className="h-4 w-4" />
+            Estado de Tareas
           </TabsTrigger>
         </TabsList>
 
@@ -83,6 +89,18 @@ export default function CatalogsPage() {
             storageKey={AREAS_STORAGE_KEY}
             defaults={defaultAreas}
             itemNoun="Área"
+            embedded
+          />
+        </TabsContent>
+
+        <TabsContent value="statuses" className="mt-6">
+          <CatalogManager
+            title="Estado de Tareas"
+            description="Define los estados disponibles para las tareas. Los cambios se reflejan en los estados seleccionables dentro del detalle de cada tarea."
+            icon={CircleDot}
+            storageKey={TASK_STATUSES_STORAGE_KEY}
+            defaults={defaultTaskStatuses}
+            itemNoun="Estado"
             embedded
           />
         </TabsContent>

@@ -85,9 +85,11 @@ import {
   TASK_TYPES_STORAGE_KEY,
   TASK_FORMATS_STORAGE_KEY,
   AREAS_STORAGE_KEY,
+  TASK_STATUSES_STORAGE_KEY,
   defaultTaskTypes,
   defaultTaskFormats,
   defaultAreas,
+  defaultTaskStatuses,
 } from "@/lib/orbit-tasksflow/catalogs"
 import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
 
@@ -381,6 +383,14 @@ export function TaskDetailView({
   const { items: taskTypes } = useCatalog(TASK_TYPES_STORAGE_KEY, defaultTaskTypes)
   const { items: taskFormats } = useCatalog(TASK_FORMATS_STORAGE_KEY, defaultTaskFormats)
   const { items: areas } = useCatalog(AREAS_STORAGE_KEY, defaultAreas)
+  const { items: taskStatuses } = useCatalog(TASK_STATUSES_STORAGE_KEY, defaultTaskStatuses)
+
+  // Etiqueta/color de un estado: la etiqueta viene del catálogo (editable) y el
+  // color del mapa conocido; los estados nuevos usan un color por defecto.
+  const getStatusMeta = (key: string) => ({
+    label: taskStatuses.find((s) => s.id === key)?.name || taskStatusConfig[key]?.label || key,
+    color: taskStatusConfig[key]?.color || "bg-gray-500",
+  })
   const [selectedTypeId, setSelectedTypeId] = useState<string>("")
   const [selectedFormatId, setSelectedFormatId] = useState<string>("")
   const [selectedAreaId, setSelectedAreaId] = useState<string>("")
@@ -454,7 +464,7 @@ export function TaskDetailView({
     estimatedHours: task.estimatedHours
   })
 
-  const status = taskStatusConfig[task.status] || { label: task.status, color: "bg-gray-500" }
+  const status = getStatusMeta(task.status)
   const priority = priorityConfig[task.priority] || { label: task.priority, color: "bg-gray-400", textColor: "text-gray-600" }
 
 
@@ -929,19 +939,22 @@ export function TaskDetailView({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  {Object.entries(taskStatusConfig).map(([key, cfg]) => (
-                    <DropdownMenuItem
-                      key={key}
-                      onSelect={() => {
-                        if (task.status !== key) logActivity(`Estado cambiado a ${cfg.label}`)
-                        setTask(prev => ({ ...prev, status: key }))
-                      }}
-                      className={task.status === key ? "bg-muted" : ""}
-                    >
-                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
-                      {cfg.label}
-                    </DropdownMenuItem>
-                  ))}
+                  {taskStatuses.map((s) => {
+                    const meta = getStatusMeta(s.id)
+                    return (
+                      <DropdownMenuItem
+                        key={s.id}
+                        onSelect={() => {
+                          if (task.status !== s.id) logActivity(`Estado cambiado a ${meta.label}`)
+                          setTask(prev => ({ ...prev, status: s.id }))
+                        }}
+                        className={task.status === s.id ? "bg-muted" : ""}
+                      >
+                        <span className={`w-2 h-2 rounded-full mr-2 ${meta.color}`} />
+                        {meta.label}
+                      </DropdownMenuItem>
+                    )
+                  })}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -1081,6 +1094,26 @@ export function TaskDetailView({
                   Interna
                 </Badge>
               )}
+            </div>
+
+            {/* Creada por */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Creada por</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <Avatar className="h-5 w-5 shrink-0">
+                  <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
+                </Avatar>
+                <span className="text-sm font-medium truncate">{task.createdBy.name}</span>
+              </div>
+            </div>
+
+            {/* Fecha de creación */}
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Fecha de creación</span>
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+                {formatDateTime(task.createdAt)}
+              </span>
             </div>
 
             {/* Notificar al completar */}
@@ -1472,20 +1505,6 @@ export function TaskDetailView({
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Creada por</span>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className="h-5 w-5 shrink-0">
-                        <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
-                      </Avatar>
-                      <span className="truncate">{task.createdBy.name}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Creada</span>
-                    <span className="text-right">{formatDateTime(task.createdAt)}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -2296,8 +2315,8 @@ export function TaskDetailView({
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <span className="text-sm text-muted-foreground hidden sm:inline">{relTask.assignee}</span>
-                          <Badge className={`${taskStatusConfig[relTask.status]?.color || 'bg-gray-500'} text-white text-xs`}>
-                            {taskStatusConfig[relTask.status]?.label || relTask.status}
+                          <Badge className={`${getStatusMeta(relTask.status).color} text-white text-xs`}>
+                            {getStatusMeta(relTask.status).label}
                           </Badge>
                           <Button
                             variant="ghost"
@@ -2350,8 +2369,8 @@ export function TaskDetailView({
                               <span className="font-medium block truncate">{t.name}</span>
                               <span className="text-xs text-muted-foreground">{t.account} · {t.assignee}</span>
                             </div>
-                            <Badge className={`${taskStatusConfig[t.status]?.color || 'bg-gray-500'} text-white text-xs shrink-0`}>
-                              {taskStatusConfig[t.status]?.label || t.status}
+                            <Badge className={`${getStatusMeta(t.status).color} text-white text-xs shrink-0`}>
+                              {getStatusMeta(t.status).label}
                             </Badge>
                           </button>
                         ))
