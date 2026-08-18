@@ -1,11 +1,12 @@
 "use client"
 
-import { useMemo, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { OperationsData } from "@/app/dashboard/operations/page"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -41,6 +42,7 @@ import {
   Wallet,
   Target,
   Gauge,
+  Percent,
 } from "lucide-react"
 import { ObjectiveGauge } from "@/components/dashboard/objective-gauge"
 
@@ -78,6 +80,98 @@ function formatCompact(value: number) {
 
 const GLOBAL_VALUE = "global"
 
+// Paleta base para las gráficas de participación. Para más de 5 rebanadas se
+// generan tonos derivados aclarando el color base hacia el fondo.
+const SHARE_BASE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"]
+function shareColor(i: number) {
+  const base = SHARE_BASE[i % SHARE_BASE.length]
+  const round = Math.floor(i / SHARE_BASE.length)
+  if (round === 0) return base
+  const pct = Math.max(35, 80 - round * 25)
+  return `color-mix(in oklab, ${base} ${pct}%, var(--background))`
+}
+
+const shareChartConfig = { value: { label: "Monto" } } satisfies ChartConfig
+
+interface ShareItem {
+  name: string
+  value: number
+  currency: string
+  pct: number
+  fill: string
+}
+
+interface ShareResult {
+  items: ShareItem[]
+  total: number
+  count: number
+}
+
+function SharePie({
+  title,
+  description,
+  share,
+}: {
+  title: string
+  description: string
+  share: ShareResult
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {share.items.length === 0 ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            Sin datos para el periodo seleccionado.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <ChartContainer config={shareChartConfig} className="mx-auto h-[240px] w-full">
+              <PieChart>
+                <ChartTooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const p = payload[0].payload as ShareItem
+                    return (
+                      <div className="rounded-lg border bg-background px-2.5 py-1.5 text-xs shadow-xl">
+                        <div className="font-medium text-foreground">{p.name}</div>
+                        <div className="text-muted-foreground">
+                          {p.currency ? formatMoney(p.value, p.currency) : formatCompact(p.value)}
+                          {" · "}
+                          <span className="font-semibold text-foreground">{p.pct.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    )
+                  }}
+                />
+                <Pie data={share.items} dataKey="value" nameKey="name" innerRadius={52} outerRadius={92}>
+                  {share.items.map((e) => (
+                    <Cell key={e.name} fill={e.fill} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ChartContainer>
+            <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {share.items.map((e) => (
+                <li key={e.name} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: e.fill }} aria-hidden="true" />
+                    <span className="truncate text-muted-foreground">{e.name}</span>
+                  </span>
+                  <span className="shrink-0 font-medium tabular-nums text-foreground">{e.pct.toFixed(1)}%</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function OperationsDashboard({ data }: { data: OperationsData }) {
   const { kpis, objectives } = data
   const router = useRouter()
@@ -113,6 +207,55 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
   const unitConfig = {
     count: { label: "Cantidad", color: "var(--chart-4)" },
   } satisfies ChartConfig
+
+  // Filtro de fecha para las gráficas de participación (por mes o personalizado).
+  const nowRef = new Date()
+  const currentMonth = `${nowRef.getFullYear()}-${String(nowRef.getMonth() + 1).padStart(2, "0")}`
+  const [rangeMode, setRangeMode] = useState<"all" | "month" | "custom">("all")
+  const [month, setMonth] = useState<string>(currentMonth)
+  const [fromDate, setFromDate] = useState<string>("")
+  const [toDate, setToDate] = useState<string>("")
+
+  const { accountsShare, projectsShare } = useMemo(() => {
+    const inRange = (createdAt: string | null) => {
+      if (rangeMode === "all") return true
+      if (!createdAt) return false
+      const d = createdAt.slice(0, 10)
+      if (rangeMode === "month") return d.slice(0, 7) === month
+      if (fromDate && d < fromDate) return false
+      if (toDate && d > toDate) return false
+      return true
+    }
+
+    const build = (type: "retainer" | "project"): ShareResult => {
+      const rows = data.shareRows.filter((r) => r.type === type && inRange(r.createdAt))
+      const total = rows.reduce((sum, r) => sum + r.amount, 0)
+      const sorted = [...rows].sort((a, b) => b.amount - a.amount)
+      const TOP = 8
+      const top = sorted.slice(0, TOP)
+      const rest = sorted.slice(TOP)
+      const items: ShareItem[] = top.map((r, i) => ({
+        name: r.name,
+        value: r.amount,
+        currency: r.currency,
+        pct: total ? (r.amount / total) * 100 : 0,
+        fill: shareColor(i),
+      }))
+      if (rest.length > 0) {
+        const restTotal = rest.reduce((sum, r) => sum + r.amount, 0)
+        items.push({
+          name: `Otros (${rest.length})`,
+          value: restTotal,
+          currency: "",
+          pct: total ? (restTotal / total) * 100 : 0,
+          fill: shareColor(top.length),
+        })
+      }
+      return { items, total, count: rows.length }
+    }
+
+    return { accountsShare: build("retainer"), projectsShare: build("project") }
+  }, [data.shareRows, rangeMode, month, fromDate, toDate])
 
   const statusData = useMemo(
     () =>
@@ -479,6 +622,74 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Participación de cuentas y proyectos por monto contratado */}
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-balance">
+              <Percent className="size-5 text-muted-foreground" aria-hidden="true" />
+              Participación de cuentas y proyectos
+            </h2>
+            <p className="text-sm text-muted-foreground text-pretty">
+              Porcentaje que representa cada cuenta y cada proyecto sobre el monto total contratado del periodo.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={rangeMode} onValueChange={(v) => setRangeMode(v as "all" | "month" | "custom")}>
+              <SelectTrigger className="w-[170px]" aria-label="Filtrar por periodo">
+                <CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todo el histórico</SelectItem>
+                <SelectItem value="month">Por mes</SelectItem>
+                <SelectItem value="custom">Personalizado</SelectItem>
+              </SelectContent>
+            </Select>
+            {rangeMode === "month" && (
+              <Input
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="w-[170px]"
+                aria-label="Mes"
+              />
+            )}
+            {rangeMode === "custom" && (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="w-[150px]"
+                  aria-label="Desde"
+                />
+                <span className="text-xs text-muted-foreground">a</span>
+                <Input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="w-[150px]"
+                  aria-label="Hasta"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <SharePie
+            title="Cuentas por participación"
+            description={`${accountsShare.count} cuentas con monto en el periodo.`}
+            share={accountsShare}
+          />
+          <SharePie
+            title="Proyectos por participación"
+            description={`${projectsShare.count} proyectos con monto en el periodo.`}
+            share={projectsShare}
+          />
+        </div>
+      </section>
 
       {/* Unidades por tipo */}
       <Card>
