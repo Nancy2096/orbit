@@ -231,26 +231,14 @@ export function OperationsDashboard({ data }: { data: OperationsData }) {
       const rows = data.shareRows.filter((r) => r.type === type && inRange(r.createdAt))
       const total = rows.reduce((sum, r) => sum + r.amount, 0)
       const sorted = [...rows].sort((a, b) => b.amount - a.amount)
-      const TOP = 8
-      const top = sorted.slice(0, TOP)
-      const rest = sorted.slice(TOP)
-      const items: ShareItem[] = top.map((r, i) => ({
+      // Se muestran TODAS las cuentas/proyectos, sin agrupar en "Otros".
+      const items: ShareItem[] = sorted.map((r, i) => ({
         name: r.name,
         value: r.amount,
         currency: r.currency,
         pct: total ? (r.amount / total) * 100 : 0,
         fill: shareColor(i),
       }))
-      if (rest.length > 0) {
-        const restTotal = rest.reduce((sum, r) => sum + r.amount, 0)
-        items.push({
-          name: `Otros (${rest.length})`,
-          value: restTotal,
-          currency: "",
-          pct: total ? (restTotal / total) * 100 : 0,
-          fill: shareColor(top.length),
-        })
-      }
       return { items, total, count: rows.length }
     }
 
