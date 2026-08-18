@@ -274,16 +274,17 @@ export default function NewInvoicePage() {
 useEffect(() => {
     if (formData.agency_id) {
       fetchClients(formData.agency_id)
-      fetchProjects(formData.agency_id)
       fetchServices(formData.agency_id)
       fetchAgencyStaff(formData.agency_id)
     }
   }, [formData.agency_id])
 
-  // Cargar cuentas cuando cambia el cliente
+  // Cargar cuentas y proyectos relacionados cuando cambia el cliente
   useEffect(() => {
     if (formData.client_id && formData.agency_id) {
       fetchAccounts(formData.client_id, formData.agency_id)
+      // Proyectos del cliente (de todas sus cuentas), para que aparezcan en Partidas
+      fetchProjectsByClient(formData.client_id, formData.agency_id)
       // Set CFDI use from client if available
       const client = clients.find(c => c.id === formData.client_id)
       if (client?.cfdi_use) {
@@ -291,16 +292,23 @@ useEffect(() => {
       }
     } else {
       setAccounts([])
+      setProjects([])
     }
   }, [formData.client_id])
 
-  // Cargar proyectos y servicios contratados cuando cambia la cuenta
+  // Al cambiar la cuenta: afinar los proyectos a esa cuenta y cargar sus
+  // servicios contratados. Si se deselecciona la cuenta (pero sigue el
+  // cliente), se restauran todos los proyectos del cliente.
   useEffect(() => {
     if (formData.account_id) {
       fetchProjects(formData.account_id)
       fetchContractedServices(formData.account_id)
     } else {
-      setProjects([])
+      if (formData.client_id && formData.agency_id) {
+        fetchProjectsByClient(formData.client_id, formData.agency_id)
+      } else {
+        setProjects([])
+      }
       setContractedServices([])
     }
 }, [formData.account_id])
@@ -485,6 +493,34 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
       .eq("account_id", accountId)
       .order("name")
     if (data) setProjects(data)
+  }
+
+  // Proyectos relacionados con el CLIENTE (todos los proyectos cuyas cuentas
+  // pertenecen al cliente). Se usa al elegir cliente, antes de seleccionar una
+  // cuenta específica, para que en Partidas aparezcan cuentas y proyectos.
+  const fetchProjectsByClient = async (clientId: string, agencyId: string) => {
+    if (!clientId || !agencyId) {
+      setProjects([])
+      return
+    }
+
+    const { data } = await supabase
+      .from("projects")
+      .select("id, name, project_code, account_id, accounts!inner(client_id, agency_id)")
+      .eq("accounts.client_id", clientId)
+      .eq("accounts.agency_id", agencyId)
+      .order("name")
+
+    if (data) {
+      setProjects(
+        data.map((p) => ({
+          id: p.id,
+          name: p.name,
+          project_code: p.project_code,
+          account_id: p.account_id,
+        })),
+      )
+    }
   }
 
   const fetchContractedServices = async (accountId: string) => {
@@ -1065,7 +1101,7 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
                     <Select
                       value={formData.project_id || ""}
                       onValueChange={(value) => setFormData({ ...formData, project_id: value })}
-                      disabled={!formData.account_id}
+                      disabled={!formData.client_id}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar proyecto (opcional)" />

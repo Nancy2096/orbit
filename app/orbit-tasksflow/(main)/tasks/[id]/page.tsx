@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
+import { CommentFormatToolbar } from "@/components/orbit-tasksflow/comment-format-toolbar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -57,6 +58,7 @@ import {
   ChevronUp,
   Check,
   History,
+  Rocket,
 } from "lucide-react"
 import {
   Popover,
@@ -85,9 +87,11 @@ import {
   TASK_TYPES_STORAGE_KEY,
   TASK_FORMATS_STORAGE_KEY,
   AREAS_STORAGE_KEY,
+  TASK_STATUSES_STORAGE_KEY,
   defaultTaskTypes,
   defaultTaskFormats,
   defaultAreas,
+  defaultTaskStatuses,
 } from "@/lib/orbit-tasksflow/catalogs"
 import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
 
@@ -381,6 +385,14 @@ export function TaskDetailView({
   const { items: taskTypes } = useCatalog(TASK_TYPES_STORAGE_KEY, defaultTaskTypes)
   const { items: taskFormats } = useCatalog(TASK_FORMATS_STORAGE_KEY, defaultTaskFormats)
   const { items: areas } = useCatalog(AREAS_STORAGE_KEY, defaultAreas)
+  const { items: taskStatuses } = useCatalog(TASK_STATUSES_STORAGE_KEY, defaultTaskStatuses)
+
+  // Etiqueta/color de un estado: la etiqueta viene del catálogo (editable) y el
+  // color del mapa conocido; los estados nuevos usan un color por defecto.
+  const getStatusMeta = (key: string) => ({
+    label: taskStatuses.find((s) => s.id === key)?.name || taskStatusConfig[key]?.label || key,
+    color: taskStatusConfig[key]?.color || "bg-gray-500",
+  })
   const [selectedTypeId, setSelectedTypeId] = useState<string>("")
   const [selectedFormatId, setSelectedFormatId] = useState<string>("")
   const [selectedAreaId, setSelectedAreaId] = useState<string>("")
@@ -404,7 +416,6 @@ export function TaskDetailView({
   const [showMentions, setShowMentions] = useState(false)
   const [mentionSearch, setMentionSearch] = useState("")
   const [newNote, setNewNote] = useState("")
-  const [noteIsPrivate, setNoteIsPrivate] = useState(false)
   const [noteAttachments, setNoteAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
   const [noteDriveLinks, setNoteDriveLinks] = useState<{id: string; name: string; url: string}[]>([])
   const [showAddDriveLink, setShowAddDriveLink] = useState(false)
@@ -415,9 +426,31 @@ export function TaskDetailView({
   const [newDeliverableName, setNewDeliverableName] = useState("")
   const [newDeliverableUrl, setNewDeliverableUrl] = useState("")
   const [showEditDialog, setShowEditDialog] = useState(false)
+  // Edición inline del título (doble clic sobre el texto).
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState("")
+  const commitTitle = () => {
+    const trimmed = titleDraft.trim()
+    if (trimmed && trimmed !== task.name) {
+      logActivity(`Título cambiado a "${trimmed}"`)
+      setTask(prev => ({ ...prev, name: trimmed }))
+    }
+    setEditingTitle(false)
+  }
   // Panel de comentarios (desplegable) y vista de historial (cambia de "ventana").
   const [showComments, setShowComments] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  // Paneles desplegables de Subtareas y Tareas Relacionadas (debajo del cuadro morado).
+  const [showSubtasks, setShowSubtasks] = useState(false)
+  const [showRelated, setShowRelated] = useState(false)
+  // Refs a los textarea para aplicar el formato de texto desde la barra.
+  const commentInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const noteInputRef = useRef<HTMLTextAreaElement | null>(null)
+  // Tipo de comentario (Propuesta / Ajuste / Entregables) y tiempo estimado
+  // que se le dedicó a esa parte de la tarea (para la sección de Comentarios).
+  const [noteTypes, setNoteTypes] = useState<string[]>([])
+  const [noteHours, setNoteHours] = useState<string>("")
+  const [noteMinutes, setNoteMinutes] = useState<string>("")
 
   const addDeliverable = () => {
     if (!newDeliverableUrl.trim()) return
@@ -450,7 +483,7 @@ export function TaskDetailView({
     estimatedHours: task.estimatedHours
   })
 
-  const status = taskStatusConfig[task.status] || { label: task.status, color: "bg-gray-500" }
+  const status = getStatusMeta(task.status)
   const priority = priorityConfig[task.priority] || { label: task.priority, color: "bg-gray-400", textColor: "text-gray-600" }
 
 
@@ -707,6 +740,78 @@ export function TaskDetailView({
     setShowMentions(false)
   }
 
+  // --- Asignación múltiple ---
+  // Lista actual de asignados (compatibiliza el modelo antiguo de un solo `assignee`).
+  const assignees: any[] = (task as any).assignees ?? (task.assignee ? [task.assignee] : [])
+
+  const toggleAssignee = (member: any) => {
+    setTask(prev => {
+      const current: any[] = (prev as any).assignees ?? (prev.assignee ? [prev.assignee] : [])
+      const exists = current.some((a: any) => a.id === member.id)
+      const next = exists ? current.filter((a: any) => a.id !== member.id) : [...current, member]
+      return {
+        ...prev,
+        assignees: next,
+        // Mantiene `assignee` en sincronía (primer asignado) por compatibilidad.
+        assignee: next[0] ?? prev.assignee,
+        history: [
+          ...prev.history,
+          {
+            id: `h-${Date.now()}`,
+            action: exists ? `Desasignada a ${member.name}` : `Asignada a ${member.name}`,
+            user: currentUser.name,
+            date: new Date().toISOString(),
+          },
+        ],
+      }
+    })
+  }
+
+  // --- Notificar al completar (varias personas) ---
+  const addNotifyPerson = (member: any) => {
+    setTask(prev => {
+      if ((prev.notifyOnComplete ?? []).some((n: any) => n.id === member.id)) return prev
+      return {
+        ...prev,
+        notifyOnComplete: [
+          ...(prev.notifyOnComplete ?? []),
+          { id: member.id, name: member.name, initials: member.initials },
+        ],
+      }
+    })
+    logActivity(`Se notificará a ${member.name} al completar`)
+  }
+
+  const removeNotifyPerson = (id: string) => {
+    setTask(prev => ({
+      ...prev,
+      notifyOnComplete: (prev.notifyOnComplete ?? []).filter((n: any) => n.id !== id),
+    }))
+  }
+
+  // --- Subtareas: asignado y fecha de entrega ---
+  const setSubtaskAssignee = (subtaskId: string, member: any) => {
+    setTask(prev => ({
+      ...prev,
+      subtasks: prev.subtasks.map((s: any) =>
+        s.id === subtaskId
+          ? { ...s, assignee: { id: member.id, name: member.name, initials: member.initials } }
+          : s
+      ),
+    }))
+    logActivity(`Subtarea asignada a ${member.name}`)
+  }
+
+  const setSubtaskDueDate = (subtaskId: string, dueDate: string) => {
+    setTask(prev => ({
+      ...prev,
+      subtasks: prev.subtasks.map((s: any) =>
+        s.id === subtaskId ? { ...s, dueDate } : s
+      ),
+    }))
+    logActivity(`Fecha de entrega de subtarea: ${formatDate(dueDate)}`)
+  }
+
   return (
     <div
       className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}
@@ -754,18 +859,38 @@ export function TaskDetailView({
             )}
             <div className="min-w-0 flex items-center gap-3">
               <span className={`h-3 w-3 shrink-0 rounded-full ring-4 ring-white/20 ${status.color}`} aria-hidden="true" />
-              <h1 className="text-2xl font-bold leading-tight text-balance">{task.name}</h1>
+              {editingTitle ? (
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      e.preventDefault()
+                      commitTitle()
+                    } else if (e.key === "Escape") {
+                      setEditingTitle(false)
+                    }
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-white/40 bg-white/15 px-2 py-1 text-2xl font-bold leading-tight text-white placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-white/60"
+                  aria-label="Editar título de la tarea"
+                />
+              ) : (
+                <h1
+                  className="text-2xl font-bold leading-tight text-balance cursor-text rounded-md px-1 -mx-1 hover:bg-white/10 transition-colors"
+                  onDoubleClick={() => {
+                    setTitleDraft(task.name)
+                    setEditingTitle(true)
+                  }}
+                  title="Doble clic para editar"
+                >
+                  {task.name}
+                </h1>
+              )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => setShowEditDialog(true)}
-              className="bg-white text-purple-700 hover:bg-white/90"
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Editar
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -774,7 +899,7 @@ export function TaskDetailView({
                   aria-label="Más acciones"
                   className="text-white hover:bg-white/15 hover:text-white"
                 >
-                  <MoreHorizontal className="h-5 w-5" />
+                  <Rocket className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
@@ -804,6 +929,85 @@ export function TaskDetailView({
                     </DropdownMenuItem>
                   </>
                 )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Metadatos: Estado · Creada por/cuándo · Prioridad */}
+        <div className="relative mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+          {/* Estado */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Estado</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="focus:outline-none">
+                  <Badge className={`${status.color} text-white cursor-pointer hover:opacity-90 transition-opacity`}>
+                    {status.label}
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Badge>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                {taskStatuses.map((s) => {
+                  const meta = getStatusMeta(s.id)
+                  return (
+                    <DropdownMenuItem
+                      key={s.id}
+                      onSelect={() => {
+                        if (task.status !== s.id) logActivity(`Estado cambiado a ${meta.label}`)
+                        setTask(prev => ({ ...prev, status: s.id }))
+                      }}
+                      className={task.status === s.id ? "bg-muted" : ""}
+                    >
+                      <span className={`w-2 h-2 rounded-full mr-2 ${meta.color}`} />
+                      {meta.label}
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* Creada por y cuándo */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Creada por</span>
+            <div className="flex items-center gap-2">
+              <Avatar className="h-5 w-5 shrink-0">
+                <AvatarFallback className="text-[10px] text-purple-700">{task.createdBy.initials}</AvatarFallback>
+              </Avatar>
+              <span className="text-sm font-medium text-white">{task.createdBy.name}</span>
+              <span className="text-sm text-white/70">· {formatDateTime(task.createdAt)}</span>
+            </div>
+          </div>
+
+          {/* Prioridad */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Prioridad</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="focus:outline-none">
+                  <Badge className={`bg-white ${priority.textColor} cursor-pointer hover:bg-white/90 transition-colors`}>
+                    <Flag className="h-3 w-3 mr-1" />
+                    {priority.label}
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Badge>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                {Object.entries(priorityConfig).map(([key, cfg]) => (
+                  <DropdownMenuItem
+                    key={key}
+                    onSelect={() => {
+                      if (task.priority !== key) logActivity(`Prioridad cambiada a ${cfg.label}`)
+                      setTask(prev => ({ ...prev, priority: key }))
+                    }}
+                    className={task.priority === key ? "bg-muted" : ""}
+                  >
+                    <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
+                    {cfg.label}
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -839,107 +1043,75 @@ export function TaskDetailView({
       {/* Quick Info Bar */}
       <Card className="shadow-sm border-b-2 border-b-purple-500">
         <CardContent className="p-5">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
-            {/* Estado */}
+          <div className="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-2">
+            {/* Columna izquierda */}
+            <div className="space-y-5">
+            {/* Asignado (varias personas) */}
             <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Estado</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="focus:outline-none">
-                    <Badge className={`${status.color} text-white cursor-pointer hover:opacity-90 transition-opacity`}>
-                      {status.label}
-                      <ChevronDown className="h-3 w-3 ml-1" />
-                    </Badge>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  {Object.entries(taskStatusConfig).map(([key, cfg]) => (
-                    <DropdownMenuItem
-                      key={key}
-                      onSelect={() => {
-                        if (task.status !== key) logActivity(`Estado cambiado a ${cfg.label}`)
-                        setTask(prev => ({ ...prev, status: key }))
-                      }}
-                      className={task.status === key ? "bg-muted" : ""}
-                    >
-                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
-                      {cfg.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {/* Prioridad */}
-            <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Prioridad</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="focus:outline-none">
-                    <Badge variant="outline" className={`${priority.textColor} cursor-pointer hover:bg-muted transition-colors`}>
-                      <Flag className="h-3 w-3 mr-1" />
-                      {priority.label}
-                      <ChevronDown className="h-3 w-3 ml-1" />
-                    </Badge>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  {Object.entries(priorityConfig).map(([key, cfg]) => (
-                    <DropdownMenuItem
-                      key={key}
-                      onSelect={() => {
-                        if (task.priority !== key) logActivity(`Prioridad cambiada a ${cfg.label}`)
-                        setTask(prev => ({ ...prev, priority: key }))
-                      }}
-                      className={task.priority === key ? "bg-muted" : ""}
-                    >
-                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
-                      {cfg.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {/* Asignado */}
-            <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Asignado</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="flex items-center gap-2 rounded-md -ml-1.5 px-1.5 py-1 hover:bg-muted transition-colors focus:outline-none max-w-full">
-                    <Avatar className="h-6 w-6 shrink-0">
-                      <AvatarFallback className="text-xs">{task.assignee.initials}</AvatarFallback>
+              <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                <Users className="h-4 w-4" />
+                Asignado
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {assignees.map((person: any) => (
+                  <span key={person.id} className="group/chip flex items-center gap-1.5 text-sm font-medium">
+                    <Avatar className="h-5 w-5">
+                      <AvatarFallback className="text-[9px]">{person.initials}</AvatarFallback>
                     </Avatar>
-                    <span className="text-sm font-medium truncate">{task.assignee.name}</span>
-                    <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  {task.projectTeam.map((member: any) => (
-                    <DropdownMenuItem
-                      key={member.id}
-                      onSelect={() => {
-                        if (task.assignee.id !== member.id) logActivity(`Asignada a ${member.name}`)
-                        setTask(prev => ({ ...prev, assignee: { ...prev.assignee, ...member } }))
-                      }}
-                      className={task.assignee.id === member.id ? "bg-muted" : ""}
+                    {person.name}
+                    <button
+                      className="text-muted-foreground opacity-0 transition-opacity group-hover/chip:opacity-100 hover:text-destructive"
+                      aria-label={`Quitar a ${person.name}`}
+                      onClick={() => toggleAssignee(person)}
                     >
-                      <Avatar className="h-6 w-6 mr-2">
-                        <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex flex-col">
-                        <span className="text-sm">{member.name}</span>
-                        {member.role && <span className="text-xs text-muted-foreground">{member.role}</span>}
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus:outline-none"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Agregar
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-2" align="start">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium px-2 py-1">Equipo del Proyecto</p>
+                      {task.projectTeam?.map((member: any) => {
+                        const selected = assignees.some((a: any) => a.id === member.id)
+                        return (
+                          <button
+                            key={member.id}
+                            onClick={() => toggleAssignee(member)}
+                            className={`flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left ${selected ? "bg-muted" : ""}`}
+                          >
+                            <Avatar className="h-7 w-7">
+                              <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">{member.name}</p>
+                              <p className="text-xs text-muted-foreground">{member.role}</p>
+                            </div>
+                            {selected && <X className="h-3.5 w-3.5 text-muted-foreground" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
 
             {/* Vencimiento */}
             <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Vencimiento</span>
+              <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                <Calendar className="h-4 w-4" />
+                Vencimiento
+              </span>
               <Popover>
                 <PopoverTrigger asChild>
                   <button
@@ -970,46 +1142,37 @@ export function TaskDetailView({
               </Popover>
             </div>
 
-            {/* Visibilidad */}
-            <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Visibilidad</span>
-              {task.isClientVisible ? (
-                <Badge variant="outline" className="text-emerald-600">
-                  <Eye className="h-3 w-3 mr-1" />
-                  Visible Cliente
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-muted-foreground">
-                  <EyeOff className="h-3 w-3 mr-1" />
-                  Interna
-                </Badge>
-              )}
-            </div>
-
             {/* Notificar al completar */}
-            <div className="col-span-2 flex flex-col items-start gap-1.5 sm:col-span-2">
-              <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <BellRing className="h-3.5 w-3.5 text-amber-600" />
+            <div className="flex flex-col items-start gap-1.5">
+              <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                <BellRing className="h-4 w-4 text-amber-600" />
                 Notificar al completar
               </span>
               <div className="flex items-center flex-wrap gap-1.5">
                 {task.notifyOnComplete?.map((person: any) => (
-                  <Badge key={person.id} variant="secondary" className="flex items-center gap-1.5 pl-1 pr-1.5 py-1">
-                    <Avatar className="h-4 w-4">
+                  <span key={person.id} className="group/chip flex items-center gap-1.5 text-sm font-medium">
+                    <Avatar className="h-5 w-5">
                       <AvatarFallback className="text-[9px]">{person.initials}</AvatarFallback>
                     </Avatar>
                     {person.name}
-                    <button className="ml-0.5 hover:text-destructive" aria-label={`Quitar a ${person.name}`}>
+                    <button
+                      className="text-muted-foreground opacity-0 transition-opacity group-hover/chip:opacity-100 hover:text-destructive"
+                      aria-label={`Quitar a ${person.name}`}
+                      onClick={() => removeNotifyPerson(person.id)}
+                    >
                       <X className="h-3 w-3" />
                     </button>
-                  </Badge>
+                  </span>
                 ))}
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-7 gap-1 px-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus:outline-none"
+                    >
                       <Plus className="h-3.5 w-3.5" />
                       Agregar
-                    </Button>
+                    </button>
                   </PopoverTrigger>
                   <PopoverContent className="w-64 p-2" align="start">
                     <div className="space-y-1">
@@ -1017,6 +1180,7 @@ export function TaskDetailView({
                       {task.projectTeam?.filter((m: any) => !task.notifyOnComplete?.some((n: any) => n.id === m.id)).map((member: any) => (
                         <button
                           key={member.id}
+                          onClick={() => addNotifyPerson(member)}
                           className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
                         >
                           <Avatar className="h-7 w-7">
@@ -1034,36 +1198,68 @@ export function TaskDetailView({
               </div>
             </div>
 
-            {/* Acciones: Comentarios e Historial (debajo de Vencimiento, a la derecha de Notificar) */}
-            <div className="col-span-2 flex flex-col items-stretch justify-start gap-2 sm:col-span-1">
-              <Button
-                type="button"
-                variant={showComments && !showHistory ? "default" : "outline"}
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => {
-                  setShowHistory(false)
-                  setShowComments(v => !v)
-                }}
-              >
-                <MessageCircle className="h-4 w-4" />
-                <span className="flex-1 text-left">Comentarios</span>
-                {showComments && !showHistory ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </Button>
-              <Button
-                type="button"
-                variant={showHistory ? "default" : "outline"}
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => setShowHistory(v => !v)}
-              >
-                <History className="h-4 w-4" />
-                <span className="flex-1 text-left">Historial</span>
-              </Button>
+            {/* Notas */}
+            <button
+              type="button"
+              className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showComments && !showHistory ? "text-primary" : "text-foreground"}`}
+              onClick={() => {
+                setShowHistory(false)
+                setShowComments(v => !v)
+              }}
+            >
+              <MessageCircle className="h-4 w-4" />
+              <span className="flex-1 text-left">Notas</span>
+              {showComments && !showHistory ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
+            </div>
+
+            {/* Columna derecha */}
+            <div className="space-y-5 md:border-l md:border-border md:pl-8">
+              {/* Visibilidad */}
+              <div className="flex flex-col items-start gap-1.5">
+                <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                  {task.isClientVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  Visibilidad
+                </span>
+                <span className={`text-sm font-medium ${task.isClientVisible ? "text-emerald-600" : "text-muted-foreground"}`}>
+                  {task.isClientVisible ? "Visible Cliente" : "Interna"}
+                </span>
+              </div>
+
+              {/* Acciones: Subtareas, Tareas Relacionadas e Historial */}
+              <div className="flex flex-col items-stretch gap-3">
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showSubtasks ? "text-primary" : "text-foreground"}`}
+                  onClick={() => setShowSubtasks(v => !v)}
+                >
+                  <ListChecks className="h-4 w-4" />
+                  <span className="flex-1 text-left">Subtareas</span>
+                  {showSubtasks ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showRelated ? "text-primary" : "text-foreground"}`}
+                  onClick={() => setShowRelated(v => !v)}
+                >
+                  <Link2 className="h-4 w-4" />
+                  <span className="flex-1 text-left">Tareas Relacionadas</span>
+                  {showRelated ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showHistory ? "text-primary" : "text-foreground"}`}
+                  onClick={() => setShowHistory(v => !v)}
+                >
+                  <History className="h-4 w-4" />
+                  <span className="flex-1 text-left">Historial</span>
+                  {showHistory ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -1075,7 +1271,7 @@ export function TaskDetailView({
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
               <MessageCircle className="h-5 w-5" />
-              Comentarios ({task.comments?.length || 0})
+              Notas ({task.comments?.length || 0})
             </CardTitle>
             <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowComments(false)}>
               <ChevronUp className="h-4 w-4" />
@@ -1090,8 +1286,14 @@ export function TaskDetailView({
               </Avatar>
               <div className="flex-1 space-y-3">
                 <div className="relative">
+                  <CommentFormatToolbar
+                    value={newComment}
+                    onValueChange={setNewComment}
+                    textareaRef={commentInputRef}
+                  />
                   <Textarea
-                    placeholder="Escribe un comentario... Usa @ para mencionar a alguien"
+                    ref={commentInputRef}
+                    placeholder="Escribe una nota... Usa @ para mencionar a alguien"
                     value={newComment}
                     onChange={(e) => {
                       setNewComment(e.target.value)
@@ -1100,7 +1302,7 @@ export function TaskDetailView({
                         setShowMentions(true)
                       }
                     }}
-                    className="min-h-[100px]"
+                    className="min-h-[100px] rounded-t-none"
                   />
                   {showMentions && (
                     <Card className="absolute bottom-full left-0 mb-2 w-64 z-10 shadow-lg">
@@ -1191,7 +1393,7 @@ export function TaskDetailView({
             {/* Comments List */}
             <div className="space-y-6">
               {task.comments?.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">Aún no hay comentarios.</p>
+                <p className="text-sm text-muted-foreground text-center py-4">Aún no hay notas.</p>
               )}
               {task.comments?.map((comment: any) => (
                 <div key={comment.id} className="flex gap-3">
@@ -1214,7 +1416,7 @@ export function TaskDetailView({
                             onSelect={() => deleteComment(comment.id)}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
-                            Eliminar comentario
+                            Eliminar nota
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1300,6 +1502,216 @@ export function TaskDetailView({
         </Card>
       )}
 
+      {/* Panel desplegable: Subtareas (debajo del cuadro morado) */}
+      {showSubtasks && (
+        <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <ListChecks className="h-5 w-5" />
+                Subtareas
+              </CardTitle>
+              <CardDescription>
+                {task.subtasks.filter(s => s.completed).length} de {task.subtasks.length} completadas
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={() => setShowAddSubtask(prev => !prev)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nueva Subtarea
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {showAddSubtask && (
+              <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30">
+                <Input
+                  autoFocus
+                  placeholder="Nombre de la subtarea..."
+                  value={newSubtaskName}
+                  onChange={(e) => setNewSubtaskName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      e.preventDefault()
+                      addSubtask()
+                    } else if (e.key === "Escape") {
+                      setShowAddSubtask(false)
+                      setNewSubtaskName("")
+                    }
+                  }}
+                />
+                <Button size="sm" onClick={addSubtask} disabled={!newSubtaskName.trim()}>
+                  Agregar
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => { setShowAddSubtask(false); setNewSubtaskName("") }}>
+                  Cancelar
+                </Button>
+              </div>
+            )}
+
+            {task.subtasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No hay subtareas todavía. Agrega la primera.
+              </p>
+            ) : (
+              <ol className="space-y-2">
+                {task.subtasks.map((subtask, index) => (
+                  <li
+                    key={subtask.id}
+                    className={`group flex items-center gap-3 p-3 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                      {index + 1}
+                    </span>
+                    <Checkbox
+                      checked={subtask.completed}
+                      onCheckedChange={() => toggleSubtask(subtask.id)}
+                      aria-label={`Marcar "${subtask.name}" como ${subtask.completed ? 'pendiente' : 'completada'}`}
+                    />
+                    <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
+                      {subtask.name}
+                    </span>
+
+                    {/* Asignado de la subtarea */}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
+                          aria-label={`Asignar subtarea "${subtask.name}"`}
+                        >
+                          {subtask.assignee ? (
+                            <>
+                              <Avatar className="h-5 w-5">
+                                <AvatarFallback className="text-[9px]">{subtask.assignee.initials}</AvatarFallback>
+                              </Avatar>
+                              <span className="hidden sm:inline max-w-[90px] truncate">{subtask.assignee.name}</span>
+                            </>
+                          ) : (
+                            <>
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              <span className="hidden sm:inline text-muted-foreground">Asignar</span>
+                            </>
+                          )}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-56 p-2" align="end">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium px-2 py-1">Asignar a</p>
+                          {task.projectTeam?.map((member: any) => (
+                            <button
+                              key={member.id}
+                              onClick={() => setSubtaskAssignee(subtask.id, member)}
+                              className={`flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left ${subtask.assignee?.id === member.id ? "bg-muted" : ""}`}
+                            >
+                              <Avatar className="h-6 w-6">
+                                <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                              </Avatar>
+                              <span className="text-sm">{member.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+
+                    {/* Fecha de entrega de la subtarea */}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
+                          aria-label={`Fecha de entrega de "${subtask.name}"`}
+                        >
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <span className={subtask.dueDate ? "" : "text-muted-foreground hidden sm:inline"}>
+                            {subtask.dueDate ? formatDate(subtask.dueDate) : "Fecha"}
+                          </span>
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="end">
+                        <CalendarPicker
+                          mode="single"
+                          selected={subtask.dueDate ? new Date(`${subtask.dueDate}T00:00:00`) : undefined}
+                          onSelect={(date) => {
+                            if (!date) return
+                            const y = date.getFullYear()
+                            const m = String(date.getMonth() + 1).padStart(2, "0")
+                            const d = String(date.getDate()).padStart(2, "0")
+                            setSubtaskDueDate(subtask.id, `${y}-${m}-${d}`)
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive shrink-0"
+                      onClick={() => deleteSubtask(subtask.id)}
+                      aria-label={`Eliminar ${subtask.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Panel desplegable: Tareas Relacionadas (debajo del cuadro morado) */}
+      {showRelated && (
+        <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Tareas Relacionadas
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {task.relatedTasks.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No hay tareas vinculadas todavía.
+                </p>
+              )}
+              {task.relatedTasks.map((relTask: any) => (
+                <div key={relTask.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <ListTodo className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <span className="font-medium block truncate">{relTask.name}</span>
+                      {relTask.account && (
+                        <span className="text-xs text-muted-foreground">{relTask.account}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-sm text-muted-foreground hidden sm:inline">{relTask.assignee}</span>
+                    <Badge className={`${getStatusMeta(relTask.status).color} text-white text-xs`}>
+                      {getStatusMeta(relTask.status).label}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => unlinkTask(relTask.id)}
+                      aria-label="Desvincular tarea"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => setShowLinkTaskDialog(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Vincular Tarea
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tabs */}
       {!showHistory && (
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -1370,20 +1782,6 @@ export function TaskDetailView({
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Creada por</span>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className="h-5 w-5 shrink-0">
-                        <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
-                      </Avatar>
-                      <span className="truncate">{task.createdBy.name}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground shrink-0">Creada</span>
-                    <span className="text-right">{formatDateTime(task.createdAt)}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -1667,10 +2065,10 @@ export function TaskDetailView({
               <Card className="border-b-2 border-b-purple-500">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <StickyNote className="h-5 w-5" />
-                    Notas ({task.notes?.length || 0})
+                    <MessageCircle className="h-5 w-5" />
+                    Comentarios ({task.notes?.length || 0})
                   </CardTitle>
-                  <CardDescription>Notas internas sobre la tarea</CardDescription>
+                  <CardDescription>Comentarios sobre la tarea</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Add Note */}
@@ -1680,12 +2078,20 @@ export function TaskDetailView({
                     onDragLeave={() => setIsNoteDragOver(false)}
                     onDrop={handleNoteDrop}
                   >
-                    <Textarea 
-                      placeholder="Escribe una nota o arrastra una imagen aquí..." 
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      className="min-h-[80px]"
-                    />
+                    <div>
+                      <CommentFormatToolbar
+                        value={newNote}
+                        onValueChange={setNewNote}
+                        textareaRef={noteInputRef}
+                      />
+                      <Textarea
+                        ref={noteInputRef}
+                        placeholder="Escribe un comentario o arrastra una imagen aquí..."
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        className="min-h-[80px] rounded-t-none"
+                      />
+                    </div>
                     
                     {/* Attachments Preview */}
                     {(noteAttachments.length > 0 || noteDriveLinks.length > 0) && (
@@ -1798,13 +2204,24 @@ export function TaskDetailView({
 
                     <div className="flex flex-wrap items-center justify-between gap-y-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <label className="flex items-center gap-2 text-sm">
-                          <Checkbox 
-                            checked={noteIsPrivate}
-                            onCheckedChange={(checked) => setNoteIsPrivate(checked as boolean)}
-                          />
-                          <span className="text-muted-foreground">Nota privada</span>
-                        </label>
+                        <span className="text-sm text-muted-foreground">Tipo:</span>
+                        {[
+                          { key: "propuesta", label: "Propuesta" },
+                          { key: "ajuste", label: "Ajuste" },
+                          { key: "entregables", label: "Entregables" },
+                        ].map((t) => (
+                          <label key={t.key} className="flex items-center gap-1.5 text-sm">
+                            <Checkbox
+                              checked={noteTypes.includes(t.key)}
+                              onCheckedChange={(checked) =>
+                                setNoteTypes((prev) =>
+                                  checked ? [...prev, t.key] : prev.filter((x) => x !== t.key)
+                                )
+                              }
+                            />
+                            <span>{t.label}</span>
+                          </label>
+                        ))}
                         <Separator orientation="vertical" className="h-4" />
                         <div className="flex items-center gap-1">
                           <Button 
@@ -1851,53 +2268,90 @@ export function TaskDetailView({
                           </Button>
                         </div>
                       </div>
-                      <Button 
-                        size="sm" 
-                        disabled={!newNote.trim()}
-                        onClick={() => {
-                          const note = {
-                            id: `note-${Date.now()}`,
-                            author: { name: "Usuario Actual", initials: "UA" },
-                            text: newNote,
-                            date: new Date().toISOString(),
-                            isPrivate: noteIsPrivate,
-                            attachments: noteAttachments,
-                            driveLinks: noteDriveLinks
-                          }
-                          setTask(prev => ({
-                            ...prev,
-                            notes: [...(prev.notes || []), note]
-                          }))
-                          setNewNote("")
-                          setNoteIsPrivate(false)
-                          setNoteAttachments([])
-                          setNoteDriveLinks([])
-                        }}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Agregar Nota
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {/* Tiempo estimado que se le dedicó a esta parte de la tarea */}
+                        <div className="flex items-center gap-1 rounded-md border px-2 py-1">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="number"
+                            min={0}
+                            placeholder="0"
+                            value={noteHours}
+                            onChange={(e) => setNoteHours(e.target.value)}
+                            className="h-7 w-12 px-1 text-center"
+                            aria-label="Horas estimadas"
+                          />
+                          <span className="text-xs text-muted-foreground">h</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={59}
+                            placeholder="00"
+                            value={noteMinutes}
+                            onChange={(e) => setNoteMinutes(e.target.value)}
+                            className="h-7 w-12 px-1 text-center"
+                            aria-label="Minutos estimados"
+                          />
+                          <span className="text-xs text-muted-foreground">m</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={!newNote.trim()}
+                          onClick={() => {
+                            const note = {
+                              id: `note-${Date.now()}`,
+                              author: { name: "Usuario Actual", initials: "UA" },
+                              text: newNote,
+                              date: new Date().toISOString(),
+                              types: noteTypes,
+                              estimatedMinutes:
+                                (parseInt(noteHours || "0", 10) || 0) * 60 +
+                                (parseInt(noteMinutes || "0", 10) || 0),
+                              attachments: noteAttachments,
+                              driveLinks: noteDriveLinks,
+                            }
+                            setTask(prev => ({
+                              ...prev,
+                              notes: [...(prev.notes || []), note],
+                            }))
+                            setNewNote("")
+                            setNoteTypes([])
+                            setNoteHours("")
+                            setNoteMinutes("")
+                            setNoteAttachments([])
+                            setNoteDriveLinks([])
+                          }}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Agregar Comentario
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
                   {/* Notes List */}
                   <div className="space-y-3">
                     {task.notes?.map((note: any) => (
-                      <div key={note.id} className={`p-4 rounded-lg border ${note.isPrivate ? 'bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900' : 'bg-muted/30'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
+                      <div key={note.id} className="p-4 rounded-lg border bg-muted/30">
+                        <div className="flex items-center justify-between mb-2 gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <Avatar className="h-6 w-6">
                               <AvatarFallback className="text-[10px]">{note.author.initials}</AvatarFallback>
                             </Avatar>
                             <span className="text-sm font-medium">{note.author.name}</span>
-                            {note.isPrivate && (
-                              <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300">
-                                <EyeOff className="h-3 w-3 mr-1" />
-                                Privada
+                            {note.types?.map((t: string) => (
+                              <Badge key={t} variant="outline" className="text-xs capitalize">
+                                {t}
+                              </Badge>
+                            ))}
+                            {note.estimatedMinutes > 0 && (
+                              <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {Math.floor(note.estimatedMinutes / 60)}h {note.estimatedMinutes % 60}m
                               </Badge>
                             )}
                           </div>
-                          <span className="text-xs text-muted-foreground">{formatDateTime(note.date)}</span>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(note.date)}</span>
                         </div>
                         <p className="text-sm">{note.text}</p>
                         
@@ -1963,139 +2417,6 @@ export function TaskDetailView({
                 </CardContent>
               </Card>
 
-              {/* Subtareas */}
-              <Card className="border-b-2 border-b-purple-500">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <ListChecks className="h-5 w-5" />
-                      Subtareas
-                    </CardTitle>
-                    <CardDescription>
-                      {task.subtasks.filter(s => s.completed).length} de {task.subtasks.length} completadas
-                    </CardDescription>
-                  </div>
-                  <Button size="sm" onClick={() => setShowAddSubtask(prev => !prev)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Nueva Subtarea
-                  </Button>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {showAddSubtask && (
-                    <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30">
-                      <Input
-                        autoFocus
-                        placeholder="Nombre de la subtarea..."
-                        value={newSubtaskName}
-                        onChange={(e) => setNewSubtaskName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                            e.preventDefault()
-                            addSubtask()
-                          } else if (e.key === "Escape") {
-                            setShowAddSubtask(false)
-                            setNewSubtaskName("")
-                          }
-                        }}
-                      />
-                      <Button size="sm" onClick={addSubtask} disabled={!newSubtaskName.trim()}>
-                        Agregar
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setShowAddSubtask(false); setNewSubtaskName("") }}>
-                        Cancelar
-                      </Button>
-                    </div>
-                  )}
-
-                  {task.subtasks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No hay subtareas todavía. Agrega la primera.
-                    </p>
-                  ) : (
-                    <ol className="space-y-2">
-                      {task.subtasks.map((subtask, index) => (
-                        <li
-                          key={subtask.id}
-                          className={`group flex items-center gap-3 p-3 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
-                        >
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-                            {index + 1}
-                          </span>
-                          <Checkbox
-                            checked={subtask.completed}
-                            onCheckedChange={() => toggleSubtask(subtask.id)}
-                            aria-label={`Marcar "${subtask.name}" como ${subtask.completed ? 'pendiente' : 'completada'}`}
-                          />
-                          <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
-                            {subtask.name}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
-                            onClick={() => deleteSubtask(subtask.id)}
-                            aria-label={`Eliminar ${subtask.name}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Related Tasks */}
-              <Card className="border-b-2 border-b-purple-500">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Link2 className="h-5 w-5" />
-                    Tareas Relacionadas
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {task.relatedTasks.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No hay tareas vinculadas todavía.
-                      </p>
-                    )}
-                    {task.relatedTasks.map((relTask: any) => (
-                      <div key={relTask.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <ListTodo className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <div className="min-w-0">
-                            <span className="font-medium block truncate">{relTask.name}</span>
-                            {relTask.account && (
-                              <span className="text-xs text-muted-foreground">{relTask.account}</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className="text-sm text-muted-foreground hidden sm:inline">{relTask.assignee}</span>
-                          <Badge className={`${taskStatusConfig[relTask.status]?.color || 'bg-gray-500'} text-white text-xs`}>
-                            {taskStatusConfig[relTask.status]?.label || relTask.status}
-                          </Badge>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => unlinkTask(relTask.id)}
-                            aria-label="Desvincular tarea"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => setShowLinkTaskDialog(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Vincular Tarea
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Dialog: Vincular Tarea */}
               <Dialog open={showLinkTaskDialog} onOpenChange={(open) => { setShowLinkTaskDialog(open); if (!open) setLinkTaskSearch("") }}>
                 <DialogContent className="max-w-lg">
@@ -2127,8 +2448,8 @@ export function TaskDetailView({
                               <span className="font-medium block truncate">{t.name}</span>
                               <span className="text-xs text-muted-foreground">{t.account} · {t.assignee}</span>
                             </div>
-                            <Badge className={`${taskStatusConfig[t.status]?.color || 'bg-gray-500'} text-white text-xs shrink-0`}>
-                              {taskStatusConfig[t.status]?.label || t.status}
+                            <Badge className={`${getStatusMeta(t.status).color} text-white text-xs shrink-0`}>
+                              {getStatusMeta(t.status).label}
                             </Badge>
                           </button>
                         ))

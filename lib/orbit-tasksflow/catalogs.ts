@@ -10,6 +10,26 @@ export type CatalogItem = {
 export const TASK_TYPES_STORAGE_KEY = "orbit-tasksflow-task-types"
 export const TASK_FORMATS_STORAGE_KEY = "orbit-tasksflow-task-formats"
 export const AREAS_STORAGE_KEY = "orbit-tasksflow-areas"
+export const TASK_STATUSES_STORAGE_KEY = "orbit-tasksflow-task-statuses"
+
+/**
+ * Estados posibles de una tarea. Los `id` coinciden con las claves usadas en el
+ * detalle de tarea (taskStatusConfig) para conservar los colores conocidos;
+ * los estados nuevos que agregue el usuario obtienen un color por defecto.
+ */
+export const defaultTaskStatuses: CatalogItem[] = [
+  { id: "nueva", name: "Nueva" },
+  { id: "por_asignar", name: "Por Asignar" },
+  { id: "en_proceso", name: "En Proceso" },
+  { id: "revision_interna", name: "Revisión Interna" },
+  { id: "revision_cliente", name: "Revisión Cliente" },
+  { id: "cambios_solicitados", name: "Cambios" },
+  { id: "aprobada", name: "Aprobada" },
+  { id: "entregada", name: "Entregada" },
+  { id: "pausada", name: "Pausada" },
+  { id: "cancelada", name: "Cancelada" },
+  { id: "vencida", name: "Vencida" },
+]
 
 export const defaultTaskTypes: CatalogItem[] = [
   { id: "brochure", name: "Brochure" },

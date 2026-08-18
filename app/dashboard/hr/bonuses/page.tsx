@@ -419,18 +419,21 @@ export default function BonusesPage() {
             </div>
           ) : (
             <Tabs value={pageTab} onValueChange={setPageTab}>
-              <TabsList>
+              <TabsList className="w-full justify-start">
                 <TabsTrigger value="training">
                   <GraduationCap className="mr-2 h-4 w-4" />
-                  Capacitación
+                  Certificaciones
                 </TabsTrigger>
                 <TabsTrigger value="year_end">
                   <HandCoins className="mr-2 h-4 w-4" />
                   Bono fin de año
                 </TabsTrigger>
-                <TabsTrigger value="staff">
+                <TabsTrigger
+                  value="staff"
+                  className="ml-auto text-blue-600 data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                >
                   <Users className="mr-2 h-4 w-4" />
-                  Por Personal
+                  Registro de Certificaciones
                 </TabsTrigger>
               </TabsList>
 
@@ -439,7 +442,7 @@ export default function BonusesPage() {
                 <BonusTypePanel
                   agencyId={selectedAgencyId}
                   matchNames={["capacit"]}
-                  label="Capacitación"
+                  label="Certificaciones"
                   requestMode="flow"
                 />
               </TabsContent>
