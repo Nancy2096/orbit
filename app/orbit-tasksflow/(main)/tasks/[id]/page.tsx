@@ -404,7 +404,6 @@ export function TaskDetailView({
   const [showMentions, setShowMentions] = useState(false)
   const [mentionSearch, setMentionSearch] = useState("")
   const [newNote, setNewNote] = useState("")
-  const [noteIsPrivate, setNoteIsPrivate] = useState(false)
   const [noteAttachments, setNoteAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
   const [noteDriveLinks, setNoteDriveLinks] = useState<{id: string; name: string; url: string}[]>([])
   const [showAddDriveLink, setShowAddDriveLink] = useState(false)
@@ -418,6 +417,11 @@ export function TaskDetailView({
   // Panel de comentarios (desplegable) y vista de historial (cambia de "ventana").
   const [showComments, setShowComments] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  // Tipo de comentario (Propuesta / Ajuste / Entregables) y tiempo estimado
+  // que se le dedicó a esa parte de la tarea (para la sección de Comentarios).
+  const [noteTypes, setNoteTypes] = useState<string[]>([])
+  const [noteHours, setNoteHours] = useState<string>("")
+  const [noteMinutes, setNoteMinutes] = useState<string>("")
 
   const addDeliverable = () => {
     if (!newDeliverableUrl.trim()) return
@@ -707,6 +711,78 @@ export function TaskDetailView({
     setShowMentions(false)
   }
 
+  // --- Asignación múltiple ---
+  // Lista actual de asignados (compatibiliza el modelo antiguo de un solo `assignee`).
+  const assignees: any[] = (task as any).assignees ?? (task.assignee ? [task.assignee] : [])
+
+  const toggleAssignee = (member: any) => {
+    setTask(prev => {
+      const current: any[] = (prev as any).assignees ?? (prev.assignee ? [prev.assignee] : [])
+      const exists = current.some((a: any) => a.id === member.id)
+      const next = exists ? current.filter((a: any) => a.id !== member.id) : [...current, member]
+      return {
+        ...prev,
+        assignees: next,
+        // Mantiene `assignee` en sincronía (primer asignado) por compatibilidad.
+        assignee: next[0] ?? prev.assignee,
+        history: [
+          ...prev.history,
+          {
+            id: `h-${Date.now()}`,
+            action: exists ? `Desasignada a ${member.name}` : `Asignada a ${member.name}`,
+            user: currentUser.name,
+            date: new Date().toISOString(),
+          },
+        ],
+      }
+    })
+  }
+
+  // --- Notificar al completar (varias personas) ---
+  const addNotifyPerson = (member: any) => {
+    setTask(prev => {
+      if ((prev.notifyOnComplete ?? []).some((n: any) => n.id === member.id)) return prev
+      return {
+        ...prev,
+        notifyOnComplete: [
+          ...(prev.notifyOnComplete ?? []),
+          { id: member.id, name: member.name, initials: member.initials },
+        ],
+      }
+    })
+    logActivity(`Se notificará a ${member.name} al completar`)
+  }
+
+  const removeNotifyPerson = (id: string) => {
+    setTask(prev => ({
+      ...prev,
+      notifyOnComplete: (prev.notifyOnComplete ?? []).filter((n: any) => n.id !== id),
+    }))
+  }
+
+  // --- Subtareas: asignado y fecha de entrega ---
+  const setSubtaskAssignee = (subtaskId: string, member: any) => {
+    setTask(prev => ({
+      ...prev,
+      subtasks: prev.subtasks.map((s: any) =>
+        s.id === subtaskId
+          ? { ...s, assignee: { id: member.id, name: member.name, initials: member.initials } }
+          : s
+      ),
+    }))
+    logActivity(`Subtarea asignada a ${member.name}`)
+  }
+
+  const setSubtaskDueDate = (subtaskId: string, dueDate: string) => {
+    setTask(prev => ({
+      ...prev,
+      subtasks: prev.subtasks.map((s: any) =>
+        s.id === subtaskId ? { ...s, dueDate } : s
+      ),
+    }))
+    logActivity(`Fecha de entrega de subtarea: ${formatDate(dueDate)}`)
+  }
+
   return (
     <div
       className={embedded ? "p-4 space-y-6" : "p-6 space-y-6"}
@@ -901,40 +977,61 @@ export function TaskDetailView({
               </DropdownMenu>
             </div>
 
-            {/* Asignado */}
+            {/* Asignado (varias personas) */}
             <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Asignado</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="flex items-center gap-2 rounded-md -ml-1.5 px-1.5 py-1 hover:bg-muted transition-colors focus:outline-none max-w-full">
-                    <Avatar className="h-6 w-6 shrink-0">
-                      <AvatarFallback className="text-xs">{task.assignee.initials}</AvatarFallback>
+              <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <Users className="h-3.5 w-3.5" />
+                Asignado
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {assignees.map((person: any) => (
+                  <Badge key={person.id} variant="secondary" className="flex items-center gap-1.5 pl-1 pr-1.5 py-1">
+                    <Avatar className="h-4 w-4">
+                      <AvatarFallback className="text-[9px]">{person.initials}</AvatarFallback>
                     </Avatar>
-                    <span className="text-sm font-medium truncate">{task.assignee.name}</span>
-                    <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  {task.projectTeam.map((member: any) => (
-                    <DropdownMenuItem
-                      key={member.id}
-                      onSelect={() => {
-                        if (task.assignee.id !== member.id) logActivity(`Asignada a ${member.name}`)
-                        setTask(prev => ({ ...prev, assignee: { ...prev.assignee, ...member } }))
-                      }}
-                      className={task.assignee.id === member.id ? "bg-muted" : ""}
+                    {person.name}
+                    <button
+                      className="ml-0.5 hover:text-destructive"
+                      aria-label={`Quitar a ${person.name}`}
+                      onClick={() => toggleAssignee(person)}
                     >
-                      <Avatar className="h-6 w-6 mr-2">
-                        <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex flex-col">
-                        <span className="text-sm">{member.name}</span>
-                        {member.role && <span className="text-xs text-muted-foreground">{member.role}</span>}
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 px-2">
+                      <Plus className="h-3.5 w-3.5" />
+                      Agregar
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-2" align="start">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium px-2 py-1">Equipo del Proyecto</p>
+                      {task.projectTeam?.map((member: any) => {
+                        const selected = assignees.some((a: any) => a.id === member.id)
+                        return (
+                          <button
+                            key={member.id}
+                            onClick={() => toggleAssignee(member)}
+                            className={`flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left ${selected ? "bg-muted" : ""}`}
+                          >
+                            <Avatar className="h-7 w-7">
+                              <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">{member.name}</p>
+                              <p className="text-xs text-muted-foreground">{member.role}</p>
+                            </div>
+                            {selected && <X className="h-3.5 w-3.5 text-muted-foreground" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
 
             {/* Vencimiento */}
@@ -999,7 +1096,11 @@ export function TaskDetailView({
                       <AvatarFallback className="text-[9px]">{person.initials}</AvatarFallback>
                     </Avatar>
                     {person.name}
-                    <button className="ml-0.5 hover:text-destructive" aria-label={`Quitar a ${person.name}`}>
+                    <button
+                      className="ml-0.5 hover:text-destructive"
+                      aria-label={`Quitar a ${person.name}`}
+                      onClick={() => removeNotifyPerson(person.id)}
+                    >
                       <X className="h-3 w-3" />
                     </button>
                   </Badge>
@@ -1017,6 +1118,7 @@ export function TaskDetailView({
                       {task.projectTeam?.filter((m: any) => !task.notifyOnComplete?.some((n: any) => n.id === m.id)).map((member: any) => (
                         <button
                           key={member.id}
+                          onClick={() => addNotifyPerson(member)}
                           className="flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left"
                         >
                           <Avatar className="h-7 w-7">
@@ -1047,7 +1149,7 @@ export function TaskDetailView({
                 }}
               >
                 <MessageCircle className="h-4 w-4" />
-                <span className="flex-1 text-left">Comentarios</span>
+                <span className="flex-1 text-left">Notas</span>
                 {showComments && !showHistory ? (
                   <ChevronUp className="h-4 w-4" />
                 ) : (
@@ -1075,7 +1177,7 @@ export function TaskDetailView({
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
               <MessageCircle className="h-5 w-5" />
-              Comentarios ({task.comments?.length || 0})
+              Notas ({task.comments?.length || 0})
             </CardTitle>
             <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowComments(false)}>
               <ChevronUp className="h-4 w-4" />
@@ -1091,7 +1193,7 @@ export function TaskDetailView({
               <div className="flex-1 space-y-3">
                 <div className="relative">
                   <Textarea
-                    placeholder="Escribe un comentario... Usa @ para mencionar a alguien"
+                    placeholder="Escribe una nota... Usa @ para mencionar a alguien"
                     value={newComment}
                     onChange={(e) => {
                       setNewComment(e.target.value)
@@ -1191,7 +1293,7 @@ export function TaskDetailView({
             {/* Comments List */}
             <div className="space-y-6">
               {task.comments?.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">Aún no hay comentarios.</p>
+                <p className="text-sm text-muted-foreground text-center py-4">Aún no hay notas.</p>
               )}
               {task.comments?.map((comment: any) => (
                 <div key={comment.id} className="flex gap-3">
@@ -1214,7 +1316,7 @@ export function TaskDetailView({
                             onSelect={() => deleteComment(comment.id)}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
-                            Eliminar comentario
+                            Eliminar nota
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1667,10 +1769,10 @@ export function TaskDetailView({
               <Card className="border-b-2 border-b-purple-500">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <StickyNote className="h-5 w-5" />
-                    Notas ({task.notes?.length || 0})
+                    <MessageCircle className="h-5 w-5" />
+                    Comentarios ({task.notes?.length || 0})
                   </CardTitle>
-                  <CardDescription>Notas internas sobre la tarea</CardDescription>
+                  <CardDescription>Comentarios sobre la tarea</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Add Note */}
@@ -1681,7 +1783,7 @@ export function TaskDetailView({
                     onDrop={handleNoteDrop}
                   >
                     <Textarea 
-                      placeholder="Escribe una nota o arrastra una imagen aquí..." 
+                      placeholder="Escribe un comentario o arrastra una imagen aquí..." 
                       value={newNote}
                       onChange={(e) => setNewNote(e.target.value)}
                       className="min-h-[80px]"
@@ -1798,13 +1900,24 @@ export function TaskDetailView({
 
                     <div className="flex flex-wrap items-center justify-between gap-y-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <label className="flex items-center gap-2 text-sm">
-                          <Checkbox 
-                            checked={noteIsPrivate}
-                            onCheckedChange={(checked) => setNoteIsPrivate(checked as boolean)}
-                          />
-                          <span className="text-muted-foreground">Nota privada</span>
-                        </label>
+                        <span className="text-sm text-muted-foreground">Tipo:</span>
+                        {[
+                          { key: "propuesta", label: "Propuesta" },
+                          { key: "ajuste", label: "Ajuste" },
+                          { key: "entregables", label: "Entregables" },
+                        ].map((t) => (
+                          <label key={t.key} className="flex items-center gap-1.5 text-sm">
+                            <Checkbox
+                              checked={noteTypes.includes(t.key)}
+                              onCheckedChange={(checked) =>
+                                setNoteTypes((prev) =>
+                                  checked ? [...prev, t.key] : prev.filter((x) => x !== t.key)
+                                )
+                              }
+                            />
+                            <span>{t.label}</span>
+                          </label>
+                        ))}
                         <Separator orientation="vertical" className="h-4" />
                         <div className="flex items-center gap-1">
                           <Button 
@@ -1851,53 +1964,90 @@ export function TaskDetailView({
                           </Button>
                         </div>
                       </div>
-                      <Button 
-                        size="sm" 
-                        disabled={!newNote.trim()}
-                        onClick={() => {
-                          const note = {
-                            id: `note-${Date.now()}`,
-                            author: { name: "Usuario Actual", initials: "UA" },
-                            text: newNote,
-                            date: new Date().toISOString(),
-                            isPrivate: noteIsPrivate,
-                            attachments: noteAttachments,
-                            driveLinks: noteDriveLinks
-                          }
-                          setTask(prev => ({
-                            ...prev,
-                            notes: [...(prev.notes || []), note]
-                          }))
-                          setNewNote("")
-                          setNoteIsPrivate(false)
-                          setNoteAttachments([])
-                          setNoteDriveLinks([])
-                        }}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Agregar Nota
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {/* Tiempo estimado que se le dedicó a esta parte de la tarea */}
+                        <div className="flex items-center gap-1 rounded-md border px-2 py-1">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="number"
+                            min={0}
+                            placeholder="0"
+                            value={noteHours}
+                            onChange={(e) => setNoteHours(e.target.value)}
+                            className="h-7 w-12 px-1 text-center"
+                            aria-label="Horas estimadas"
+                          />
+                          <span className="text-xs text-muted-foreground">h</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={59}
+                            placeholder="00"
+                            value={noteMinutes}
+                            onChange={(e) => setNoteMinutes(e.target.value)}
+                            className="h-7 w-12 px-1 text-center"
+                            aria-label="Minutos estimados"
+                          />
+                          <span className="text-xs text-muted-foreground">m</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={!newNote.trim()}
+                          onClick={() => {
+                            const note = {
+                              id: `note-${Date.now()}`,
+                              author: { name: "Usuario Actual", initials: "UA" },
+                              text: newNote,
+                              date: new Date().toISOString(),
+                              types: noteTypes,
+                              estimatedMinutes:
+                                (parseInt(noteHours || "0", 10) || 0) * 60 +
+                                (parseInt(noteMinutes || "0", 10) || 0),
+                              attachments: noteAttachments,
+                              driveLinks: noteDriveLinks,
+                            }
+                            setTask(prev => ({
+                              ...prev,
+                              notes: [...(prev.notes || []), note],
+                            }))
+                            setNewNote("")
+                            setNoteTypes([])
+                            setNoteHours("")
+                            setNoteMinutes("")
+                            setNoteAttachments([])
+                            setNoteDriveLinks([])
+                          }}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Agregar Comentario
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
                   {/* Notes List */}
                   <div className="space-y-3">
                     {task.notes?.map((note: any) => (
-                      <div key={note.id} className={`p-4 rounded-lg border ${note.isPrivate ? 'bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900' : 'bg-muted/30'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
+                      <div key={note.id} className="p-4 rounded-lg border bg-muted/30">
+                        <div className="flex items-center justify-between mb-2 gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <Avatar className="h-6 w-6">
                               <AvatarFallback className="text-[10px]">{note.author.initials}</AvatarFallback>
                             </Avatar>
                             <span className="text-sm font-medium">{note.author.name}</span>
-                            {note.isPrivate && (
-                              <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300">
-                                <EyeOff className="h-3 w-3 mr-1" />
-                                Privada
+                            {note.types?.map((t: string) => (
+                              <Badge key={t} variant="outline" className="text-xs capitalize">
+                                {t}
+                              </Badge>
+                            ))}
+                            {note.estimatedMinutes > 0 && (
+                              <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {Math.floor(note.estimatedMinutes / 60)}h {note.estimatedMinutes % 60}m
                               </Badge>
                             )}
                           </div>
-                          <span className="text-xs text-muted-foreground">{formatDateTime(note.date)}</span>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(note.date)}</span>
                         </div>
                         <p className="text-sm">{note.text}</p>
                         
@@ -2029,10 +2179,83 @@ export function TaskDetailView({
                           <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
                             {subtask.name}
                           </span>
+
+                          {/* Asignado de la subtarea */}
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
+                                aria-label={`Asignar subtarea "${subtask.name}"`}
+                              >
+                                {subtask.assignee ? (
+                                  <>
+                                    <Avatar className="h-5 w-5">
+                                      <AvatarFallback className="text-[9px]">{subtask.assignee.initials}</AvatarFallback>
+                                    </Avatar>
+                                    <span className="hidden sm:inline max-w-[90px] truncate">{subtask.assignee.name}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <User className="h-4 w-4 text-muted-foreground" />
+                                    <span className="hidden sm:inline text-muted-foreground">Asignar</span>
+                                  </>
+                                )}
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-56 p-2" align="end">
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium px-2 py-1">Asignar a</p>
+                                {task.projectTeam?.map((member: any) => (
+                                  <button
+                                    key={member.id}
+                                    onClick={() => setSubtaskAssignee(subtask.id, member)}
+                                    className={`flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left ${subtask.assignee?.id === member.id ? "bg-muted" : ""}`}
+                                  >
+                                    <Avatar className="h-6 w-6">
+                                      <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-sm">{member.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+
+                          {/* Fecha de entrega de la subtarea */}
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
+                                aria-label={`Fecha de entrega de "${subtask.name}"`}
+                              >
+                                <Calendar className="h-4 w-4 text-muted-foreground" />
+                                <span className={subtask.dueDate ? "" : "text-muted-foreground hidden sm:inline"}>
+                                  {subtask.dueDate ? formatDate(subtask.dueDate) : "Fecha"}
+                                </span>
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="end">
+                              <CalendarPicker
+                                mode="single"
+                                selected={subtask.dueDate ? new Date(`${subtask.dueDate}T00:00:00`) : undefined}
+                                onSelect={(date) => {
+                                  if (!date) return
+                                  const y = date.getFullYear()
+                                  const m = String(date.getMonth() + 1).padStart(2, "0")
+                                  const d = String(date.getDate()).padStart(2, "0")
+                                  setSubtaskDueDate(subtask.id, `${y}-${m}-${d}`)
+                                }}
+                                initialFocus
+                              />
+                            </PopoverContent>
+                          </Popover>
+
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                            className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive shrink-0"
                             onClick={() => deleteSubtask(subtask.id)}
                             aria-label={`Eliminar ${subtask.name}`}
                           >
