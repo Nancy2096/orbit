@@ -902,6 +902,85 @@ export function TaskDetailView({
           </div>
         </div>
 
+        {/* Metadatos: Estado · Creada por/cuándo · Prioridad */}
+        <div className="relative mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+          {/* Estado */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Estado</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="focus:outline-none">
+                  <Badge className={`${status.color} text-white cursor-pointer hover:opacity-90 transition-opacity`}>
+                    {status.label}
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Badge>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                {taskStatuses.map((s) => {
+                  const meta = getStatusMeta(s.id)
+                  return (
+                    <DropdownMenuItem
+                      key={s.id}
+                      onSelect={() => {
+                        if (task.status !== s.id) logActivity(`Estado cambiado a ${meta.label}`)
+                        setTask(prev => ({ ...prev, status: s.id }))
+                      }}
+                      className={task.status === s.id ? "bg-muted" : ""}
+                    >
+                      <span className={`w-2 h-2 rounded-full mr-2 ${meta.color}`} />
+                      {meta.label}
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* Creada por y cuándo */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Creada por</span>
+            <div className="flex items-center gap-2">
+              <Avatar className="h-5 w-5 shrink-0">
+                <AvatarFallback className="text-[10px] text-purple-700">{task.createdBy.initials}</AvatarFallback>
+              </Avatar>
+              <span className="text-sm font-medium text-white">{task.createdBy.name}</span>
+              <span className="text-sm text-white/70">· {formatDateTime(task.createdAt)}</span>
+            </div>
+          </div>
+
+          {/* Prioridad */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/70">Prioridad</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="focus:outline-none">
+                  <Badge className={`bg-white ${priority.textColor} cursor-pointer hover:bg-white/90 transition-colors`}>
+                    <Flag className="h-3 w-3 mr-1" />
+                    {priority.label}
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Badge>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                {Object.entries(priorityConfig).map(([key, cfg]) => (
+                  <DropdownMenuItem
+                    key={key}
+                    onSelect={() => {
+                      if (task.priority !== key) logActivity(`Prioridad cambiada a ${cfg.label}`)
+                      setTask(prev => ({ ...prev, priority: key }))
+                    }}
+                    className={task.priority === key ? "bg-muted" : ""}
+                  >
+                    <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
+                    {cfg.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
         {/* Reacciones sobre la tarea */}
         {groupedReactions.length > 0 && (
           <div className="relative mt-4 flex flex-wrap items-center gap-2">
@@ -932,71 +1011,9 @@ export function TaskDetailView({
       {/* Quick Info Bar */}
       <Card className="shadow-sm border-b-2 border-b-purple-500">
         <CardContent className="p-5">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
-            {/* Estado */}
-            <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Estado</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="focus:outline-none">
-                    <Badge className={`${status.color} text-white cursor-pointer hover:opacity-90 transition-opacity`}>
-                      {status.label}
-                      <ChevronDown className="h-3 w-3 ml-1" />
-                    </Badge>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  {taskStatuses.map((s) => {
-                    const meta = getStatusMeta(s.id)
-                    return (
-                      <DropdownMenuItem
-                        key={s.id}
-                        onSelect={() => {
-                          if (task.status !== s.id) logActivity(`Estado cambiado a ${meta.label}`)
-                          setTask(prev => ({ ...prev, status: s.id }))
-                        }}
-                        className={task.status === s.id ? "bg-muted" : ""}
-                      >
-                        <span className={`w-2 h-2 rounded-full mr-2 ${meta.color}`} />
-                        {meta.label}
-                      </DropdownMenuItem>
-                    )
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {/* Prioridad */}
-            <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Prioridad</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="focus:outline-none">
-                    <Badge variant="outline" className={`${priority.textColor} cursor-pointer hover:bg-muted transition-colors`}>
-                      <Flag className="h-3 w-3 mr-1" />
-                      {priority.label}
-                      <ChevronDown className="h-3 w-3 ml-1" />
-                    </Badge>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  {Object.entries(priorityConfig).map(([key, cfg]) => (
-                    <DropdownMenuItem
-                      key={key}
-                      onSelect={() => {
-                        if (task.priority !== key) logActivity(`Prioridad cambiada a ${cfg.label}`)
-                        setTask(prev => ({ ...prev, priority: key }))
-                      }}
-                      className={task.priority === key ? "bg-muted" : ""}
-                    >
-                      <span className={`w-2 h-2 rounded-full mr-2 ${cfg.color}`} />
-                      {cfg.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
+          <div className="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-2">
+            {/* Columna izquierda */}
+            <div className="space-y-5">
             {/* Asignado (varias personas) */}
             <div className="flex flex-col items-start gap-1.5">
               <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1087,44 +1104,8 @@ export function TaskDetailView({
               </Popover>
             </div>
 
-            {/* Visibilidad */}
-            <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Visibilidad</span>
-              {task.isClientVisible ? (
-                <Badge variant="outline" className="text-emerald-600">
-                  <Eye className="h-3 w-3 mr-1" />
-                  Visible Cliente
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-muted-foreground">
-                  <EyeOff className="h-3 w-3 mr-1" />
-                  Interna
-                </Badge>
-              )}
-            </div>
-
-            {/* Creada por */}
-            <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Creada por</span>
-              <div className="flex items-center gap-2 min-w-0">
-                <Avatar className="h-5 w-5 shrink-0">
-                  <AvatarFallback className="text-[10px]">{task.createdBy.initials}</AvatarFallback>
-                </Avatar>
-                <span className="text-sm font-medium truncate">{task.createdBy.name}</span>
-              </div>
-            </div>
-
-            {/* Fecha de creación */}
-            <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Fecha de creación</span>
-              <span className="flex items-center gap-1.5 text-sm font-medium">
-                <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
-                {formatDateTime(task.createdAt)}
-              </span>
-            </div>
-
             {/* Notificar al completar */}
-            <div className="col-span-2 flex flex-col items-start gap-1.5 sm:col-span-2">
+            <div className="flex flex-col items-start gap-1.5">
               <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <BellRing className="h-3.5 w-3.5 text-amber-600" />
                 Notificar al completar
@@ -1176,58 +1157,80 @@ export function TaskDetailView({
               </div>
             </div>
 
-            {/* Acciones: Comentarios e Historial (debajo de Vencimiento, a la derecha de Notificar) */}
-            <div className="col-span-2 flex flex-col items-stretch justify-start gap-2 sm:col-span-1">
-              <Button
-                type="button"
-                variant={showComments && !showHistory ? "default" : "outline"}
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => {
-                  setShowHistory(false)
-                  setShowComments(v => !v)
-                }}
-              >
-                <MessageCircle className="h-4 w-4" />
-                <span className="flex-1 text-left">Notas</span>
-                {showComments && !showHistory ? (
-                  <ChevronUp className="h-4 w-4" />
+            {/* Notas */}
+            <Button
+              type="button"
+              variant={showComments && !showHistory ? "default" : "outline"}
+              size="sm"
+              className="w-full justify-start gap-2"
+              onClick={() => {
+                setShowHistory(false)
+                setShowComments(v => !v)
+              }}
+            >
+              <MessageCircle className="h-4 w-4" />
+              <span className="flex-1 text-left">Notas</span>
+              {showComments && !showHistory ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+            </div>
+
+            {/* Columna derecha */}
+            <div className="space-y-5 md:border-l md:border-border md:pl-8">
+              {/* Visibilidad */}
+              <div className="flex flex-col items-start gap-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Visibilidad</span>
+                {task.isClientVisible ? (
+                  <Badge variant="outline" className="text-emerald-600">
+                    <Eye className="h-3 w-3 mr-1" />
+                    Visible Cliente
+                  </Badge>
                 ) : (
-                  <ChevronDown className="h-4 w-4" />
+                  <Badge variant="outline" className="text-muted-foreground">
+                    <EyeOff className="h-3 w-3 mr-1" />
+                    Interna
+                  </Badge>
                 )}
-              </Button>
-              <Button
-                type="button"
-                variant={showHistory ? "default" : "outline"}
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => setShowHistory(v => !v)}
-              >
-                <History className="h-4 w-4" />
-                <span className="flex-1 text-left">Historial</span>
-              </Button>
-              <Button
-                type="button"
-                variant={showSubtasks ? "default" : "outline"}
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => setShowSubtasks(v => !v)}
-              >
-                <ListChecks className="h-4 w-4" />
-                <span className="flex-1 text-left">Subtareas</span>
-                {showSubtasks ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </Button>
-              <Button
-                type="button"
-                variant={showRelated ? "default" : "outline"}
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => setShowRelated(v => !v)}
-              >
-                <Link2 className="h-4 w-4" />
-                <span className="flex-1 text-left">Tareas Relacionadas</span>
-                {showRelated ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </Button>
+              </div>
+
+              {/* Acciones: Subtareas, Tareas Relacionadas e Historial */}
+              <div className="flex flex-col items-stretch gap-2">
+                <Button
+                  type="button"
+                  variant={showSubtasks ? "default" : "outline"}
+                  size="sm"
+                  className="w-full justify-start gap-2"
+                  onClick={() => setShowSubtasks(v => !v)}
+                >
+                  <ListChecks className="h-4 w-4" />
+                  <span className="flex-1 text-left">Subtareas</span>
+                  {showSubtasks ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant={showRelated ? "default" : "outline"}
+                  size="sm"
+                  className="w-full justify-start gap-2"
+                  onClick={() => setShowRelated(v => !v)}
+                >
+                  <Link2 className="h-4 w-4" />
+                  <span className="flex-1 text-left">Tareas Relacionadas</span>
+                  {showRelated ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant={showHistory ? "default" : "outline"}
+                  size="sm"
+                  className="w-full justify-start gap-2"
+                  onClick={() => setShowHistory(v => !v)}
+                >
+                  <History className="h-4 w-4" />
+                  <span className="flex-1 text-left">Historial</span>
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>
