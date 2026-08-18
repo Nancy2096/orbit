@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
+import { CommentFormatToolbar } from "@/components/orbit-tasksflow/comment-format-toolbar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -427,6 +428,12 @@ export function TaskDetailView({
   // Panel de comentarios (desplegable) y vista de historial (cambia de "ventana").
   const [showComments, setShowComments] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  // Paneles desplegables de Subtareas y Tareas Relacionadas (debajo del cuadro morado).
+  const [showSubtasks, setShowSubtasks] = useState(false)
+  const [showRelated, setShowRelated] = useState(false)
+  // Refs a los textarea para aplicar el formato de texto desde la barra.
+  const commentInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const noteInputRef = useRef<HTMLTextAreaElement | null>(null)
   // Tipo de comentario (Propuesta / Ajuste / Entregables) y tiempo estimado
   // que se le dedicó a esa parte de la tarea (para la sección de Comentarios).
   const [noteTypes, setNoteTypes] = useState<string[]>([])
@@ -1199,6 +1206,28 @@ export function TaskDetailView({
                 <History className="h-4 w-4" />
                 <span className="flex-1 text-left">Historial</span>
               </Button>
+              <Button
+                type="button"
+                variant={showSubtasks ? "default" : "outline"}
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => setShowSubtasks(v => !v)}
+              >
+                <ListChecks className="h-4 w-4" />
+                <span className="flex-1 text-left">Subtareas</span>
+                {showSubtasks ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
+              <Button
+                type="button"
+                variant={showRelated ? "default" : "outline"}
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => setShowRelated(v => !v)}
+              >
+                <Link2 className="h-4 w-4" />
+                <span className="flex-1 text-left">Tareas Relacionadas</span>
+                {showRelated ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -1225,7 +1254,13 @@ export function TaskDetailView({
               </Avatar>
               <div className="flex-1 space-y-3">
                 <div className="relative">
+                  <CommentFormatToolbar
+                    value={newComment}
+                    onValueChange={setNewComment}
+                    textareaRef={commentInputRef}
+                  />
                   <Textarea
+                    ref={commentInputRef}
                     placeholder="Escribe una nota... Usa @ para mencionar a alguien"
                     value={newComment}
                     onChange={(e) => {
@@ -1235,7 +1270,7 @@ export function TaskDetailView({
                         setShowMentions(true)
                       }
                     }}
-                    className="min-h-[100px]"
+                    className="min-h-[100px] rounded-t-none"
                   />
                   {showMentions && (
                     <Card className="absolute bottom-full left-0 mb-2 w-64 z-10 shadow-lg">
@@ -1431,6 +1466,216 @@ export function TaskDetailView({
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Panel desplegable: Subtareas (debajo del cuadro morado) */}
+      {showSubtasks && (
+        <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <ListChecks className="h-5 w-5" />
+                Subtareas
+              </CardTitle>
+              <CardDescription>
+                {task.subtasks.filter(s => s.completed).length} de {task.subtasks.length} completadas
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={() => setShowAddSubtask(prev => !prev)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nueva Subtarea
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {showAddSubtask && (
+              <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30">
+                <Input
+                  autoFocus
+                  placeholder="Nombre de la subtarea..."
+                  value={newSubtaskName}
+                  onChange={(e) => setNewSubtaskName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      e.preventDefault()
+                      addSubtask()
+                    } else if (e.key === "Escape") {
+                      setShowAddSubtask(false)
+                      setNewSubtaskName("")
+                    }
+                  }}
+                />
+                <Button size="sm" onClick={addSubtask} disabled={!newSubtaskName.trim()}>
+                  Agregar
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => { setShowAddSubtask(false); setNewSubtaskName("") }}>
+                  Cancelar
+                </Button>
+              </div>
+            )}
+
+            {task.subtasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No hay subtareas todavía. Agrega la primera.
+              </p>
+            ) : (
+              <ol className="space-y-2">
+                {task.subtasks.map((subtask, index) => (
+                  <li
+                    key={subtask.id}
+                    className={`group flex items-center gap-3 p-3 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                      {index + 1}
+                    </span>
+                    <Checkbox
+                      checked={subtask.completed}
+                      onCheckedChange={() => toggleSubtask(subtask.id)}
+                      aria-label={`Marcar "${subtask.name}" como ${subtask.completed ? 'pendiente' : 'completada'}`}
+                    />
+                    <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
+                      {subtask.name}
+                    </span>
+
+                    {/* Asignado de la subtarea */}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
+                          aria-label={`Asignar subtarea "${subtask.name}"`}
+                        >
+                          {subtask.assignee ? (
+                            <>
+                              <Avatar className="h-5 w-5">
+                                <AvatarFallback className="text-[9px]">{subtask.assignee.initials}</AvatarFallback>
+                              </Avatar>
+                              <span className="hidden sm:inline max-w-[90px] truncate">{subtask.assignee.name}</span>
+                            </>
+                          ) : (
+                            <>
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              <span className="hidden sm:inline text-muted-foreground">Asignar</span>
+                            </>
+                          )}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-56 p-2" align="end">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium px-2 py-1">Asignar a</p>
+                          {task.projectTeam?.map((member: any) => (
+                            <button
+                              key={member.id}
+                              onClick={() => setSubtaskAssignee(subtask.id, member)}
+                              className={`flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left ${subtask.assignee?.id === member.id ? "bg-muted" : ""}`}
+                            >
+                              <Avatar className="h-6 w-6">
+                                <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                              </Avatar>
+                              <span className="text-sm">{member.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+
+                    {/* Fecha de entrega de la subtarea */}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
+                          aria-label={`Fecha de entrega de "${subtask.name}"`}
+                        >
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <span className={subtask.dueDate ? "" : "text-muted-foreground hidden sm:inline"}>
+                            {subtask.dueDate ? formatDate(subtask.dueDate) : "Fecha"}
+                          </span>
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="end">
+                        <CalendarPicker
+                          mode="single"
+                          selected={subtask.dueDate ? new Date(`${subtask.dueDate}T00:00:00`) : undefined}
+                          onSelect={(date) => {
+                            if (!date) return
+                            const y = date.getFullYear()
+                            const m = String(date.getMonth() + 1).padStart(2, "0")
+                            const d = String(date.getDate()).padStart(2, "0")
+                            setSubtaskDueDate(subtask.id, `${y}-${m}-${d}`)
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive shrink-0"
+                      onClick={() => deleteSubtask(subtask.id)}
+                      aria-label={`Eliminar ${subtask.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Panel desplegable: Tareas Relacionadas (debajo del cuadro morado) */}
+      {showRelated && (
+        <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Tareas Relacionadas
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {task.relatedTasks.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No hay tareas vinculadas todavía.
+                </p>
+              )}
+              {task.relatedTasks.map((relTask: any) => (
+                <div key={relTask.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <ListTodo className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <span className="font-medium block truncate">{relTask.name}</span>
+                      {relTask.account && (
+                        <span className="text-xs text-muted-foreground">{relTask.account}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-sm text-muted-foreground hidden sm:inline">{relTask.assignee}</span>
+                    <Badge className={`${getStatusMeta(relTask.status).color} text-white text-xs`}>
+                      {getStatusMeta(relTask.status).label}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => unlinkTask(relTask.id)}
+                      aria-label="Desvincular tarea"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => setShowLinkTaskDialog(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Vincular Tarea
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -1801,12 +2046,20 @@ export function TaskDetailView({
                     onDragLeave={() => setIsNoteDragOver(false)}
                     onDrop={handleNoteDrop}
                   >
-                    <Textarea 
-                      placeholder="Escribe un comentario o arrastra una imagen aquí..." 
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      className="min-h-[80px]"
-                    />
+                    <div>
+                      <CommentFormatToolbar
+                        value={newNote}
+                        onValueChange={setNewNote}
+                        textareaRef={noteInputRef}
+                      />
+                      <Textarea
+                        ref={noteInputRef}
+                        placeholder="Escribe un comentario o arrastra una imagen aquí..."
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        className="min-h-[80px] rounded-t-none"
+                      />
+                    </div>
                     
                     {/* Attachments Preview */}
                     {(noteAttachments.length > 0 || noteDriveLinks.length > 0) && (
@@ -2128,212 +2381,6 @@ export function TaskDetailView({
                         )}
                       </div>
                     ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Subtareas */}
-              <Card className="border-b-2 border-b-purple-500">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <ListChecks className="h-5 w-5" />
-                      Subtareas
-                    </CardTitle>
-                    <CardDescription>
-                      {task.subtasks.filter(s => s.completed).length} de {task.subtasks.length} completadas
-                    </CardDescription>
-                  </div>
-                  <Button size="sm" onClick={() => setShowAddSubtask(prev => !prev)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Nueva Subtarea
-                  </Button>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {showAddSubtask && (
-                    <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30">
-                      <Input
-                        autoFocus
-                        placeholder="Nombre de la subtarea..."
-                        value={newSubtaskName}
-                        onChange={(e) => setNewSubtaskName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                            e.preventDefault()
-                            addSubtask()
-                          } else if (e.key === "Escape") {
-                            setShowAddSubtask(false)
-                            setNewSubtaskName("")
-                          }
-                        }}
-                      />
-                      <Button size="sm" onClick={addSubtask} disabled={!newSubtaskName.trim()}>
-                        Agregar
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setShowAddSubtask(false); setNewSubtaskName("") }}>
-                        Cancelar
-                      </Button>
-                    </div>
-                  )}
-
-                  {task.subtasks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No hay subtareas todavía. Agrega la primera.
-                    </p>
-                  ) : (
-                    <ol className="space-y-2">
-                      {task.subtasks.map((subtask, index) => (
-                        <li
-                          key={subtask.id}
-                          className={`group flex items-center gap-3 p-3 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
-                        >
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-                            {index + 1}
-                          </span>
-                          <Checkbox
-                            checked={subtask.completed}
-                            onCheckedChange={() => toggleSubtask(subtask.id)}
-                            aria-label={`Marcar "${subtask.name}" como ${subtask.completed ? 'pendiente' : 'completada'}`}
-                          />
-                          <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
-                            {subtask.name}
-                          </span>
-
-                          {/* Asignado de la subtarea */}
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <button
-                                type="button"
-                                className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
-                                aria-label={`Asignar subtarea "${subtask.name}"`}
-                              >
-                                {subtask.assignee ? (
-                                  <>
-                                    <Avatar className="h-5 w-5">
-                                      <AvatarFallback className="text-[9px]">{subtask.assignee.initials}</AvatarFallback>
-                                    </Avatar>
-                                    <span className="hidden sm:inline max-w-[90px] truncate">{subtask.assignee.name}</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <User className="h-4 w-4 text-muted-foreground" />
-                                    <span className="hidden sm:inline text-muted-foreground">Asignar</span>
-                                  </>
-                                )}
-                              </button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-56 p-2" align="end">
-                              <div className="space-y-1">
-                                <p className="text-sm font-medium px-2 py-1">Asignar a</p>
-                                {task.projectTeam?.map((member: any) => (
-                                  <button
-                                    key={member.id}
-                                    onClick={() => setSubtaskAssignee(subtask.id, member)}
-                                    className={`flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left ${subtask.assignee?.id === member.id ? "bg-muted" : ""}`}
-                                  >
-                                    <Avatar className="h-6 w-6">
-                                      <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
-                                    </Avatar>
-                                    <span className="text-sm">{member.name}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-
-                          {/* Fecha de entrega de la subtarea */}
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <button
-                                type="button"
-                                className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
-                                aria-label={`Fecha de entrega de "${subtask.name}"`}
-                              >
-                                <Calendar className="h-4 w-4 text-muted-foreground" />
-                                <span className={subtask.dueDate ? "" : "text-muted-foreground hidden sm:inline"}>
-                                  {subtask.dueDate ? formatDate(subtask.dueDate) : "Fecha"}
-                                </span>
-                              </button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="end">
-                              <CalendarPicker
-                                mode="single"
-                                selected={subtask.dueDate ? new Date(`${subtask.dueDate}T00:00:00`) : undefined}
-                                onSelect={(date) => {
-                                  if (!date) return
-                                  const y = date.getFullYear()
-                                  const m = String(date.getMonth() + 1).padStart(2, "0")
-                                  const d = String(date.getDate()).padStart(2, "0")
-                                  setSubtaskDueDate(subtask.id, `${y}-${m}-${d}`)
-                                }}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive shrink-0"
-                            onClick={() => deleteSubtask(subtask.id)}
-                            aria-label={`Eliminar ${subtask.name}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Related Tasks */}
-              <Card className="border-b-2 border-b-purple-500">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Link2 className="h-5 w-5" />
-                    Tareas Relacionadas
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {task.relatedTasks.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        No hay tareas vinculadas todavía.
-                      </p>
-                    )}
-                    {task.relatedTasks.map((relTask: any) => (
-                      <div key={relTask.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <ListTodo className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <div className="min-w-0">
-                            <span className="font-medium block truncate">{relTask.name}</span>
-                            {relTask.account && (
-                              <span className="text-xs text-muted-foreground">{relTask.account}</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className="text-sm text-muted-foreground hidden sm:inline">{relTask.assignee}</span>
-                          <Badge className={`${getStatusMeta(relTask.status).color} text-white text-xs`}>
-                            {getStatusMeta(relTask.status).label}
-                          </Badge>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => unlinkTask(relTask.id)}
-                            aria-label="Desvincular tarea"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    <Button variant="outline" size="sm" className="w-full mt-2" onClick={() => setShowLinkTaskDialog(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Vincular Tarea
-                    </Button>
                   </div>
                 </CardContent>
               </Card>
