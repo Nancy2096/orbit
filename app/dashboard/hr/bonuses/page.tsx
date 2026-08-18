@@ -124,6 +124,9 @@ export default function BonusesPage() {
   // total) pueden modificar la política de bonos.
   const { roleName, fullAccess } = usePermissions()
   const canManagePolicy = fullAccess || (roleName != null && BONUS_POLICY_ROLES.includes(roleName))
+  // El cambio manual de estatus de un bono solo lo puede ver y hacer el Super
+  // administrador o la Dirección General.
+  const canChangeStatus = roleName === "superadmin" || roleName === "direccion_general"
 
   useEffect(() => {
     if (selectedAgencyId) {
@@ -253,6 +256,8 @@ export default function BonusesPage() {
 
   const handleChangeStatus = async () => {
     if (!statusChangeBonus || !statusChangeTarget) return
+    // Solo Super administrador o Dirección General pueden cambiar el estatus.
+    if (!canChangeStatus) return
     setChangingStatus(true)
     try {
       const now = new Date().toISOString()
@@ -598,17 +603,19 @@ export default function BonusesPage() {
                                     Ver
                                   </Link>
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setStatusChangeBonus(bonus)
-                                    setStatusChangeTarget("")
-                                  }}
-                                >
-                                  <RefreshCw className="mr-1 h-4 w-4" />
-                                  Estatus
-                                </Button>
+                                {canChangeStatus && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      setStatusChangeBonus(bonus)
+                                      setStatusChangeTarget("")
+                                    }}
+                                  >
+                                    <RefreshCw className="mr-1 h-4 w-4" />
+                                    Estatus
+                                  </Button>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
