@@ -58,6 +58,7 @@ import {
   ChevronUp,
   Check,
   History,
+  Rocket,
 } from "lucide-react"
 import {
   Popover,
@@ -425,6 +426,17 @@ export function TaskDetailView({
   const [newDeliverableName, setNewDeliverableName] = useState("")
   const [newDeliverableUrl, setNewDeliverableUrl] = useState("")
   const [showEditDialog, setShowEditDialog] = useState(false)
+  // Edición inline del título (doble clic sobre el texto).
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState("")
+  const commitTitle = () => {
+    const trimmed = titleDraft.trim()
+    if (trimmed && trimmed !== task.name) {
+      logActivity(`Título cambiado a "${trimmed}"`)
+      setTask(prev => ({ ...prev, name: trimmed }))
+    }
+    setEditingTitle(false)
+  }
   // Panel de comentarios (desplegable) y vista de historial (cambia de "ventana").
   const [showComments, setShowComments] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
@@ -847,18 +859,38 @@ export function TaskDetailView({
             )}
             <div className="min-w-0 flex items-center gap-3">
               <span className={`h-3 w-3 shrink-0 rounded-full ring-4 ring-white/20 ${status.color}`} aria-hidden="true" />
-              <h1 className="text-2xl font-bold leading-tight text-balance">{task.name}</h1>
+              {editingTitle ? (
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      e.preventDefault()
+                      commitTitle()
+                    } else if (e.key === "Escape") {
+                      setEditingTitle(false)
+                    }
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-white/40 bg-white/15 px-2 py-1 text-2xl font-bold leading-tight text-white placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-white/60"
+                  aria-label="Editar título de la tarea"
+                />
+              ) : (
+                <h1
+                  className="text-2xl font-bold leading-tight text-balance cursor-text rounded-md px-1 -mx-1 hover:bg-white/10 transition-colors"
+                  onDoubleClick={() => {
+                    setTitleDraft(task.name)
+                    setEditingTitle(true)
+                  }}
+                  title="Doble clic para editar"
+                >
+                  {task.name}
+                </h1>
+              )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => setShowEditDialog(true)}
-              className="bg-white text-purple-700 hover:bg-white/90"
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Editar
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -867,7 +899,7 @@ export function TaskDetailView({
                   aria-label="Más acciones"
                   className="text-white hover:bg-white/15 hover:text-white"
                 >
-                  <MoreHorizontal className="h-5 w-5" />
+                  <Rocket className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
@@ -1016,32 +1048,35 @@ export function TaskDetailView({
             <div className="space-y-5">
             {/* Asignado (varias personas) */}
             <div className="flex flex-col items-start gap-1.5">
-              <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <Users className="h-3.5 w-3.5" />
+              <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                <Users className="h-4 w-4" />
                 Asignado
               </span>
               <div className="flex flex-wrap items-center gap-1.5">
                 {assignees.map((person: any) => (
-                  <Badge key={person.id} variant="secondary" className="flex items-center gap-1.5 pl-1 pr-1.5 py-1">
-                    <Avatar className="h-4 w-4">
+                  <span key={person.id} className="group/chip flex items-center gap-1.5 text-sm font-medium">
+                    <Avatar className="h-5 w-5">
                       <AvatarFallback className="text-[9px]">{person.initials}</AvatarFallback>
                     </Avatar>
                     {person.name}
                     <button
-                      className="ml-0.5 hover:text-destructive"
+                      className="text-muted-foreground opacity-0 transition-opacity group-hover/chip:opacity-100 hover:text-destructive"
                       aria-label={`Quitar a ${person.name}`}
                       onClick={() => toggleAssignee(person)}
                     >
                       <X className="h-3 w-3" />
                     </button>
-                  </Badge>
+                  </span>
                 ))}
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-7 gap-1 px-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus:outline-none"
+                    >
                       <Plus className="h-3.5 w-3.5" />
                       Agregar
-                    </Button>
+                    </button>
                   </PopoverTrigger>
                   <PopoverContent className="w-64 p-2" align="start">
                     <div className="space-y-1">
@@ -1073,7 +1108,10 @@ export function TaskDetailView({
 
             {/* Vencimiento */}
             <div className="flex flex-col items-start gap-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Vencimiento</span>
+              <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                <Calendar className="h-4 w-4" />
+                Vencimiento
+              </span>
               <Popover>
                 <PopoverTrigger asChild>
                   <button
@@ -1106,32 +1144,35 @@ export function TaskDetailView({
 
             {/* Notificar al completar */}
             <div className="flex flex-col items-start gap-1.5">
-              <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <BellRing className="h-3.5 w-3.5 text-amber-600" />
+              <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                <BellRing className="h-4 w-4 text-amber-600" />
                 Notificar al completar
               </span>
               <div className="flex items-center flex-wrap gap-1.5">
                 {task.notifyOnComplete?.map((person: any) => (
-                  <Badge key={person.id} variant="secondary" className="flex items-center gap-1.5 pl-1 pr-1.5 py-1">
-                    <Avatar className="h-4 w-4">
+                  <span key={person.id} className="group/chip flex items-center gap-1.5 text-sm font-medium">
+                    <Avatar className="h-5 w-5">
                       <AvatarFallback className="text-[9px]">{person.initials}</AvatarFallback>
                     </Avatar>
                     {person.name}
                     <button
-                      className="ml-0.5 hover:text-destructive"
+                      className="text-muted-foreground opacity-0 transition-opacity group-hover/chip:opacity-100 hover:text-destructive"
                       aria-label={`Quitar a ${person.name}`}
                       onClick={() => removeNotifyPerson(person.id)}
                     >
                       <X className="h-3 w-3" />
                     </button>
-                  </Badge>
+                  </span>
                 ))}
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-7 gap-1 px-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus:outline-none"
+                    >
                       <Plus className="h-3.5 w-3.5" />
                       Agregar
-                    </Button>
+                    </button>
                   </PopoverTrigger>
                   <PopoverContent className="w-64 p-2" align="start">
                     <div className="space-y-1">
@@ -1158,11 +1199,9 @@ export function TaskDetailView({
             </div>
 
             {/* Notas */}
-            <Button
+            <button
               type="button"
-              variant={showComments && !showHistory ? "default" : "outline"}
-              size="sm"
-              className="w-full justify-start gap-2"
+              className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showComments && !showHistory ? "text-primary" : "text-foreground"}`}
               onClick={() => {
                 setShowHistory(false)
                 setShowComments(v => !v)
@@ -1171,65 +1210,55 @@ export function TaskDetailView({
               <MessageCircle className="h-4 w-4" />
               <span className="flex-1 text-left">Notas</span>
               {showComments && !showHistory ? (
-                <ChevronUp className="h-4 w-4" />
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="h-4 w-4" />
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
               )}
-            </Button>
+            </button>
             </div>
 
             {/* Columna derecha */}
             <div className="space-y-5 md:border-l md:border-border md:pl-8">
               {/* Visibilidad */}
               <div className="flex flex-col items-start gap-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Visibilidad</span>
-                {task.isClientVisible ? (
-                  <Badge variant="outline" className="text-emerald-600">
-                    <Eye className="h-3 w-3 mr-1" />
-                    Visible Cliente
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-muted-foreground">
-                    <EyeOff className="h-3 w-3 mr-1" />
-                    Interna
-                  </Badge>
-                )}
+                <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                  {task.isClientVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  Visibilidad
+                </span>
+                <span className={`text-sm font-medium ${task.isClientVisible ? "text-emerald-600" : "text-muted-foreground"}`}>
+                  {task.isClientVisible ? "Visible Cliente" : "Interna"}
+                </span>
               </div>
 
               {/* Acciones: Subtareas, Tareas Relacionadas e Historial */}
-              <div className="flex flex-col items-stretch gap-2">
-                <Button
+              <div className="flex flex-col items-stretch gap-3">
+                <button
                   type="button"
-                  variant={showSubtasks ? "default" : "outline"}
-                  size="sm"
-                  className="w-full justify-start gap-2"
+                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showSubtasks ? "text-primary" : "text-foreground"}`}
                   onClick={() => setShowSubtasks(v => !v)}
                 >
                   <ListChecks className="h-4 w-4" />
                   <span className="flex-1 text-left">Subtareas</span>
-                  {showSubtasks ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </Button>
-                <Button
+                  {showSubtasks ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                <button
                   type="button"
-                  variant={showRelated ? "default" : "outline"}
-                  size="sm"
-                  className="w-full justify-start gap-2"
+                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showRelated ? "text-primary" : "text-foreground"}`}
                   onClick={() => setShowRelated(v => !v)}
                 >
                   <Link2 className="h-4 w-4" />
                   <span className="flex-1 text-left">Tareas Relacionadas</span>
-                  {showRelated ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </Button>
-                <Button
+                  {showRelated ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                <button
                   type="button"
-                  variant={showHistory ? "default" : "outline"}
-                  size="sm"
-                  className="w-full justify-start gap-2"
+                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showHistory ? "text-primary" : "text-foreground"}`}
                   onClick={() => setShowHistory(v => !v)}
                 >
                   <History className="h-4 w-4" />
                   <span className="flex-1 text-left">Historial</span>
-                </Button>
+                  {showHistory ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
               </div>
             </div>
           </div>
