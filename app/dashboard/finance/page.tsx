@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
+import { NewCategoryButton } from "@/components/finance/new-category-button"
 import {
   AreaChart,
   Area,
@@ -632,6 +633,7 @@ export default function FinancialDashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <NewCategoryButton onCreated={fetchDashboardData} />
           <Button variant="outline" size="sm" onClick={fetchDashboardData}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Actualizar

@@ -959,10 +959,6 @@ const resetExpenseForm = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { resetCategoryForm(); setShowCategoryDialog(true); }}>
-            <FolderTree className="mr-2 h-4 w-4" />
-            Nueva Categoría
-          </Button>
           <Button onClick={() => { resetExpenseForm(); setShowExpenseDialog(true); }}>
             <Plus className="mr-2 h-4 w-4" />
             Nuevo Gasto
