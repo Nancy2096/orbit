@@ -804,7 +804,7 @@ export default function HRDashboardPage() {
       {/* Quick Access */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Acceso R��pido</CardTitle>
+          <CardTitle className="text-base">Acceso Rápido</CardTitle>
           <CardDescription>Módulos de Recursos Humanos</CardDescription>
         </CardHeader>
         <CardContent>
