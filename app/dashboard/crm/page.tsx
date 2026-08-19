@@ -9,7 +9,6 @@ import { createClient } from "@/lib/supabase/client"
 import { useAgency } from "@/contexts/agency-context"
 import {
   Target,
-  UserPlus,
   Users,
   Kanban,
   Settings2,
@@ -25,6 +24,7 @@ import {
   TrendingUp,
   ArrowRight,
   RefreshCw,
+  X,
 } from "lucide-react"
 import {
   PieChart,
@@ -92,6 +92,20 @@ interface AdvisorItem {
   total: number
   won: number
   rate: number
+  pipelineValue: number
+  pipelineCount: number
+}
+
+interface AdvisorStageSlice {
+  name: string
+  value: number
+  color: string
+}
+
+interface AdvisorStageBreakdown {
+  advisor: string
+  total: number
+  slices: AdvisorStageSlice[]
 }
 
 interface LossItem {
@@ -144,6 +158,10 @@ export default function CRMDashboardPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [hasData, setHasData] = useState(false)
 
+  // Filtro por rango de fechas (sobre created_at de los prospectos).
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
+
   const [stats, setStats] = useState<Stats>({
     total: 0,
     active: 0,
@@ -158,6 +176,7 @@ export default function CRMDashboardPage() {
   const [sourceData, setSourceData] = useState<NamedValue[]>([])
   const [trendData, setTrendData] = useState<TrendItem[]>([])
   const [advisorData, setAdvisorData] = useState<AdvisorItem[]>([])
+  const [advisorStageData, setAdvisorStageData] = useState<AdvisorStageBreakdown[]>([])
   const [lossReasons, setLossReasons] = useState<LossItem[]>([])
 
   const [objectives, setObjectives] = useState<Objectives>({
@@ -189,7 +208,7 @@ export default function CRMDashboardPage() {
       fetchDashboardData()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgencyId, agencyLoading])
+  }, [selectedAgencyId, agencyLoading, dateFrom, dateTo])
 
   // Refrescar automáticamente al regresar a la página (cambio de pestaña o de
   // ruta), para reflejar cambios en cuentas, proyectos, metas y prospectos
@@ -244,7 +263,18 @@ export default function CRMDashboardPage() {
       byAgency(supabase.from("accounts").select("id, status, created_at, account_type")),
     ])
 
-    const rows = (prospects || []) as Prospect[]
+    const allRows = (prospects || []) as Prospect[]
+    // Filtro por rango de fechas (created_at). Si no hay rango, se usan todos.
+    const fromTs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null
+    const toTs = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : null
+    const rows = allRows.filter((p) => {
+      if (fromTs === null && toTs === null) return true
+      if (!p.created_at) return false
+      const t = new Date(p.created_at).getTime()
+      if (fromTs !== null && t < fromTs) return false
+      if (toTs !== null && t > toTs) return false
+      return true
+    })
     const stageList = (stages || []) as Stage[]
     const stageMap = new Map(stageList.map((s) => [s.id, s]))
     const sourceMap = new Map((sources || []).map((s: any) => [s.id, s.name as string]))
@@ -323,18 +353,67 @@ export default function CRMDashboardPage() {
     setTrendData(trend)
 
     // ----- Rendimiento por asesor -----
-    const advisorCounts = new Map<string, { total: number; won: number }>()
+    const advisorCounts = new Map<string, { total: number; won: number; pipelineValue: number; pipelineCount: number }>()
     for (const p of rows) {
       const name = p.assigned_to ? staffMap.get(p.assigned_to) || "Sin asignar" : "Sin asignar"
-      const entry = advisorCounts.get(name) || { total: 0, won: 0 }
+      const entry = advisorCounts.get(name) || { total: 0, won: 0, pipelineValue: 0, pipelineCount: 0 }
       entry.total += 1
-      if (stageMap.get(p.stage_id || "")?.is_won) entry.won += 1
+      const st = stageMap.get(p.stage_id || "")
+      if (st?.is_won) entry.won += 1
+      // Pipeline = oportunidades abiertas (no perdidas): valor y conteo.
+      if (!st?.is_lost) {
+        entry.pipelineValue += p.estimated_value || 0
+        entry.pipelineCount += 1
+      }
       advisorCounts.set(name, entry)
     }
     const advisors: AdvisorItem[] = Array.from(advisorCounts.entries())
-      .map(([name, v]) => ({ name, total: v.total, won: v.won, rate: v.total ? (v.won / v.total) * 100 : 0 }))
+      .map(([name, v]) => ({
+        name,
+        total: v.total,
+        won: v.won,
+        rate: v.total ? (v.won / v.total) * 100 : 0,
+        pipelineValue: v.pipelineValue,
+        pipelineCount: v.pipelineCount,
+      }))
       .sort((a, b) => b.total - a.total)
     setAdvisorData(advisors)
+
+    // ----- Desglose de leads por etapa para cada asesor -----
+    // Color estable por etapa (usa el color de la etapa o el de la paleta segun su orden).
+    const orderedStages = stageList
+      .slice()
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    const stageColor = new Map<string, string>()
+    orderedStages.forEach((s, i) => stageColor.set(s.id, s.color || PALETTE[i % PALETTE.length]))
+
+    const advisorStageCounts = new Map<string, Map<string, number>>()
+    for (const p of rows) {
+      const name = p.assigned_to ? staffMap.get(p.assigned_to) || "Sin asignar" : "Sin asignar"
+      const st = stageMap.get(p.stage_id || "")
+      const stageName = st?.name || "Sin etapa"
+      const byStage = advisorStageCounts.get(name) || new Map<string, number>()
+      byStage.set(stageName, (byStage.get(stageName) || 0) + 1)
+      advisorStageCounts.set(name, byStage)
+    }
+    const stageNameColor = new Map<string, string>()
+    orderedStages.forEach((s) => stageNameColor.set(s.name, stageColor.get(s.id)!))
+    stageNameColor.set("Sin etapa", "#9ca3af")
+
+    const advisorStages: AdvisorStageBreakdown[] = Array.from(advisorStageCounts.entries())
+      .map(([advisor, byStage]) => {
+        const total = Array.from(byStage.values()).reduce((a, b) => a + b, 0)
+        const slices: AdvisorStageSlice[] = Array.from(byStage.entries())
+          .map(([stageName, value], i) => ({
+            name: stageName,
+            value,
+            color: stageNameColor.get(stageName) || PALETTE[i % PALETTE.length],
+          }))
+          .sort((a, b) => b.value - a.value)
+        return { advisor, total, slices }
+      })
+      .sort((a, b) => b.total - a.total)
+    setAdvisorStageData(advisorStages)
 
     // ----- Razones de pérdida -----
     const lossCounts = new Map<string, number>()
@@ -525,7 +604,42 @@ export default function CRMDashboardPage() {
               : "Desempeño comercial global de todas las agencias"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Filtro por rango de fechas */}
+          <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5">
+            <CalendarClock className="h-4 w-4 text-muted-foreground" />
+            <label className="sr-only" htmlFor="crm-date-from">Desde</label>
+            <input
+              id="crm-date-from"
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="bg-transparent text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]"
+              aria-label="Fecha desde"
+            />
+            <span className="text-muted-foreground text-sm">–</span>
+            <label className="sr-only" htmlFor="crm-date-to">Hasta</label>
+            <input
+              id="crm-date-to"
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="bg-transparent text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]"
+              aria-label="Fecha hasta"
+            />
+            {(dateFrom || dateTo) && (
+              <button
+                type="button"
+                onClick={() => { setDateFrom(""); setDateTo("") }}
+                className="ml-1 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                aria-label="Limpiar filtro de fechas"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           <Button variant="outline" size="sm" onClick={() => fetchDashboardData(true)} disabled={refreshing}>
             <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             {refreshing ? "Actualizando..." : "Actualizar"}
@@ -552,12 +666,6 @@ export default function CRMDashboardPage() {
             <Link href="/dashboard/crm/pipeline">
               <Kanban className="mr-2 h-4 w-4" />
               Ver Pipeline
-            </Link>
-          </Button>
-          <Button size="sm" asChild>
-            <Link href="/dashboard/crm/prospects/new">
-              <UserPlus className="mr-2 h-4 w-4" />
-              Nuevo Prospecto
             </Link>
           </Button>
         </div>
@@ -960,7 +1068,7 @@ export default function CRMDashboardPage() {
           </div>
 
           {/* Charts Row 2 */}
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6">
             {/* Tendencia */}
             <Card>
               <CardHeader>
@@ -1004,37 +1112,6 @@ export default function CRMDashboardPage() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Asesores */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Rendimiento por Asesor</CardTitle>
-                <CardDescription>Prospectos asignados y tasa de conversión</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {advisorData.map((advisor) => {
-                    const maxTotal = Math.max(...advisorData.map((a) => a.total), 1)
-                    return (
-                      <div key={advisor.name} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{advisor.name}</span>
-                          <span className="text-sm text-muted-foreground">
-                            {advisor.won}/{advisor.total} ({advisor.rate.toFixed(1)}%)
-                          </span>
-                        </div>
-                        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-green-500 rounded-full transition-all"
-                            style={{ width: `${(advisor.total / maxTotal) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
           </div>
 
           {/* Razones de pérdida */}
@@ -1070,6 +1147,182 @@ export default function CRMDashboardPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* ===== Rendimiento por Asesor ===== */}
+          <div className="space-y-4 pt-2">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight">Rendimiento por Asesor</h2>
+              <p className="text-muted-foreground">Eficiencia comercial y pipeline por cada asesor</p>
+            </div>
+
+            {advisorData.length === 0 ? (
+              <Card className="border-dashed">
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                  No hay prospectos asignados en el periodo seleccionado.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Eficiencia en Ventas por Asesor */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Eficiencia en Ventas por Asesor</CardTitle>
+                    <CardDescription>Prospectos asignados y tasa de conversión</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {advisorData.map((advisor) => {
+                        const maxTotal = Math.max(...advisorData.map((a) => a.total), 1)
+                        return (
+                          <div key={advisor.name} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">{advisor.name}</span>
+                              <span className="text-sm text-muted-foreground">
+                                {advisor.won}/{advisor.total} ({advisor.rate.toFixed(1)}%)
+                              </span>
+                            </div>
+                            <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-green-500 rounded-full transition-all"
+                                style={{ width: `${(advisor.total / maxTotal) * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Pipeline por Asesor */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Pipeline por Asesor</CardTitle>
+                    <CardDescription>Valor de oportunidades abiertas por asesor</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-72">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={advisorData.slice().sort((a, b) => b.pipelineValue - a.pipelineValue)}
+                          layout="vertical"
+                          margin={{ left: 8, right: 24, top: 4, bottom: 4 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" horizontal={false} />
+                          <XAxis
+                            type="number"
+                            className="text-xs"
+                            tick={{ fill: "hsl(var(--muted-foreground))" }}
+                            tickFormatter={(v) => formatCurrency(Number(v))}
+                          />
+                          <YAxis
+                            type="category"
+                            dataKey="name"
+                            width={110}
+                            className="text-xs"
+                            tick={{ fill: "hsl(var(--muted-foreground))" }}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: "hsl(var(--card))",
+                              border: "1px solid hsl(var(--border))",
+                              borderRadius: "8px",
+                            }}
+                            formatter={(value: any, _name: any, item: any) => [
+                              `${formatCurrency(Number(value))} · ${item?.payload?.pipelineCount ?? 0} oportunidades`,
+                              "Pipeline",
+                            ]}
+                          />
+                          <Bar dataKey="pipelineValue" name="Pipeline" radius={[0, 4, 4, 0]}>
+                            {advisorData.map((_, i) => (
+                              <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Distribución de leads por etapa — un pie por asesor */}
+            {advisorStageData.length > 0 && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Distribución de Leads por Etapa</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Porcentaje de leads de cada asesor según la etapa de venta
+                  </p>
+                </div>
+                <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                  {advisorStageData.map((advisor) => (
+                    <Card key={advisor.advisor}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">{advisor.advisor}</CardTitle>
+                        <CardDescription>{advisor.total} leads asignados</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-56">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={advisor.slices}
+                                dataKey="value"
+                                nameKey="name"
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={45}
+                                outerRadius={75}
+                                paddingAngle={2}
+                                label={({ percent }) => `${((percent ?? 0) * 100).toFixed(0)}%`}
+                                labelLine={false}
+                              >
+                                {advisor.slices.map((slice) => (
+                                  <Cell key={slice.name} fill={slice.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: "hsl(var(--card))",
+                                  border: "1px solid hsl(var(--border))",
+                                  borderRadius: "8px",
+                                }}
+                                formatter={(value: any, name: any) => {
+                                  const pct = advisor.total ? ((Number(value) / advisor.total) * 100).toFixed(1) : "0"
+                                  return [`${value} leads (${pct}%)`, name]
+                                }}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        {/* Leyenda con porcentaje por etapa */}
+                        <div className="mt-2 space-y-1.5">
+                          {advisor.slices.map((slice) => {
+                            const pct = advisor.total ? (slice.value / advisor.total) * 100 : 0
+                            return (
+                              <div key={slice.name} className="flex items-center justify-between text-sm">
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <span
+                                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                    style={{ backgroundColor: slice.color }}
+                                  />
+                                  <span className="truncate">{slice.name}</span>
+                                </span>
+                                <span className="shrink-0 text-muted-foreground">
+                                  {slice.value} · {pct.toFixed(1)}%
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
