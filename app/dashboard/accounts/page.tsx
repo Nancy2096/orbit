@@ -88,11 +88,11 @@ interface Filters {
   client_id: string
 }
 
-const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  active: { label: "Activa", variant: "default" },
-  inactive: { label: "Inactiva", variant: "secondary" },
-  on_hold: { label: "En pausa", variant: "outline" },
-  closed: { label: "Cerrada", variant: "destructive" },
+const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
+  active: { label: "Activa", variant: "outline", className: "bg-green-100 text-green-700 border-green-200 hover:bg-green-100" },
+  inactive: { label: "Inactiva", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
+  on_hold: { label: "En pausa", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
+  closed: { label: "Cerrada", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
 }
 
 const typeLabels: Record<string, string> = {
@@ -430,7 +430,7 @@ export default function AccountsPage() {
                       </div>
                     )}
                     {column.key === "status" && (
-                      <Badge variant={statusLabels[account.status]?.variant || "outline"}>
+                      <Badge variant={statusLabels[account.status]?.variant || "outline"} className={statusLabels[account.status]?.className}>
                         {statusLabels[account.status]?.label || account.status}
                       </Badge>
                     )}

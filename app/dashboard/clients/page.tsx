@@ -76,11 +76,11 @@ interface ColumnDef {
   filterable: boolean
 }
 
-const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
   prospect: { label: "Prospecto", variant: "outline" },
-  active: { label: "Activo", variant: "default" },
-  inactive: { label: "Inactivo", variant: "secondary" },
-  suspended: { label: "Suspendido", variant: "destructive" },
+  active: { label: "Activo", variant: "outline", className: "bg-green-100 text-green-700 border-green-200 hover:bg-green-100" },
+  inactive: { label: "Inactivo", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
+  suspended: { label: "Suspendido", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
 }
 
 const defaultColumns: ColumnDef[] = [
@@ -330,9 +330,9 @@ export default function ClientsPage() {
                       <ClientCompletionBar percentage={getClientOverallCompletion(client)} />
                     )}
                     {column.key === "status" && (
-                      <Badge variant={statusLabels[client.status]?.variant || "outline"}>
-                        {statusLabels[client.status]?.label || client.status}
-                      </Badge>
+                          <Badge variant={statusLabels[client.status]?.variant || "outline"} className={statusLabels[client.status]?.className}>
+                            {statusLabels[client.status]?.label || client.status}
+                          </Badge>
                     )}
                   </TableCell>
                 ))}

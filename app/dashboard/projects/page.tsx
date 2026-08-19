@@ -101,11 +101,11 @@ interface Filters {
   client_id: string
 }
 
-const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  active: { label: "Activa", variant: "default" },
-  inactive: { label: "Inactiva", variant: "secondary" },
-  on_hold: { label: "En pausa", variant: "outline" },
-  closed: { label: "Cerrada", variant: "destructive" },
+const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
+  active: { label: "Activa", variant: "outline", className: "bg-green-100 text-green-700 border-green-200 hover:bg-green-100" },
+  inactive: { label: "Inactiva", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
+  on_hold: { label: "En pausa", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
+  closed: { label: "Cerrada", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
 }
 
 export default function ProjectsPage() {
@@ -454,7 +454,7 @@ export default function ProjectsPage() {
                       <span className="text-sm">{project.currency_code}</span>
                     )}
                     {column.key === "status" && (
-                      <Badge variant={statusLabels[project.status]?.variant || "outline"}>
+                      <Badge variant={statusLabels[project.status]?.variant || "outline"} className={statusLabels[project.status]?.className}>
                         {statusLabels[project.status]?.label || project.status}
                       </Badge>
                     )}
