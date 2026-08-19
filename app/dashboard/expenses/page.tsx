@@ -301,13 +301,19 @@ export default function ExpensesPage() {
   // reports_to_id), NO de la agencia: los jefes pueden ser globales
   // (agency_id nulo, ej. Director General, Directora de Operaciones). Por eso
   // se resuelve de forma independiente al agency_id seleccionado.
+  // Se recalcula cuando cambia el solicitante Y también al abrir el diálogo:
+  // resetExpenseForm() vacía approversList pero mantiene el mismo requested_by_id
+  // (el usuario logeado), por lo que sin depender de showExpenseDialog el efecto
+  // no volvía a dispararse y la lista quedaba vacía ("Solicitar aprobación a").
   useEffect(() => {
+    if (!showExpenseDialog) return
     if (expenseForm.requested_by_id) {
       fetchApproversForStaff(expenseForm.requested_by_id, expenseForm.agency_id)
     } else {
       setApproversList([])
     }
-  }, [expenseForm.requested_by_id])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenseForm.requested_by_id, showExpenseDialog])
 
   // Al abrir el formulario de un gasto nuevo con agencia seleccionada, se
   // consulta el siguiente número consecutivo para mostrarlo como referencia.
