@@ -78,6 +78,7 @@ import {
   XCircle,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
 import {
   DropdownMenu,
@@ -217,6 +218,25 @@ interface Appointment {
   created_at: string
 }
 
+interface LossReasonCategory {
+  id: string
+  name: string
+  is_active: boolean
+}
+
+interface LossReasonSubmotive {
+  id: string
+  category_id: string
+  name: string
+  is_active: boolean
+}
+
+const FUTURE_ACTION_OPTIONS = [
+  { value: "close_definitely", label: "Cerrar definitivamente (Sin potencial)" },
+  { value: "schedule_recontact", label: "Programar recontacto" },
+  { value: "nurture", label: "Nutrir con contenido educativo (Marketing)" },
+]
+
 export default function ProspectDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -298,6 +318,17 @@ export default function ProspectDetailPage() {
     probability: 50,
     expected_close_date: "",
     description: "",
+    notes: "",
+  })
+
+  // Razón de no compra: catálogo y formulario (se habilita al pasar a etapa "Perdido")
+  const [lossCategories, setLossCategories] = useState<LossReasonCategory[]>([])
+  const [lossSubmotives, setLossSubmotives] = useState<LossReasonSubmotive[]>([])
+  const [lossForm, setLossForm] = useState({
+    category_id: "",
+    submotive_id: "",
+    future_action: "",
+    recontact_date: "",
     notes: "",
   })
   
@@ -408,8 +439,25 @@ state_province: prospectData.state_province || "",
 
     setInitialStageId(prospectData.stage_id || null)
 
+    // Cargar la razón de no compra ya registrada (si existe).
+    setLossForm({
+      category_id: prospectData.loss_reason_category_id || "",
+      submotive_id: prospectData.loss_reason_submotive_id || "",
+      future_action: prospectData.loss_future_action || "",
+      recontact_date: prospectData.loss_recontact_date ? prospectData.loss_recontact_date.split("T")[0] : "",
+      notes: prospectData.loss_notes || "",
+    })
+
     const agencyId = prospectData.agency_id || selectedAgencyId
     setProspectAgencyId(agencyId)
+
+    // Catálogo de razones de no compra de la agencia (categorías activas + submotivos activos).
+    const [lossCatsRes, lossSubsRes] = await Promise.all([
+      supabase.from("crm_loss_reason_categories").select("id, name, is_active").eq("agency_id", agencyId).eq("is_active", true).order("sort_order"),
+      supabase.from("crm_loss_reason_submotives").select("id, category_id, name, is_active").eq("agency_id", agencyId).eq("is_active", true).order("sort_order"),
+    ])
+    if (lossCatsRes.data) setLossCategories(lossCatsRes.data)
+    if (lossSubsRes.data) setLossSubmotives(lossSubsRes.data)
     setConvertedClientId(prospectData.converted_to_client_id || null)
 
     // First get Commercial and Direction department IDs
@@ -516,6 +564,23 @@ state_province: prospectData.state_province || "",
       return
     }
 
+    // Si la etapa es "Perdido", exigir la categoría de motivo y validar el recontacto.
+    const stageForValidation = stages.find((s) => s.id === formData.stage_id)
+    if (stageForValidation?.is_lost) {
+      if (!lossForm.category_id) {
+        toast.error("Selecciona la categoría del motivo de no compra")
+        return
+      }
+      if (lossForm.future_action === "schedule_recontact" && !lossForm.recontact_date) {
+        toast.error("Selecciona la fecha de recontacto para programar el recordatorio")
+        return
+      }
+      if (lossForm.notes.length > 200) {
+        toast.error("Las notas de cierre no pueden superar los 200 caracteres")
+        return
+      }
+    }
+
     setSaving(true)
 
     // Detectar si cambió el asesor comercial asignado para registrar la fecha
@@ -565,6 +630,20 @@ state_province: prospectData.state_province || "",
     }
     if (stage?.is_lost) {
       updateData.lost_date = new Date().toISOString()
+      // Guardar la razón de no compra estructurada.
+      updateData.loss_reason_category_id = lossForm.category_id || null
+      updateData.loss_reason_submotive_id = lossForm.submotive_id || null
+      updateData.loss_future_action = lossForm.future_action || null
+      updateData.loss_recontact_date =
+        lossForm.future_action === "schedule_recontact" && lossForm.recontact_date ? lossForm.recontact_date : null
+      updateData.loss_notes = lossForm.notes.trim() || null
+    } else {
+      // Al salir de "Perdido" se limpian los campos de razón de no compra.
+      updateData.loss_reason_category_id = null
+      updateData.loss_reason_submotive_id = null
+      updateData.loss_future_action = null
+      updateData.loss_recontact_date = null
+      updateData.loss_notes = null
     }
     // Actualizar la fecha/hora de asignación solo cuando cambia el asesor.
     if (assignmentChanged) {
@@ -586,6 +665,57 @@ state_province: prospectData.state_province || "",
     // Pausar o reanudar las tareas automáticas según la etapa del prospecto:
     // activas en Prospecto e Intento de Contacto (etapas 1 y 2), pausadas al salir de la etapa 2.
     await syncAutomaticTasksWithStage(supabase, prospectId, formData.stage_id || null)
+
+    // Disparador automático: si la acción futura es "Programar recontacto", crear
+    // una tarea y recordatorio para el asesor en la fecha seleccionada.
+    const RECONTACT_PREFIX = "Recontacto programado"
+    if (stage?.is_lost && lossForm.future_action === "schedule_recontact" && lossForm.recontact_date) {
+      // Evitar duplicados: elimina recordatorios de recontacto previos no completados.
+      await supabase
+        .from("crm_tasks")
+        .delete()
+        .eq("prospect_id", prospectId)
+        .eq("is_completed", false)
+        .ilike("title", `${RECONTACT_PREFIX}%`)
+
+      const catName = lossCategories.find((c) => c.id === lossForm.category_id)?.name || "-"
+      const subName = lossSubmotives.find((s) => s.id === lossForm.submotive_id)?.name
+      const dueDateTime = `${lossForm.recontact_date}T09:00:00`
+      const prospectLabel = formData.company_name || formData.contact_name
+
+      const { error: reminderError } = await supabase.from("crm_tasks").insert({
+        prospect_id: prospectId,
+        agency_id: prospectAgencyId || selectedAgencyId,
+        title: `${RECONTACT_PREFIX}: ${prospectLabel}`,
+        description: `Recontactar al prospecto marcado como Perdido.\nMotivo: ${catName}${subName ? ` / ${subName}` : ""}${lossForm.notes.trim() ? `\n\nContexto: ${lossForm.notes.trim()}` : ""}`,
+        task_type: "follow_up",
+        due_date: dueDateTime,
+        reminder_date: dueDateTime,
+        assigned_to: formData.assigned_to || null,
+        priority: "medium",
+      })
+
+      if (reminderError) {
+        console.error("[v0] reminder task error:", reminderError.message)
+      } else {
+        await supabase.from("crm_activities").insert({
+          prospect_id: prospectId,
+          activity_type: "task",
+          subject: "Recontacto programado",
+          description: `Se programó automáticamente un recordatorio de recontacto para el ${new Date(dueDateTime).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })}.`,
+          activity_date: new Date().toISOString(),
+          is_completed: false,
+        })
+      }
+    } else {
+      // Si ya no aplica el recontacto, retirar recordatorios pendientes generados antes.
+      await supabase
+        .from("crm_tasks")
+        .delete()
+        .eq("prospect_id", prospectId)
+        .eq("is_completed", false)
+        .ilike("title", `${RECONTACT_PREFIX}%`)
+    }
 
     // Registrar en el historial de asignaciones cuando hay un nuevo asesor.
     if (assignmentChanged && newAssignedTo) {
@@ -658,6 +788,11 @@ state_province: prospectData.state_province || "",
     setDeletedContactIds([])
     setSaving(false)
     toast.success("Cambios guardados exitosamente")
+
+    // Refrescar tareas/actividades cuando la etapa "Perdido" pudo generar o retirar un recordatorio.
+    if (stage?.is_lost) {
+      fetchData()
+    }
   }
 
   const addActivity = async () => {
@@ -1530,6 +1665,8 @@ state_province: prospectData.state_province || "",
 
   // ¿El prospecto está en una etapa "Ganado"? Habilita la conversión a cliente.
   const isWonStage = stages.find((s) => s.id === formData.stage_id)?.is_won ?? false
+  const isLostStage = stages.find((s) => s.id === formData.stage_id)?.is_lost ?? false
+  const lossSubmotivesForCategory = lossSubmotives.filter((s) => s.category_id === lossForm.category_id)
 
   return (
     <div className="p-6 space-y-6">
@@ -2799,6 +2936,127 @@ state_province: prospectData.state_province || "",
             </CardContent>
           </Card>
           
+          {/* Razón de no compra (solo en etapa Perdido) */}
+          {isLostStage && (
+            <Card className="border-destructive/40">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <XCircle className="h-4 w-4 text-destructive" />
+                  Razón de no compra
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Registra el motivo por el que el prospecto no avanzó a la compra.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* 1. Categoría del motivo */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Categoría del motivo *</Label>
+                  <Select
+                    value={lossForm.category_id}
+                    onValueChange={(value) =>
+                      setLossForm({ ...lossForm, category_id: value, submotive_id: "" })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar categoría" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {lossCategories.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          No hay categorías configuradas.
+                        </div>
+                      ) : (
+                        lossCategories.map((cat) => (
+                          <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* 2. Submotivo dinámico (solo si la categoría tiene submotivos) */}
+                {lossForm.category_id && lossSubmotivesForCategory.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Submotivo</Label>
+                    <Select
+                      value={lossForm.submotive_id}
+                      onValueChange={(value) => setLossForm({ ...lossForm, submotive_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleccionar submotivo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lossSubmotivesForCategory.map((sub) => (
+                          <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* 3. Acción futura */}
+                <div className="space-y-2">
+                  <Label className="text-xs">Acción futura</Label>
+                  <RadioGroup
+                    value={lossForm.future_action}
+                    onValueChange={(value) =>
+                      setLossForm({
+                        ...lossForm,
+                        future_action: value,
+                        recontact_date: value === "schedule_recontact" ? lossForm.recontact_date : "",
+                      })
+                    }
+                    className="gap-2"
+                  >
+                    {FUTURE_ACTION_OPTIONS.map((opt) => (
+                      <div key={opt.value} className="flex items-start gap-2">
+                        <RadioGroupItem value={opt.value} id={`fa-${opt.value}`} className="mt-0.5" />
+                        <Label htmlFor={`fa-${opt.value}`} className="text-sm font-normal leading-snug">
+                          {opt.label}
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+
+                {/* Disparador: fecha de recontacto */}
+                {lossForm.future_action === "schedule_recontact" && (
+                  <div className="space-y-1.5 rounded-md border border-dashed p-3">
+                    <Label htmlFor="recontact_date" className="text-xs flex items-center gap-1">
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      Fecha de recontacto *
+                    </Label>
+                    <Input
+                      id="recontact_date"
+                      type="date"
+                      value={lossForm.recontact_date}
+                      min={new Date().toISOString().split("T")[0]}
+                      onChange={(e) => setLossForm({ ...lossForm, recontact_date: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Al guardar se creará una tarea y un recordatorio para el asesor en esta fecha.
+                    </p>
+                  </div>
+                )}
+
+                {/* 4. Notas de cierre */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="loss_notes" className="text-xs">Notas de cierre</Label>
+                  <Textarea
+                    id="loss_notes"
+                    value={lossForm.notes}
+                    maxLength={200}
+                    rows={3}
+                    placeholder="Contexto u objeción específica expresada por el cliente..."
+                    onChange={(e) => setLossForm({ ...lossForm, notes: e.target.value })}
+                  />
+                  <p className="text-right text-xs text-muted-foreground">{lossForm.notes.length}/200</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Fuente del Lead */}
           <Card>
             <CardHeader>
