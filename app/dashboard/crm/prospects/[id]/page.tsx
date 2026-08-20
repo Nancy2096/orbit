@@ -237,6 +237,12 @@ const FUTURE_ACTION_OPTIONS = [
   { value: "nurture", label: "Nutrir con contenido educativo (Marketing)" },
 ]
 
+// La sección "Razón de no compra" se habilita en etapas marcadas como perdidas
+// (is_lost) y también explícitamente en "No interesado", aunque cambie su bandera.
+function isNoBuyStage(stage?: { is_lost?: boolean; name?: string } | null): boolean {
+  return !!stage && (stage.is_lost === true || /no\s*interes/i.test(stage.name || ""))
+}
+
 export default function ProspectDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -564,9 +570,9 @@ state_province: prospectData.state_province || "",
       return
     }
 
-    // Si la etapa es "Perdido", exigir la categoría de motivo y validar el recontacto.
+    // Si la etapa es "Perdido" o "No interesado", exigir la categoría de motivo y validar el recontacto.
     const stageForValidation = stages.find((s) => s.id === formData.stage_id)
-    if (stageForValidation?.is_lost) {
+    if (isNoBuyStage(stageForValidation)) {
       if (!lossForm.category_id) {
         toast.error("Selecciona la categoría del motivo de no compra")
         return
@@ -630,7 +636,9 @@ state_province: prospectData.state_province || "",
     }
     if (stage?.is_lost) {
       updateData.lost_date = new Date().toISOString()
-      // Guardar la razón de no compra estructurada.
+    }
+    if (isNoBuyStage(stage)) {
+      // Guardar la razón de no compra estructurada (Perdido y No interesado).
       updateData.loss_reason_category_id = lossForm.category_id || null
       updateData.loss_reason_submotive_id = lossForm.submotive_id || null
       updateData.loss_future_action = lossForm.future_action || null
@@ -638,7 +646,7 @@ state_province: prospectData.state_province || "",
         lossForm.future_action === "schedule_recontact" && lossForm.recontact_date ? lossForm.recontact_date : null
       updateData.loss_notes = lossForm.notes.trim() || null
     } else {
-      // Al salir de "Perdido" se limpian los campos de razón de no compra.
+      // Al salir de una etapa de no compra se limpian los campos de razón.
       updateData.loss_reason_category_id = null
       updateData.loss_reason_submotive_id = null
       updateData.loss_future_action = null
@@ -669,7 +677,7 @@ state_province: prospectData.state_province || "",
     // Disparador automático: si la acción futura es "Programar recontacto", crear
     // una tarea y recordatorio para el asesor en la fecha seleccionada.
     const RECONTACT_PREFIX = "Recontacto programado"
-    if (stage?.is_lost && lossForm.future_action === "schedule_recontact" && lossForm.recontact_date) {
+    if (isNoBuyStage(stage) && lossForm.future_action === "schedule_recontact" && lossForm.recontact_date) {
       // Evitar duplicados: elimina recordatorios de recontacto previos no completados.
       await supabase
         .from("crm_tasks")
@@ -687,7 +695,7 @@ state_province: prospectData.state_province || "",
         prospect_id: prospectId,
         agency_id: prospectAgencyId || selectedAgencyId,
         title: `${RECONTACT_PREFIX}: ${prospectLabel}`,
-        description: `Recontactar al prospecto marcado como Perdido.\nMotivo: ${catName}${subName ? ` / ${subName}` : ""}${lossForm.notes.trim() ? `\n\nContexto: ${lossForm.notes.trim()}` : ""}`,
+        description: `Recontactar al prospecto (${stage?.name || "no compra"}).\nMotivo: ${catName}${subName ? ` / ${subName}` : ""}${lossForm.notes.trim() ? `\n\nContexto: ${lossForm.notes.trim()}` : ""}`,
         task_type: "follow_up",
         due_date: dueDateTime,
         reminder_date: dueDateTime,
@@ -789,8 +797,8 @@ state_province: prospectData.state_province || "",
     setSaving(false)
     toast.success("Cambios guardados exitosamente")
 
-    // Refrescar tareas/actividades cuando la etapa "Perdido" pudo generar o retirar un recordatorio.
-    if (stage?.is_lost) {
+    // Refrescar tareas/actividades cuando la etapa de no compra pudo generar o retirar un recordatorio.
+    if (isNoBuyStage(stage)) {
       fetchData()
     }
   }
@@ -1665,7 +1673,7 @@ state_province: prospectData.state_province || "",
 
   // ¿El prospecto está en una etapa "Ganado"? Habilita la conversión a cliente.
   const isWonStage = stages.find((s) => s.id === formData.stage_id)?.is_won ?? false
-  const isLostStage = stages.find((s) => s.id === formData.stage_id)?.is_lost ?? false
+  const isLostStage = isNoBuyStage(stages.find((s) => s.id === formData.stage_id))
   const lossSubmotivesForCategory = lossSubmotives.filter((s) => s.category_id === lossForm.category_id)
 
   return (
