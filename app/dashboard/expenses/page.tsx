@@ -375,6 +375,7 @@ export default function ExpensesPage() {
       .from("clients")
       .select("id, company_name, agency_id")
       .eq("agency_id", agencyId)
+      .eq("status", "active")
       .order("company_name")
     if (data) setClients(data)
   }
