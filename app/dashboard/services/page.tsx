@@ -142,7 +142,7 @@ export default function ServicesPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Servicios</h1>
           <p className="text-muted-foreground">
-            Catalogo de servicios de la agencia
+            Catálogo de servicios de la agencia
           </p>
         </div>
         <Button asChild>

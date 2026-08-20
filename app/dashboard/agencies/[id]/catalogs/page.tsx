@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift, Trash2, Package } from "lucide-react"
+import { ArrowLeft, Plus, Pencil, Factory, Megaphone, Gift, Trash2, Package, Ban, ChevronDown, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import {
   MONTH_OPTIONS,
@@ -59,6 +59,22 @@ interface BonusType {
   limit_count: number
 }
 
+interface LossSubmotive {
+  id: string
+  category_id: string
+  name: string
+  sort_order: number
+  is_active: boolean
+}
+
+interface LossCategory {
+  id: string
+  name: string
+  sort_order: number
+  is_active: boolean
+  submotives: LossSubmotive[]
+}
+
 const benefitTypeLabels: Record<string, string> = {
   money: "Dinero (monto fijo)",
   salary_days: "Días de sueldo",
@@ -82,7 +98,21 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   const [products, setProducts] = useState<Product[]>([])
   const [referralSources, setReferralSources] = useState<ReferralSource[]>([])
   const [bonusTypes, setBonusTypes] = useState<BonusType[]>([])
+  const [lossCategories, setLossCategories] = useState<LossCategory[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Loss reason (Razón de no compra) dialog state
+  const [lossCatDialogOpen, setLossCatDialogOpen] = useState(false)
+  const [editingLossCat, setEditingLossCat] = useState<LossCategory | null>(null)
+  const [lossCatForm, setLossCatForm] = useState({ name: "", is_active: true })
+  const [savingLossCat, setSavingLossCat] = useState(false)
+
+  const [lossSubDialogOpen, setLossSubDialogOpen] = useState(false)
+  const [editingLossSub, setEditingLossSub] = useState<LossSubmotive | null>(null)
+  const [lossSubCategoryId, setLossSubCategoryId] = useState<string | null>(null)
+  const [lossSubForm, setLossSubForm] = useState({ name: "", is_active: true })
+  const [savingLossSub, setSavingLossSub] = useState(false)
+  const [expandedCats, setExpandedCats] = useState<string[]>([])
 
   // Industry dialog state
   const [industryDialogOpen, setIndustryDialogOpen] = useState(false)
@@ -133,13 +163,15 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
   async function fetchData() {
     setLoading(true)
 
-    const [agencyRes, industriesRes, productsRes, sourcesRes, bonusTypesRes, otherAgenciesRes] = await Promise.all([
+    const [agencyRes, industriesRes, productsRes, sourcesRes, bonusTypesRes, otherAgenciesRes, lossCatsRes, lossSubsRes] = await Promise.all([
       supabase.from("agencies").select("id, name").eq("id", id).single(),
       supabase.from("industries").select("*").eq("agency_id", id).order("name"),
       supabase.from("products").select("*").eq("agency_id", id).order("name"),
       supabase.from("referral_sources").select("*").eq("agency_id", id).order("name"),
       supabase.from("bonus_types").select("*").eq("agency_id", id).order("name"),
       supabase.from("agencies").select("id, name").neq("id", id).order("name"),
+      supabase.from("crm_loss_reason_categories").select("*").eq("agency_id", id).order("sort_order"),
+      supabase.from("crm_loss_reason_submotives").select("*").eq("agency_id", id).order("sort_order"),
     ])
 
     if (agencyRes.data) setAgency(agencyRes.data)
@@ -148,6 +180,17 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
     if (sourcesRes.data) setReferralSources(sourcesRes.data)
     if (bonusTypesRes.data) setBonusTypes(bonusTypesRes.data)
     if (otherAgenciesRes.data) setOtherAgencies(otherAgenciesRes.data)
+
+    // Anida los submotivos dentro de su categoría.
+    if (lossCatsRes.data) {
+      const subs = (lossSubsRes.data || []) as LossSubmotive[]
+      setLossCategories(
+        (lossCatsRes.data as Omit<LossCategory, "submotives">[]).map((cat) => ({
+          ...cat,
+          submotives: subs.filter((s) => s.category_id === cat.id),
+        }))
+      )
+    }
 
     setLoading(false)
   }
@@ -423,6 +466,102 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
     promptScope()
   }
 
+  // ----- Razones de no compra: categorías -----
+  function toggleExpandCat(catId: string) {
+    setExpandedCats((prev) => (prev.includes(catId) ? prev.filter((c) => c !== catId) : [...prev, catId]))
+  }
+
+  function openNewLossCat() {
+    setEditingLossCat(null)
+    setLossCatForm({ name: "", is_active: true })
+    setLossCatDialogOpen(true)
+  }
+
+  function openEditLossCat(cat: LossCategory) {
+    setEditingLossCat(cat)
+    setLossCatForm({ name: cat.name, is_active: cat.is_active })
+    setLossCatDialogOpen(true)
+  }
+
+  async function saveLossCat() {
+    if (!lossCatForm.name.trim()) return
+    setSavingLossCat(true)
+    if (editingLossCat) {
+      await supabase
+        .from("crm_loss_reason_categories")
+        .update({ name: lossCatForm.name, is_active: lossCatForm.is_active, updated_at: new Date().toISOString() })
+        .eq("id", editingLossCat.id)
+    } else {
+      await supabase.from("crm_loss_reason_categories").insert({
+        agency_id: id,
+        name: lossCatForm.name,
+        is_active: lossCatForm.is_active,
+        sort_order: lossCategories.length,
+      })
+    }
+    setSavingLossCat(false)
+    setLossCatDialogOpen(false)
+    fetchData()
+  }
+
+  async function deleteLossCat(cat: LossCategory) {
+    if (!confirm(`¿Eliminar la categoría "${cat.name}" y todos sus submotivos?`)) return
+    const { error } = await supabase.from("crm_loss_reason_categories").delete().eq("id", cat.id)
+    if (error) {
+      console.error("[v0] deleteLossCat error:", error.message)
+      return
+    }
+    fetchData()
+  }
+
+  // ----- Razones de no compra: submotivos -----
+  function openNewLossSub(categoryId: string) {
+    setEditingLossSub(null)
+    setLossSubCategoryId(categoryId)
+    setLossSubForm({ name: "", is_active: true })
+    setLossSubDialogOpen(true)
+  }
+
+  function openEditLossSub(sub: LossSubmotive) {
+    setEditingLossSub(sub)
+    setLossSubCategoryId(sub.category_id)
+    setLossSubForm({ name: sub.name, is_active: sub.is_active })
+    setLossSubDialogOpen(true)
+  }
+
+  async function saveLossSub() {
+    if (!lossSubForm.name.trim() || !lossSubCategoryId) return
+    setSavingLossSub(true)
+    if (editingLossSub) {
+      await supabase
+        .from("crm_loss_reason_submotives")
+        .update({ name: lossSubForm.name, is_active: lossSubForm.is_active, updated_at: new Date().toISOString() })
+        .eq("id", editingLossSub.id)
+    } else {
+      const cat = lossCategories.find((c) => c.id === lossSubCategoryId)
+      await supabase.from("crm_loss_reason_submotives").insert({
+        agency_id: id,
+        category_id: lossSubCategoryId,
+        name: lossSubForm.name,
+        is_active: lossSubForm.is_active,
+        sort_order: cat ? cat.submotives.length : 0,
+      })
+    }
+    setSavingLossSub(false)
+    setLossSubDialogOpen(false)
+    fetchData()
+  }
+
+  async function deleteLossSub(sub: LossSubmotive) {
+    if (!confirm(`¿Eliminar el submotivo "${sub.name}"?`)) return
+    const { error } = await supabase.from("crm_loss_reason_submotives").delete().eq("id", sub.id)
+    if (error) {
+      console.error("[v0] deleteLossSub error:", error.message)
+      return
+    }
+    fetchData()
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -462,6 +601,10 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
           <TabsTrigger value="bonuses" className="gap-2">
             <Gift className="h-4 w-4" />
             Bonos
+          </TabsTrigger>
+          <TabsTrigger value="loss_reasons" className="gap-2">
+            <Ban className="h-4 w-4" />
+            Razones de no compra
           </TabsTrigger>
         </TabsList>
 
@@ -1105,6 +1248,185 @@ export default function AgencyCatalogsPage({ params }: { params: Promise<{ id: s
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Loss Reasons Tab */}
+        <TabsContent value="loss_reasons">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Razones de no compra</CardTitle>
+                <CardDescription>
+                  Define las categorías de motivo y sus submotivos que los asesores usarán al marcar un prospecto como Perdido
+                </CardDescription>
+              </div>
+              <Dialog open={lossCatDialogOpen} onOpenChange={setLossCatDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={openNewLossCat}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nueva Categoría
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{editingLossCat ? "Editar Categoría" : "Nueva Categoría"}</DialogTitle>
+                    <DialogDescription>
+                      {editingLossCat ? "Modifica la categoría de motivo" : "Agrega una nueva categoría de motivo"}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="loss_cat_name">Nombre *</FieldLabel>
+                      <Input
+                        id="loss_cat_name"
+                        value={lossCatForm.name}
+                        onChange={(e) => setLossCatForm({ ...lossCatForm, name: e.target.value })}
+                        placeholder="Ej: Precio elevado, Eligió a la competencia..."
+                      />
+                    </Field>
+                    <div className="flex items-center justify-between">
+                      <FieldLabel htmlFor="loss_cat_active">Activa</FieldLabel>
+                      <Switch
+                        id="loss_cat_active"
+                        checked={lossCatForm.is_active}
+                        onCheckedChange={(checked) => setLossCatForm({ ...lossCatForm, is_active: checked })}
+                      />
+                    </div>
+                  </FieldGroup>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setLossCatDialogOpen(false)}>Cancelar</Button>
+                    <Button onClick={saveLossCat} disabled={savingLossCat || !lossCatForm.name.trim()}>
+                      {savingLossCat ? "Guardando..." : "Guardar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+            <CardContent>
+              {lossCategories.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No hay categorías definidas. Agrega una para comenzar.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {lossCategories.map((cat) => {
+                    const expanded = expandedCats.includes(cat.id)
+                    return (
+                      <div key={cat.id} className="rounded-lg border">
+                        <div className="flex items-center justify-between gap-2 p-3">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandCat(cat.id)}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          >
+                            {expanded ? (
+                              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            )}
+                            <span className="font-medium truncate">{cat.name}</span>
+                            <Badge variant="secondary" className="shrink-0">
+                              {cat.submotives.length} submotivo{cat.submotives.length === 1 ? "" : "s"}
+                            </Badge>
+                            {!cat.is_active && (
+                              <Badge variant="outline" className="shrink-0 text-muted-foreground">Inactiva</Badge>
+                            )}
+                          </button>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEditLossCat(cat)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => deleteLossCat(cat)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        {expanded && (
+                          <div className="border-t bg-muted/30 p-3 pl-9">
+                            {cat.submotives.length === 0 ? (
+                              <p className="mb-2 text-sm text-muted-foreground">Sin submotivos.</p>
+                            ) : (
+                              <div className="mb-2 space-y-1">
+                                {cat.submotives.map((sub) => (
+                                  <div key={sub.id} className="flex items-center justify-between gap-2 rounded-md bg-background px-3 py-1.5">
+                                    <span className="flex items-center gap-2 text-sm">
+                                      {sub.name}
+                                      {!sub.is_active && (
+                                        <Badge variant="outline" className="text-muted-foreground">Inactivo</Badge>
+                                      )}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditLossSub(sub)}>
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-destructive hover:text-destructive"
+                                        onClick={() => deleteLossSub(sub)}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <Button variant="outline" size="sm" onClick={() => openNewLossSub(cat.id)}>
+                              <Plus className="mr-2 h-3.5 w-3.5" />
+                              Agregar submotivo
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Submotive dialog */}
+          <Dialog open={lossSubDialogOpen} onOpenChange={setLossSubDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingLossSub ? "Editar Submotivo" : "Nuevo Submotivo"}</DialogTitle>
+                <DialogDescription>
+                  {editingLossSub ? "Modifica el submotivo" : "Agrega un submotivo a la categoría seleccionada"}
+                </DialogDescription>
+              </DialogHeader>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="loss_sub_name">Nombre *</FieldLabel>
+                  <Input
+                    id="loss_sub_name"
+                    value={lossSubForm.name}
+                    onChange={(e) => setLossSubForm({ ...lossSubForm, name: e.target.value })}
+                    placeholder="Ej: Competidor X, Módulo A, Integración B..."
+                  />
+                </Field>
+                <div className="flex items-center justify-between">
+                  <FieldLabel htmlFor="loss_sub_active">Activo</FieldLabel>
+                  <Switch
+                    id="loss_sub_active"
+                    checked={lossSubForm.is_active}
+                    onCheckedChange={(checked) => setLossSubForm({ ...lossSubForm, is_active: checked })}
+                  />
+                </div>
+              </FieldGroup>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setLossSubDialogOpen(false)}>Cancelar</Button>
+                <Button onClick={saveLossSub} disabled={savingLossSub || !lossSubForm.name.trim()}>
+                  {savingLossSub ? "Guardando..." : "Guardar"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
       </Tabs>
 

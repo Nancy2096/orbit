@@ -370,7 +370,7 @@ export default function RolesPage() {
   // Categorias de secciones basadas en el menu lateral del dashboard
   const sectionCategories: Record<string, { label: string; icon: string; modules: string[] }> = {
     administracion: {
-      label: "Administracion",
+      label: "Administración",
       icon: "building",
       modules: ["agencies", "users", "roles", "import_export"]
     },
