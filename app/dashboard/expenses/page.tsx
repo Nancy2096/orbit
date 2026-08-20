@@ -119,16 +119,24 @@ interface Agency {
   name: string
 }
 
+interface Client {
+  id: string
+  company_name: string
+  agency_id: string
+}
+
 interface Project {
   id: string
   name: string
-  agency_id: string
+  account_id: string | null
+  client_id: string | null
 }
 
 interface Account {
   id: string
   account_name: string
   agency_id: string
+  client_id: string | null
 }
 
 interface Currency {
@@ -160,6 +168,7 @@ export default function ExpensesPage() {
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [formCategories, setFormCategories] = useState<ExpenseCategory[]>([])
   const [agencies, setAgencies] = useState<Agency[]>([])
+  const [clients, setClients] = useState<Client[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
@@ -201,6 +210,7 @@ export default function ExpensesPage() {
   const [expenseForm, setExpenseForm] = useState({
     agency_id: "",
     category_id: "",
+    client_id: "",
     project_id: "",
     account_id: "",
     is_operational: false,
@@ -283,6 +293,7 @@ export default function ExpensesPage() {
   useEffect(() => {
     if (expenseForm.agency_id) {
       fetchFormCategoriesByAgency(expenseForm.agency_id)
+      fetchClientsByAgency(expenseForm.agency_id)
       fetchProjectsByAgency(expenseForm.agency_id)
       fetchAccountsByAgency(expenseForm.agency_id)
       fetchVendorsByAgency(expenseForm.agency_id)
@@ -290,6 +301,7 @@ export default function ExpensesPage() {
     } else {
       // Reset agency-dependent lists when no agency selected
       setFormCategories([])
+      setClients([])
       setProjects([])
       setAccounts([])
       setVendors([])
@@ -358,19 +370,42 @@ export default function ExpensesPage() {
     if (data) setFormCategories(data)
   }
 
+  const fetchClientsByAgency = async (agencyId: string) => {
+    const { data } = await supabase
+      .from("clients")
+      .select("id, company_name, agency_id")
+      .eq("agency_id", agencyId)
+      .order("company_name")
+    if (data) setClients(data)
+  }
+
   const fetchProjectsByAgency = async (agencyId: string) => {
+    // Los proyectos no tienen agency_id ni client_id directo: se relacionan con el
+    // cliente a través de la cuenta (projects.account_id -> accounts.client_id/agency_id).
     const { data } = await supabase
       .from("projects")
-      .select("id, name, agency_id")
-      .eq("agency_id", agencyId)
+      .select("id, name, account_id, account:accounts!inner(client_id, agency_id)")
+      .eq("account.agency_id", agencyId)
       .order("name")
-    if (data) setProjects(data)
+    if (data) {
+      setProjects(
+        data.map((p: Record<string, unknown>) => {
+          const acc = Array.isArray(p.account) ? p.account[0] : p.account
+          return {
+            id: p.id as string,
+            name: p.name as string,
+            account_id: (p.account_id as string) || null,
+            client_id: (acc?.client_id as string) || null,
+          }
+        })
+      )
+    }
   }
 
   const fetchAccountsByAgency = async (agencyId: string) => {
     const { data } = await supabase
       .from("accounts")
-      .select("id, account_name, agency_id")
+      .select("id, account_name, agency_id, client_id")
       .eq("agency_id", agencyId)
       .eq("status", "active")
       .order("account_name")
@@ -852,14 +887,32 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     if (expense.agency?.id) {
       await Promise.all([
         fetchFormCategoriesByAgency(expense.agency.id),
+        fetchClientsByAgency(expense.agency.id),
         fetchProjectsByAgency(expense.agency.id),
         fetchAccountsByAgency(expense.agency.id),
         fetchVendorsByAgency(expense.agency.id)
       ])
     }
+
+    // Derivar el cliente a partir de la cuenta o del proyecto del gasto.
+    let derivedClientId = ""
+    if (expense.account_id) {
+      const { data } = await supabase.from("accounts").select("client_id").eq("id", expense.account_id).single()
+      derivedClientId = (data?.client_id as string) || ""
+    } else if (expense.project?.id) {
+      const { data } = await supabase
+        .from("projects")
+        .select("account:accounts(client_id)")
+        .eq("id", expense.project.id)
+        .single()
+      const acc = data ? (Array.isArray(data.account) ? data.account[0] : data.account) : null
+      derivedClientId = (acc?.client_id as string) || ""
+    }
+
     setExpenseForm({
       agency_id: expense.agency?.id || "",
       category_id: expense.category?.id || "",
+      client_id: derivedClientId,
       project_id: expense.project?.id || "",
       account_id: expense.account_id || "",
       is_operational: expense.is_operational ?? false,
@@ -917,6 +970,7 @@ const resetExpenseForm = () => {
     setExpenseForm({
       agency_id: defaultAgencyId,
       category_id: "",
+      client_id: "",
       project_id: "",
       account_id: "",
       is_operational: false,
@@ -938,6 +992,7 @@ const resetExpenseForm = () => {
       receipt_url: "",
     })
     setFormCategories([])
+    setClients([])
     setProjects([])
     setAccounts([])
     setVendors([])
@@ -1350,6 +1405,7 @@ const resetExpenseForm = () => {
                     ...expenseForm, 
                     agency_id: value,
                     category_id: "",
+                    client_id: "",
                     project_id: "",
                     account_id: "",
                     vendor_id: "",
@@ -1514,7 +1570,8 @@ const resetExpenseForm = () => {
                   setExpenseForm({
                     ...expenseForm,
                     is_operational: checked,
-                    // Un gasto operativo es de la agencia: se limpia proyecto y cuenta.
+                    // Un gasto operativo es de la agencia: se limpia cliente, proyecto y cuenta.
+                    client_id: checked ? "" : expenseForm.client_id,
                     project_id: checked ? "" : expenseForm.project_id,
                     account_id: checked ? "" : expenseForm.account_id,
                   })
@@ -1527,19 +1584,22 @@ const resetExpenseForm = () => {
                 </p>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Proyecto</Label>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Cliente</Label>
               <Select
-                value={expenseForm.project_id}
-                onValueChange={(value) => setExpenseForm({ ...expenseForm, project_id: value })}
+                value={expenseForm.client_id}
+                onValueChange={(value) =>
+                  // Al cambiar de cliente se reinician la cuenta y el proyecto seleccionados.
+                  setExpenseForm({ ...expenseForm, client_id: value, project_id: "", account_id: "" })
+                }
                 disabled={!expenseForm.agency_id || expenseForm.is_operational}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.agency_id ? "Seleccionar proyecto" : "Selecciona agencia primero"} />
+                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.agency_id ? "Seleccionar cliente" : "Selecciona agencia primero"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {projects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
+                  {clients.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>{client.company_name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1548,16 +1608,45 @@ const resetExpenseForm = () => {
               <Label>Cuenta</Label>
               <Select
                 value={expenseForm.account_id}
-                onValueChange={(value) => setExpenseForm({ ...expenseForm, account_id: value })}
-                disabled={!expenseForm.agency_id || expenseForm.is_operational}
+                onValueChange={(value) => setExpenseForm({ ...expenseForm, account_id: value, project_id: "" })}
+                disabled={!expenseForm.client_id || expenseForm.is_operational}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.agency_id ? "Seleccionar cuenta" : "Selecciona agencia primero"} />
+                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.client_id ? "Seleccionar cuenta" : "Selecciona cliente primero"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>{account.account_name}</SelectItem>
-                  ))}
+                  {accounts.filter((a) => a.client_id === expenseForm.client_id).length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">Este cliente no tiene cuentas.</div>
+                  ) : (
+                    accounts
+                      .filter((a) => a.client_id === expenseForm.client_id)
+                      .map((account) => (
+                        <SelectItem key={account.id} value={account.id}>{account.account_name}</SelectItem>
+                      ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Proyecto</Label>
+              <Select
+                value={expenseForm.project_id}
+                onValueChange={(value) => setExpenseForm({ ...expenseForm, project_id: value })}
+                disabled={!expenseForm.client_id || expenseForm.is_operational}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={expenseForm.is_operational ? "No aplica (gasto operativo)" : expenseForm.client_id ? "Seleccionar proyecto" : "Selecciona cliente primero"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.filter((p) => p.client_id === expenseForm.client_id).length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">Este cliente no tiene proyectos.</div>
+                  ) : (
+                    projects
+                      .filter((p) => p.client_id === expenseForm.client_id)
+                      .map((project) => (
+                        <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
+                      ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
