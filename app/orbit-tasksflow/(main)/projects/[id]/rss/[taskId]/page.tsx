@@ -232,6 +232,12 @@ export default function RssTaskDetailPage() {
   const [isTracking, setIsTracking] = useState(false)
   const [newComment, setNewComment] = useState("")
   const [commentAttachments, setCommentAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
+  // Tipo de comentario (Propuesta / Ajuste / Entregables): solo se puede elegir uno,
+  // y al elegirlo se captura una cantidad manual.
+  const [commentType, setCommentType] = useState("")
+  const [commentQuantity, setCommentQuantity] = useState("")
+  // Aprobación Interna de la sección de comentarios: registra quién y cuándo aprobó.
+  const [internalApproval, setInternalApproval] = useState<{ by: string; at: string } | null>(null)
   const [newNote, setNewNote] = useState("")
   const [noteIsPrivate, setNoteIsPrivate] = useState(false)
   const [noteAttachments, setNoteAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
@@ -275,6 +281,8 @@ export default function RssTaskDetailPage() {
       author: { name: "Usuario Actual", initials: "UA" },
       text: newComment,
       date: new Date().toISOString(),
+      type: commentType || null,
+      quantity: commentType ? (parseInt(commentQuantity || "0", 10) || 0) : 0,
       attachments: [...commentAttachments]
     }
     setTask(prev => ({
@@ -282,6 +290,8 @@ export default function RssTaskDetailPage() {
       comments: [...prev.comments, comment]
     }))
     setNewComment("")
+    setCommentType("")
+    setCommentQuantity("")
     setCommentAttachments([])
   }
 
@@ -685,6 +695,52 @@ export default function RssTaskDetailPage() {
                     ))}
                   </div>
                 )}
+                {/* Tipo de comentario: selección única con cantidad manual al lado */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Tipo:</span>
+                  {[
+                    { key: "propuesta", label: "Propuesta" },
+                    { key: "ajuste", label: "Ajuste" },
+                    { key: "entregables", label: "Entregables" },
+                  ].map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => {
+                        // Selección única: reemplaza el tipo o lo deselecciona y limpia la cantidad.
+                        setCommentType((prev) => {
+                          const next = prev === t.key ? "" : t.key
+                          if (next !== t.key) setCommentQuantity("")
+                          return next
+                        })
+                      }}
+                      className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                        commentType === t.key
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input bg-background hover:bg-muted"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                  {commentType && (
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="comment-quantity" className="text-sm text-muted-foreground">
+                        Cantidad:
+                      </Label>
+                      <Input
+                        id="comment-quantity"
+                        type="number"
+                        min={0}
+                        placeholder="0"
+                        value={commentQuantity}
+                        onChange={(e) => setCommentQuantity(e.target.value)}
+                        className="h-8 w-20"
+                        aria-label={`Cantidad de ${commentType}`}
+                      />
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center justify-between">
                   <Button 
                     variant="ghost" 
@@ -718,6 +774,11 @@ export default function RssTaskDetailPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{comment.author.name}</span>
                         <span className="text-xs text-muted-foreground">{formatDateTime(comment.date)}</span>
+                        {comment.type && (
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {comment.type}{comment.quantity ? ` · ${comment.quantity}` : ""}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm">{comment.text}</p>
                       {comment.attachments?.length > 0 && (
@@ -739,6 +800,49 @@ export default function RssTaskDetailPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Aprobación Interna: comunica que la sección ya se revisó y está aprobada */}
+              <div className="flex justify-end pt-2">
+                <div
+                  className={`w-full max-w-sm rounded-lg border-2 p-4 transition-colors ${
+                    internalApproval
+                      ? "border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950/30"
+                      : "border-dashed border-muted-foreground/40 bg-muted/20"
+                  }`}
+                >
+                  <label className="flex items-center justify-end gap-3 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2
+                        className={`h-6 w-6 ${
+                          internalApproval ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
+                        }`}
+                      />
+                      <span
+                        className={`text-base font-semibold ${
+                          internalApproval ? "text-green-700 dark:text-green-300" : "text-foreground"
+                        }`}
+                      >
+                        Aprobación Interna
+                      </span>
+                    </div>
+                    <Checkbox
+                      className="h-6 w-6 border-2 data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600"
+                      checked={!!internalApproval}
+                      onCheckedChange={(checked) =>
+                        setInternalApproval(
+                          checked ? { by: "Usuario Actual", at: new Date().toISOString() } : null,
+                        )
+                      }
+                    />
+                  </label>
+                  {internalApproval && (
+                    <p className="mt-2 text-right text-xs text-green-700 dark:text-green-400">
+                      Aprobado por <span className="font-medium">{internalApproval.by}</span> ·{" "}
+                      {formatDateTime(internalApproval.at)}
+                    </p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
