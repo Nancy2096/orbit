@@ -754,11 +754,43 @@ export default function RssTaskDetailPage() {
                     <Paperclip className="h-4 w-4" />
                     Adjuntar
                   </Button>
-                  <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
-                    <Send className="h-4 w-4 mr-2" />
-                    Enviar
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
+                      <Send className="h-4 w-4 mr-2" />
+                      Enviar
+                    </Button>
+                    {/* Aprobación Interna: botón llamativo pegado a la derecha */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={internalApproval ? "default" : "outline"}
+                      title={
+                        internalApproval
+                          ? `Aprobado por ${internalApproval.by} · ${formatDateTime(internalApproval.at)}`
+                          : "Marcar como aprobado internamente"
+                      }
+                      onClick={() =>
+                        setInternalApproval((prev) =>
+                          prev ? null : { by: "Usuario Actual", at: new Date().toISOString() },
+                        )
+                      }
+                      className={
+                        internalApproval
+                          ? "border-2 border-green-600 bg-green-600 text-white hover:bg-green-700"
+                          : "border-2 border-green-600 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/30"
+                      }
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      Aprobación Interna
+                    </Button>
+                  </div>
                 </div>
+                {internalApproval && (
+                  <p className="text-right text-xs text-green-700 dark:text-green-400">
+                    Aprobado por <span className="font-medium">{internalApproval.by}</span> ·{" "}
+                    {formatDateTime(internalApproval.at)}
+                  </p>
+                )}
               </div>
               
               <Separator />
@@ -802,48 +834,6 @@ export default function RssTaskDetailPage() {
                 ))}
               </div>
 
-              {/* Aprobación Interna: comunica que la sección ya se revisó y está aprobada */}
-              <div className="flex justify-end pt-2">
-                <div
-                  className={`w-full max-w-sm rounded-lg border-2 p-4 transition-colors ${
-                    internalApproval
-                      ? "border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950/30"
-                      : "border-dashed border-muted-foreground/40 bg-muted/20"
-                  }`}
-                >
-                  <label className="flex items-center justify-end gap-3 cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2
-                        className={`h-6 w-6 ${
-                          internalApproval ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
-                        }`}
-                      />
-                      <span
-                        className={`text-base font-semibold ${
-                          internalApproval ? "text-green-700 dark:text-green-300" : "text-foreground"
-                        }`}
-                      >
-                        Aprobación Interna
-                      </span>
-                    </div>
-                    <Checkbox
-                      className="h-6 w-6 border-2 data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600"
-                      checked={!!internalApproval}
-                      onCheckedChange={(checked) =>
-                        setInternalApproval(
-                          checked ? { by: "Usuario Actual", at: new Date().toISOString() } : null,
-                        )
-                      }
-                    />
-                  </label>
-                  {internalApproval && (
-                    <p className="mt-2 text-right text-xs text-green-700 dark:text-green-400">
-                      Aprobado por <span className="font-medium">{internalApproval.by}</span> ·{" "}
-                      {formatDateTime(internalApproval.at)}
-                    </p>
-                  )}
-                </div>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
