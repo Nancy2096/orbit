@@ -9,6 +9,15 @@ export interface StaffMember {
   last_name: string
   position: string | null
   agency_id: string | null
+  department_id?: string | null
+  department?: { name: string } | { name: string }[] | null
+}
+
+/** Devuelve el nombre del departamento de un colaborador. */
+export function staffDepartment(s: Pick<StaffMember, "department">): string {
+  const dept = s.department
+  const d = Array.isArray(dept) ? dept[0] : dept
+  return d?.name || "Sin departamento"
 }
 
 export interface ActionItem {
