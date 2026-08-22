@@ -446,11 +446,14 @@ export function TaskDetailView({
   // Refs a los textarea para aplicar el formato de texto desde la barra.
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null)
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null)
-  // Tipo de comentario (Propuesta / Ajuste / Entregables) y tiempo estimado
-  // que se le dedicó a esa parte de la tarea (para la sección de Comentarios).
-  const [noteTypes, setNoteTypes] = useState<string[]>([])
+  // Tipo de comentario (Propuesta / Ajuste / Entregables): solo se puede elegir uno,
+  // y al elegirlo se captura una cantidad manual. Además del tiempo estimado dedicado.
+  const [noteType, setNoteType] = useState<string>("")
+  const [noteQuantity, setNoteQuantity] = useState<string>("")
   const [noteHours, setNoteHours] = useState<string>("")
   const [noteMinutes, setNoteMinutes] = useState<string>("")
+  // Aprobación Interna de la sección de comentarios: registra quién y cuándo aprobó.
+  const [internalApproval, setInternalApproval] = useState<{ by: string; at: string } | null>(null)
 
   const addDeliverable = () => {
     if (!newDeliverableUrl.trim()) return
@@ -2210,18 +2213,45 @@ export function TaskDetailView({
                           { key: "ajuste", label: "Ajuste" },
                           { key: "entregables", label: "Entregables" },
                         ].map((t) => (
-                          <label key={t.key} className="flex items-center gap-1.5 text-sm">
-                            <Checkbox
-                              checked={noteTypes.includes(t.key)}
-                              onCheckedChange={(checked) =>
-                                setNoteTypes((prev) =>
-                                  checked ? [...prev, t.key] : prev.filter((x) => x !== t.key)
-                                )
-                              }
-                            />
-                            <span>{t.label}</span>
-                          </label>
+                          <button
+                            key={t.key}
+                            type="button"
+                            onClick={() => {
+                              // Selección única: al elegir otro tipo se reemplaza; volver a
+                              // hacer clic en el mismo tipo lo deselecciona y limpia la cantidad.
+                              setNoteType((prev) => {
+                                const next = prev === t.key ? "" : t.key
+                                if (next !== t.key) setNoteQuantity("")
+                                return next
+                              })
+                            }}
+                            className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                              noteType === t.key
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-input bg-background hover:bg-muted"
+                            }`}
+                          >
+                            {t.label}
+                          </button>
                         ))}
+                        {/* Recuadro de cantidad manual, aparece al seleccionar un tipo */}
+                        {noteType && (
+                          <div className="flex items-center gap-1.5">
+                            <Label htmlFor="note-quantity" className="text-sm text-muted-foreground">
+                              Cantidad:
+                            </Label>
+                            <Input
+                              id="note-quantity"
+                              type="number"
+                              min={0}
+                              placeholder="0"
+                              value={noteQuantity}
+                              onChange={(e) => setNoteQuantity(e.target.value)}
+                              className="h-8 w-20"
+                              aria-label={`Cantidad de ${noteType}`}
+                            />
+                          </div>
+                        )}
                         <Separator orientation="vertical" className="h-4" />
                         <div className="flex items-center gap-1">
                           <Button 
@@ -2303,7 +2333,8 @@ export function TaskDetailView({
                               author: { name: "Usuario Actual", initials: "UA" },
                               text: newNote,
                               date: new Date().toISOString(),
-                              types: noteTypes,
+                              types: noteType ? [noteType] : [],
+                              quantity: noteType ? (parseInt(noteQuantity || "0", 10) || 0) : 0,
                               estimatedMinutes:
                                 (parseInt(noteHours || "0", 10) || 0) * 60 +
                                 (parseInt(noteMinutes || "0", 10) || 0),
@@ -2315,7 +2346,8 @@ export function TaskDetailView({
                               notes: [...(prev.notes || []), note],
                             }))
                             setNewNote("")
-                            setNoteTypes([])
+                            setNoteType("")
+                            setNoteQuantity("")
                             setNoteHours("")
                             setNoteMinutes("")
                             setNoteAttachments([])
@@ -2341,7 +2373,7 @@ export function TaskDetailView({
                             <span className="text-sm font-medium">{note.author.name}</span>
                             {note.types?.map((t: string) => (
                               <Badge key={t} variant="outline" className="text-xs capitalize">
-                                {t}
+                                {t}{note.quantity ? ` · ${note.quantity}` : ""}
                               </Badge>
                             ))}
                             {note.estimatedMinutes > 0 && (
@@ -2413,6 +2445,49 @@ export function TaskDetailView({
                         )}
                       </div>
                     ))}
+                  </div>
+
+                  {/* Aprobación Interna: comunica que la sección ya se revisó y está aprobada */}
+                  <div className="flex justify-end pt-2">
+                    <div
+                      className={`w-full max-w-sm rounded-lg border-2 p-4 transition-colors ${
+                        internalApproval
+                          ? "border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950/30"
+                          : "border-dashed border-muted-foreground/40 bg-muted/20"
+                      }`}
+                    >
+                      <label className="flex items-center justify-end gap-3 cursor-pointer">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2
+                            className={`h-6 w-6 ${
+                              internalApproval ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
+                            }`}
+                          />
+                          <span
+                            className={`text-base font-semibold ${
+                              internalApproval ? "text-green-700 dark:text-green-300" : "text-foreground"
+                            }`}
+                          >
+                            Aprobación Interna
+                          </span>
+                        </div>
+                        <Checkbox
+                          className="h-6 w-6 border-2 data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600"
+                          checked={!!internalApproval}
+                          onCheckedChange={(checked) =>
+                            setInternalApproval(
+                              checked ? { by: "Usuario Actual", at: new Date().toISOString() } : null,
+                            )
+                          }
+                        />
+                      </label>
+                      {internalApproval && (
+                        <p className="mt-2 text-right text-xs text-green-700 dark:text-green-400">
+                          Aprobado por <span className="font-medium">{internalApproval.by}</span> ·{" "}
+                          {formatDateTime(internalApproval.at)}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
