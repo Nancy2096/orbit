@@ -624,13 +624,6 @@ export function TaskDetailView({
   }
 
   // Acciones de la sección Descripción: guardar (registra usuario + hora), editar, copiar enlace y eliminar.
-  const saveDescriptionSnapshot = () => {
-    const now = new Date().toISOString()
-    setDescriptionSavedInfo({ by: currentUser.name, at: now })
-    setDescriptionUpdatedAt(now)
-    logActivity("Descripción guardada")
-  }
-
   const focusDescriptionEditor = () => {
     if (typeof document === "undefined") return
     const editor = document.querySelector<HTMLElement>('#descripcion [contenteditable="true"]')
@@ -648,6 +641,7 @@ export function TaskDetailView({
 
   const deleteDescription = () => {
     setTask((prev: any) => ({ ...prev, description: "" }))
+    setDescriptionDraft("")
     setDescriptionImages([])
     setDescriptionAttachments([])
     setDescriptionDriveLinks([])
@@ -702,16 +696,21 @@ export function TaskDetailView({
   const [descriptionSavedInfo, setDescriptionSavedInfo] = useState<{ by: string; at: string } | null>(null)
 
   const saveDescription = () => {
+    const now = new Date().toISOString()
     setTask(prev => ({ ...prev, description: descriptionDraft }))
-    setDescriptionUpdatedAt(new Date().toISOString())
+    setDescriptionUpdatedAt(now)
+    setDescriptionSavedInfo({ by: currentUser.name, at: now })
     setIsEditingDescription(false)
-    logActivity("Descripción actualizada")
+    logActivity("Descripción guardada")
   }
 
   const cancelEditDescription = () => {
     setDescriptionDraft(task.description)
     setIsEditingDescription(false)
   }
+
+  // Hay cambios sin guardar cuando el borrador difiere de lo persistido en la tarea.
+  const descriptionHasChanges = descriptionDraft !== task.description
 
   // --- Vincular tareas de cualquier cuenta ---
   const [showLinkTaskDialog, setShowLinkTaskDialog] = useState(false)
@@ -1817,7 +1816,7 @@ export function TaskDetailView({
                         <button
                           type="button"
                           aria-label="Más acciones de la descripción"
-                          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
                         >
                           <MoreHorizontal className="h-4 w-4" />
                         </button>
@@ -1849,11 +1848,8 @@ export function TaskDetailView({
                   onDrop={handleDescriptionDrop}
                 >
                   <RichTextEditor
-                    value={task.description || ""}
-                    onChange={(html) => {
-                      setTask((prev: any) => ({ ...prev, description: html }))
-                      setDescriptionUpdatedAt(new Date().toISOString())
-                    }}
+                    value={descriptionDraft || ""}
+                    onChange={(html) => setDescriptionDraft(html)}
                     placeholder="Escribe una descripción o arrastra una imagen aquí…"
                   />
 
@@ -2019,10 +2015,15 @@ export function TaskDetailView({
                     {isDescDragOver && (
                       <span className="text-xs text-muted-foreground">Suelta la imagen aquí</span>
                     )}
-                    <Button size="sm" className="h-8 ml-auto" onClick={saveDescriptionSnapshot}>
-                      <Save className="h-4 w-4 mr-1" />
-                      Guardar
-                    </Button>
+                    <div className="ml-auto flex items-center gap-2">
+                      {descriptionHasChanges && (
+                        <span className="text-xs text-muted-foreground">Cambios sin guardar</span>
+                      )}
+                      <Button size="sm" className="h-8" onClick={saveDescription} disabled={!descriptionHasChanges}>
+                        <Save className="h-4 w-4 mr-1" />
+                        Guardar
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Tags */}
