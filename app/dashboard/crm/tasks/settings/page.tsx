@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
   SelectContent,
@@ -51,6 +52,7 @@ import {
   UserCog,
   Clock,
   MessageSquareText,
+  Layers,
 } from "lucide-react"
 
 interface TaskTemplate {
@@ -70,6 +72,7 @@ interface TaskTemplate {
   whatsapp_message: string | null
   email_subject: string | null
   email_message: string | null
+  pipeline_stages: string[] | null
 }
 
 interface StaffMember {
@@ -121,11 +124,14 @@ const emptyForm = {
   whatsapp_message: "",
   email_subject: "",
   email_message: "",
+  pipeline_stages: [] as string[],
 }
 
 export default function TaskSettingsPage() {
   const { selectedAgencyId, selectedAgency } = useAgency()
   const [templates, setTemplates] = useState<TaskTemplate[]>([])
+  // Etapas del pipeline disponibles (nombres distintos) para elegir dónde se muestra cada tarea.
+  const [stageOptions, setStageOptions] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -160,7 +166,36 @@ export default function TaskSettingsPage() {
       setManagerStaffId("")
     }
     fetchStaff()
+    fetchStages()
   }, [selectedAgencyId])
+
+  async function fetchStages() {
+    // Las etapas son por agencia; se ofrecen las de la agencia seleccionada, o
+    // los nombres distintos de todas si aún no hay una agencia elegida.
+    let query = supabase
+      .from("crm_pipeline_stages")
+      .select("name, sort_order, agency_id")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+    if (selectedAgencyId) {
+      query = query.eq("agency_id", selectedAgencyId)
+    }
+    const { data, error } = await query
+    if (error) {
+      console.error("Error fetching pipeline stages:", error)
+      return
+    }
+    // Nombres únicos conservando el orden por sort_order.
+    const seen = new Set<string>()
+    const names: string[] = []
+    for (const row of data || []) {
+      if (row.name && !seen.has(row.name)) {
+        seen.add(row.name)
+        names.push(row.name)
+      }
+    }
+    setStageOptions(names)
+  }
 
   async function fetchTemplates() {
     setLoading(true)
@@ -249,6 +284,7 @@ export default function TaskSettingsPage() {
       whatsapp_message: tpl.whatsapp_message || "",
       email_subject: tpl.email_subject || "",
       email_message: tpl.email_message || "",
+      pipeline_stages: tpl.pipeline_stages || [],
     })
     setDialogOpen(true)
   }
@@ -274,11 +310,11 @@ export default function TaskSettingsPage() {
             requires_director: formData.requires_director,
             manager_staff_id: formData.requires_manager ? formData.manager_staff_id || null : null,
             director_staff_id: formData.requires_director ? formData.director_staff_id || null : null,
-            whatsapp_message: formData.whatsapp_message || null,
-            email_subject: formData.email_subject || null,
-            email_message: formData.email_message || null,
-            updated_at: new Date().toISOString(),
-          })
+          whatsapp_message: formData.whatsapp_message || null,
+          email_subject: formData.email_subject || null,
+          email_message: formData.email_message || null,
+          pipeline_stages: formData.pipeline_stages,
+        })
           .eq("id", editing.id)
         if (error) throw error
         toast.success("Tarea predefinida actualizada")
@@ -298,6 +334,7 @@ export default function TaskSettingsPage() {
           whatsapp_message: formData.whatsapp_message || null,
           email_subject: formData.email_subject || null,
           email_message: formData.email_message || null,
+          pipeline_stages: formData.pipeline_stages,
           order_index: maxOrder + 1,
           is_active: true,
         })
@@ -496,6 +533,18 @@ export default function TaskSettingsPage() {
                       <Clock className="h-3 w-3" />
                       {offsetLabel(tpl.offset_days, tpl.offset_minutes)}
                     </div>
+                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                      <Layers className="h-3 w-3 text-muted-foreground" />
+                      {tpl.pipeline_stages && tpl.pipeline_stages.length > 0 ? (
+                        tpl.pipeline_stages.map((stage) => (
+                          <Badge key={stage} variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                            {stage}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Todas las etapas</span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -692,6 +741,72 @@ export default function TaskSettingsPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">{offsetLabel(formData.offset_days, formData.offset_minutes)}</p>
+            </div>
+
+            {/* Etapas del pipeline donde se muestra la tarea */}
+            <div className="space-y-3 pt-2 border-t">
+              <div className="space-y-0.5">
+                <Label className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-purple-500" />
+                  Etapas del pipeline
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Selecciona en qué etapas del pipeline se mostrará esta tarea. Puedes elegir más de una.
+                  Si no seleccionas ninguna, se mostrará en todas las etapas.
+                </p>
+              </div>
+
+              {stageOptions.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">
+                  No hay etapas de pipeline configuradas
+                  {selectedAgencyId ? " para esta agencia." : "."}
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {formData.pipeline_stages.length === 0
+                        ? "Todas las etapas"
+                        : `${formData.pipeline_stages.length} seleccionada${formData.pipeline_stages.length === 1 ? "" : "s"}`}
+                    </span>
+                    {formData.pipeline_stages.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setFormData({ ...formData, pipeline_stages: [] })}
+                      >
+                        Limpiar
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-3 max-h-52 overflow-y-auto">
+                    {stageOptions.map((stage) => {
+                      const checked = formData.pipeline_stages.includes(stage)
+                      return (
+                        <label
+                          key={stage}
+                          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-muted/60 transition-colors"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(value) => {
+                              setFormData((prev) => ({
+                                ...prev,
+                                pipeline_stages: value === true
+                                  ? [...prev.pipeline_stages, stage]
+                                  : prev.pipeline_stages.filter((s) => s !== stage),
+                              }))
+                            }}
+                          />
+                          <span className="truncate">{stage}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Apoyo del gerente comercial */}
