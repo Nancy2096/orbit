@@ -20,7 +20,6 @@ import { Separator } from "@/components/ui/separator"
 import {
   LayoutDashboard,
   FolderKanban,
-  Briefcase,
   ListTodo,
   Users,
   Settings,
@@ -45,6 +44,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { projectsData } from "@/lib/orbit-tasksflow/projects-data"
+import { SidebarProjects } from "@/components/orbit-tasksflow/sidebar-projects"
 
 const mainNavItems = [
   { title: "Dashboard", href: "/orbit-tasksflow", icon: LayoutDashboard },
@@ -223,41 +223,13 @@ export function OrbitTasksFlowLayout({ children }: { children: React.ReactNode }
               </Link>
             )}
 
-            {sidebarProjects.map((project) => {
-              const href = `/orbit-tasksflow/projects/${project.id}`
-              const isActive =
-                pathname === href ||
-                pathname.startsWith(href + "/") ||
-                (isTaskDetail && activeProjectId === project.id)
-              return (
-                <Link
-                  key={project.id}
-                  href={href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                    isActive
-                      ? "bg-white text-purple-700 font-medium shadow-sm"
-                      : "text-white/70 hover:bg-white/10 hover:text-white",
-                    isCollapsed && "justify-center px-2"
-                  )}
-                  title={isCollapsed ? `${project.name} · ${project.client}` : undefined}
-                >
-                  {isCollapsed ? (
-                    <Briefcase className="h-4 w-4 flex-shrink-0" />
-                  ) : (
-                    <>
-                      <Briefcase className="h-4 w-4 flex-shrink-0" />
-                      <span className="flex flex-col min-w-0">
-                        <span className="truncate leading-tight">{project.name}</span>
-                        <span className="truncate text-[11px] opacity-70 leading-tight">
-                          {project.client}
-                        </span>
-                      </span>
-                    </>
-                  )}
-                </Link>
-              )
-            })}
+            <SidebarProjects
+              projects={sidebarProjects}
+              isCollapsed={isCollapsed}
+              pathname={pathname}
+              isTaskDetail={isTaskDetail}
+              activeProjectId={activeProjectId}
+            />
 
             <Separator className="my-3 bg-white/10" />
 
