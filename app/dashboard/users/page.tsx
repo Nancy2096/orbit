@@ -86,22 +86,42 @@ export default function UsersPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // Get user's role from staff table with role relationship
-    const { data: staffData } = await supabase
-      .from("staff")
-      .select("role_id, roles:role_id(name, level)")
-      .eq("user_id", user.id)
-      .single()
+    // El rol efectivo debe considerar tanto el rol de la tabla `users`
+    // (donde vive el super administrador) como el de la tabla `staff`.
+    // Se toma el de mayor privilegio (menor `level`) para que un super
+    // administrador vea todo, sin importar el rol asignado en `staff`.
+    const [staffRes, userRes] = await Promise.all([
+      supabase
+        .from("staff")
+        .select("role_id, roles:role_id(name, level)")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      supabase
+        .from("users")
+        .select("role_id, roles:role_id(name, level)")
+        .eq("id", user.id)
+        .maybeSingle(),
+    ])
 
-    if (staffData?.roles) {
-      const roleName = (staffData.roles as { name: string; level: number }).name
-      const roleLevel = (staffData.roles as { name: string; level: number }).level
-      setCurrentUserRole(roleName)
-      // Super Administrador (level 1) and Direccion General (level 2) can manage roles
-      // Levels 1 and 2 are the highest administrative roles
-      setCanManageRoles(roleLevel <= 2)
+    const staffRole = staffRes.data?.roles as { name: string; level: number } | null | undefined
+    const userRole = userRes.data?.roles as { name: string; level: number } | null | undefined
+
+    if (staffRole || userRole) {
+      // Nivel efectivo = el más alto (menor número) entre ambos roles.
+      const levels = [staffRole?.level, userRole?.level].filter(
+        (l): l is number => typeof l === "number",
+      )
+      const effectiveLevel = levels.length > 0 ? Math.min(...levels) : Number.POSITIVE_INFINITY
+      // El nombre visible prioriza el rol de mayor privilegio.
+      const effectiveName =
+        userRole && (!staffRole || (userRole.level ?? Infinity) <= (staffRole.level ?? Infinity))
+          ? userRole.name
+          : staffRole?.name ?? userRole?.name ?? null
+      setCurrentUserRole(effectiveName)
+      // Super Administrador (level 1) y Dirección General (level 2) pueden gestionar usuarios/roles.
+      setCanManageRoles(effectiveLevel <= 2)
     } else {
-      // If no role assigned, allow management (for initial setup)
+      // Si no hay rol asignado en ninguna tabla, permitir la gestión (configuración inicial).
       setCanManageRoles(true)
     }
   }
