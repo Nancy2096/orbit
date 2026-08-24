@@ -60,6 +60,8 @@ import {
   Check,
   History,
   Rocket,
+  SmilePlus,
+  Pin,
 } from "lucide-react"
 import {
   Popover,
@@ -409,6 +411,9 @@ export function TaskDetailView({
   const [newDescDriveLinkUrl, setNewDescDriveLinkUrl] = useState("")
   const [isDescDragOver, setIsDescDragOver] = useState(false)
   const [isNoteDragOver, setIsNoteDragOver] = useState(false)
+  // Edición inline de comentarios
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [editingNoteText, setEditingNoteText] = useState("")
   const [workedHoursInput, setWorkedHoursInput] = useState<number>(() => Math.floor(task.workedHours))
   const [workedMinutesInput, setWorkedMinutesInput] = useState<number>(() => Math.round((task.workedHours % 1) * 60))
   const [proposalsCount, setProposalsCount] = useState<number>(0)
@@ -557,6 +562,65 @@ export function TaskDetailView({
       comments: prev.comments.filter((c: any) => c.id !== commentId)
     }))
     logActivity("Comentario eliminado")
+  }
+
+  // Acciones por comentario (nota): fijar, editar, copiar enlace, eliminar y reaccionar.
+  const togglePinNote = (noteId: string) => {
+    setTask((prev: any) => ({
+      ...prev,
+      notes: (prev.notes || []).map((n: any) => n.id === noteId ? { ...n, pinned: !n.pinned } : n),
+    }))
+    logActivity("Comentario fijado/desfijado")
+  }
+
+  const deleteNote = (noteId: string) => {
+    setTask((prev: any) => ({
+      ...prev,
+      notes: (prev.notes || []).filter((n: any) => n.id !== noteId),
+    }))
+    logActivity("Comentario eliminado")
+  }
+
+  const startEditNote = (note: any) => {
+    setEditingNoteId(note.id)
+    setEditingNoteText(note.text)
+  }
+
+  const saveEditNote = () => {
+    if (!editingNoteId) return
+    const trimmed = editingNoteText.trim()
+    if (!trimmed) return
+    setTask((prev: any) => ({
+      ...prev,
+      notes: (prev.notes || []).map((n: any) => n.id === editingNoteId ? { ...n, text: trimmed, edited: true } : n),
+    }))
+    setEditingNoteId(null)
+    setEditingNoteText("")
+    logActivity("Comentario editado")
+  }
+
+  const copyNoteLink = (noteId: string) => {
+    const url = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}#comentario-${noteId}` : `#comentario-${noteId}`
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(url).catch(() => {})
+    }
+    logActivity("Enlace del comentario copiado")
+  }
+
+  const toggleNoteReaction = (noteId: string, emoji: string) => {
+    setTask((prev: any) => ({
+      ...prev,
+      notes: (prev.notes || []).map((n: any) => {
+        if (n.id !== noteId) return n
+        const reactions = { ...(n.reactions || {}) }
+        if (reactions[emoji]) {
+          delete reactions[emoji]
+        } else {
+          reactions[emoji] = (reactions[emoji] || 0) + 1
+        }
+        return { ...n, reactions }
+      }),
+    }))
   }
 
   // Lee archivos de imagen soltados y devuelve promesas con data URL para mostrarlos embebidos.
@@ -2391,10 +2455,97 @@ export function TaskDetailView({
 
                   {/* Notes List */}
                   <div className="space-y-3">
-                    {task.notes?.map((note: any) => (
-                      <div key={note.id} className="p-4 rounded-lg border bg-muted/30">
-                        <div className="flex items-center justify-between mb-2 gap-2">
+                    {[...(task.notes || [])].sort((a: any, b: any) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)).map((note: any) => (
+                      <div
+                        key={note.id}
+                        id={`comentario-${note.id}`}
+                        className={`group relative p-4 rounded-lg border bg-muted/30 ${note.pinned ? "ring-1 ring-primary/40 bg-primary/5" : ""}`}
+                      >
+                        {/* Barra de acciones (visible: carita y "...", el resto se despliega al pasar el cursor) */}
+                        <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border bg-background p-0.5 shadow-sm">
+                          {/* Reacciones rápidas: ocultas hasta hover */}
+                          <div className="hidden items-center gap-0.5 group-hover:flex">
+                            {["👍", "👀", "🙌"].map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => toggleNoteReaction(note.id, emoji)}
+                                aria-label={`Reaccionar con ${emoji}`}
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-base transition-colors hover:bg-accent"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                          {/* Agregar reacción (carita) - siempre visible en gris */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="Agregar reacción"
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                              >
+                                <SmilePlus className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56">
+                              <DropdownMenuLabel>Reaccionar</DropdownMenuLabel>
+                              <div className="grid grid-cols-4 gap-1 p-1">
+                                {reactionEmojis.map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => toggleNoteReaction(note.id, emoji)}
+                                    aria-label={`Reaccionar con ${emoji}`}
+                                    className="flex h-9 items-center justify-center rounded-md text-xl transition-colors hover:bg-accent"
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          {/* Más acciones ("...") - siempre visible en gris */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="Más acciones"
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-64">
+                              <DropdownMenuItem onSelect={() => togglePinNote(note.id)}>
+                                <Pin className="h-4 w-4 mr-2" />
+                                {note.pinned ? "Desfijar del inicio" : "Fijar al inicio"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => startEditNote(note)}>
+                                <Edit className="h-4 w-4 mr-2" />
+                                Editar comentario
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => copyNoteLink(note.id)}>
+                                <Link2 className="h-4 w-4 mr-2" />
+                                Copiar el enlace del comentario
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onSelect={() => deleteNote(note.id)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Eliminar comentario
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+
+                        <div className="flex items-center justify-between mb-2 gap-2 pr-16">
                           <div className="flex items-center gap-2 flex-wrap">
+                            {note.pinned && (
+                              <Pin className="h-3.5 w-3.5 text-primary shrink-0" aria-label="Fijado" />
+                            )}
                             <Avatar className="h-6 w-6">
                               <AvatarFallback className="text-[10px]">{note.author.initials}</AvatarFallback>
                             </Avatar>
@@ -2413,7 +2564,46 @@ export function TaskDetailView({
                           </div>
                           <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(note.date)}</span>
                         </div>
-                        <p className="text-sm">{note.text}</p>
+                        {editingNoteId === note.id ? (
+                          <div className="space-y-2">
+                            <Textarea
+                              value={editingNoteText}
+                              onChange={(e) => setEditingNoteText(e.target.value)}
+                              className="min-h-[80px]"
+                              autoFocus
+                            />
+                            <div className="flex items-center justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => { setEditingNoteId(null); setEditingNoteText("") }}>
+                                Cancelar
+                              </Button>
+                              <Button size="sm" onClick={saveEditNote} disabled={!editingNoteText.trim()}>
+                                Guardar
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm">
+                            {note.text}
+                            {note.edited && <span className="ml-1 text-xs text-muted-foreground">(editado)</span>}
+                          </p>
+                        )}
+
+                        {/* Reacciones del comentario */}
+                        {note.reactions && Object.keys(note.reactions).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {Object.entries(note.reactions).map(([emoji, count]: [string, any]) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => toggleNoteReaction(note.id, emoji)}
+                                className="flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs transition-colors hover:bg-accent"
+                              >
+                                <span>{emoji}</span>
+                                <span className="text-muted-foreground">{count}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         
                         {/* Note Attachments & Drive Links */}
                         {((note.attachments && note.attachments.length > 0) || (note.driveLinks && note.driveLinks.length > 0)) && (
