@@ -1301,23 +1301,6 @@ export function TaskDetailView({
               </div>
             </div>
 
-            {/* Notas */}
-            <button
-              type="button"
-              className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showComments && !showHistory ? "text-primary" : "text-foreground"}`}
-              onClick={() => {
-                setShowHistory(false)
-                setShowComments(v => !v)
-              }}
-            >
-              <MessageCircle className="h-4 w-4" />
-              <span className="flex-1 text-left">Notas</span>
-              {showComments && !showHistory ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
             </div>
 
             {/* Columna derecha */}
@@ -1352,6 +1335,22 @@ export function TaskDetailView({
                   <History className="h-4 w-4" />
                   <span className="flex-1 text-left">Historial</span>
                   {showHistory ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showComments && !showHistory ? "text-primary" : "text-foreground"}`}
+                  onClick={() => {
+                    setShowHistory(false)
+                    setShowComments(v => !v)
+                  }}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  <span className="flex-1 text-left">Notas</span>
+                  {showComments && !showHistory ? (
+                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  )}
                 </button>
               </div>
             </div>
