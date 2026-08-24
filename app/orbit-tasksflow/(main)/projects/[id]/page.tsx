@@ -603,6 +603,39 @@ export default function ProjectDetailPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const selectedTask = tasks.find((t: any) => t.id === selectedTaskId) || null
 
+  // Reordenamiento por arrastre de tareas (subir/bajar con el mouse desde el controlador).
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null)
+
+  const handleTaskDrop = (targetId: string) => {
+    if (!draggedTaskId || draggedTaskId === targetId) {
+      setDraggedTaskId(null)
+      setDragOverTaskId(null)
+      return
+    }
+    setTasks(prev => {
+      const list = [...prev]
+      const from = list.findIndex((t: any) => t.id === draggedTaskId)
+      const to = list.findIndex((t: any) => t.id === targetId)
+      if (from === -1 || to === -1) return prev
+      const [moved] = list.splice(from, 1)
+      list.splice(to, 0, moved)
+      return list
+    })
+    setDraggedTaskId(null)
+    setDragOverTaskId(null)
+  }
+
+  // Copia el enlace directo al detalle de la tarea al portapapeles.
+  const copyTaskLink = (taskId: string) => {
+    const url = typeof window !== "undefined"
+      ? `${window.location.origin}/orbit-tasksflow/tasks/${taskId}`
+      : `/orbit-tasksflow/tasks/${taskId}`
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(url).catch(() => {})
+    }
+  }
+
   // Renderiza una fila de tarea (reutilizada en la tabla de activas y completadas).
   const renderTaskRow = (task: any) => {
     const status = statusConfig[task.status as keyof typeof statusConfig]
@@ -611,9 +644,23 @@ export default function ProjectDetailPage() {
     return (
       <TableRow
         key={task.id}
+        draggable
+        onDragStart={() => setDraggedTaskId(task.id)}
+        onDragOver={(e) => { e.preventDefault(); setDragOverTaskId(task.id) }}
+        onDragEnd={() => { setDraggedTaskId(null); setDragOverTaskId(null) }}
+        onDrop={(e) => { e.preventDefault(); handleTaskDrop(task.id) }}
         onClick={() => setSelectedTaskId(task.id)}
-        className={`cursor-pointer hover:bg-muted/50 transition-colors ${selectedTaskId === task.id ? "bg-primary/5 ring-1 ring-inset ring-primary/30" : ""} ${task.status === "vencido" ? "bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50" : ""}`}
+        className={`cursor-pointer hover:bg-muted/50 transition-colors ${selectedTaskId === task.id ? "bg-primary/5 ring-1 ring-inset ring-primary/30" : ""} ${task.status === "vencido" ? "bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50" : ""} ${draggedTaskId === task.id ? "opacity-50" : ""} ${dragOverTaskId === task.id && draggedTaskId !== task.id ? "border-t-2 border-t-primary" : ""}`}
       >
+        <TableCell onClick={(e) => e.stopPropagation()} className="w-8">
+          <span
+            className="flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing"
+            title="Arrastra para reordenar"
+            aria-label="Arrastra para reordenar la tarea"
+          >
+            <GripVertical className="h-4 w-4" />
+          </span>
+        </TableCell>
         <TableCell onClick={(e) => e.stopPropagation()}>
           <Checkbox
             checked={isCompleted}
@@ -684,12 +731,9 @@ export default function ProjectDetailPage() {
                   Ver Detalle
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => {
-                setEditingTask(task)
-                setShowEditTaskDialog(true)
-              }}>
-                <Edit className="h-4 w-4 mr-2" />
-                Editar
+              <DropdownMenuItem onSelect={() => copyTaskLink(task.id)}>
+                <Link2 className="h-4 w-4 mr-2" />
+                Copiar enlace de tarea
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-xs text-muted-foreground">Cambiar estado</DropdownMenuLabel>
@@ -1281,6 +1325,7 @@ const toggleTaskComplete = (taskId: string) => {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-8"></TableHead>
+                        <TableHead className="w-8"></TableHead>
                         <TableHead>Tarea</TableHead>
                         <TableHead>Área</TableHead>
                         <TableHead>Estado</TableHead>
@@ -1332,6 +1377,7 @@ const toggleTaskComplete = (taskId: string) => {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-8"></TableHead>
                         <TableHead className="w-8"></TableHead>
                         <TableHead>Tarea</TableHead>
                         <TableHead>Área</TableHead>
