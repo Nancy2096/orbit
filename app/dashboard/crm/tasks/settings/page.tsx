@@ -48,12 +48,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
@@ -160,6 +155,12 @@ export default function TaskSettingsPage() {
   const [editing, setEditing] = useState<TaskTemplate | null>(null)
   const [toDelete, setToDelete] = useState<TaskTemplate | null>(null)
   const [formData, setFormData] = useState(emptyForm)
+
+  // Diálogo dedicado para cambiar/agregar etapas de una tarea desde el menú de acciones.
+  const [stagesDialogOpen, setStagesDialogOpen] = useState(false)
+  const [stagesTarget, setStagesTarget] = useState<TaskTemplate | null>(null)
+  const [stagesDraft, setStagesDraft] = useState<string[]>([])
+  const [savingStages, setSavingStages] = useState(false)
 
   // Gerente por agencia
   const [staff, setStaff] = useState<StaffMember[]>([])
@@ -449,21 +450,38 @@ export default function TaskSettingsPage() {
     }
   }
 
-  // Cambia/agrega etapas del pipeline directamente desde el menú de acciones.
-  async function setTemplateStages(tpl: TaskTemplate, stages: string[]) {
+  // Abre el diálogo dedicado para cambiar/agregar etapas de una tarea.
+  function openStagesDialog(tpl: TaskTemplate) {
+    setStagesTarget(tpl)
+    setStagesDraft(tpl.pipeline_stages || [])
+    setStagesDialogOpen(true)
+  }
+
+  function toggleStageDraft(stage: string, checked: boolean) {
+    setStagesDraft((prev) => (checked ? [...prev, stage] : prev.filter((s) => s !== stage)))
+  }
+
+  // Guarda las etapas seleccionadas en el diálogo dedicado.
+  async function saveTemplateStages() {
+    if (!stagesTarget) return
+    setSavingStages(true)
     try {
       const { error } = await supabase
         .from("crm_task_templates")
-        .update({ pipeline_stages: stages, updated_at: new Date().toISOString() })
-        .eq("id", tpl.id)
+        .update({ pipeline_stages: stagesDraft, updated_at: new Date().toISOString() })
+        .eq("id", stagesTarget.id)
       if (error) throw error
-      // Actualización optimista para que el menú refleje el cambio de inmediato.
       setTemplates((prev) =>
-        prev.map((t) => (t.id === tpl.id ? { ...t, pipeline_stages: stages } : t)),
+        prev.map((t) => (t.id === stagesTarget.id ? { ...t, pipeline_stages: stagesDraft } : t)),
       )
+      toast.success("Etapas actualizadas")
+      setStagesDialogOpen(false)
+      setStagesTarget(null)
     } catch (error) {
       console.error("Error updating template stages:", error)
       toast.error("Error al actualizar las etapas")
+    } finally {
+      setSavingStages(false)
     }
   }
 
@@ -672,46 +690,10 @@ export default function TaskSettingsPage() {
                               <Copy className="h-4 w-4 mr-2" />
                               Duplicar tarea
                             </DropdownMenuItem>
-                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger>
-                                <Layers className="h-4 w-4 mr-2" />
-                                Cambiar etapa
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
-                                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                                  {stageOptions.length === 0
-                                    ? "Sin etapas configuradas"
-                                    : "Selecciona una o más etapas"}
-                                </DropdownMenuLabel>
-                                {stageOptions.map((stage) => {
-                                  const current = tpl.pipeline_stages || []
-                                  const checked = current.includes(stage)
-                                  return (
-                                    <DropdownMenuCheckboxItem
-                                      key={stage}
-                                      checked={checked}
-                                      onSelect={(e) => e.preventDefault()}
-                                      onCheckedChange={(value) => {
-                                        const next = value
-                                          ? [...current, stage]
-                                          : current.filter((s) => s !== stage)
-                                        setTemplateStages(tpl, next)
-                                      }}
-                                    >
-                                      {stage}
-                                    </DropdownMenuCheckboxItem>
-                                  )
-                                })}
-                                {(tpl.pipeline_stages?.length ?? 0) > 0 && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => setTemplateStages(tpl, [])}>
-                                      Mostrar en todas las etapas
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuSub>
+                            <DropdownMenuItem onSelect={() => openStagesDialog(tpl)}>
+                              <Layers className="h-4 w-4 mr-2" />
+                              Cambiar etapa
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
@@ -1096,6 +1078,74 @@ export default function TaskSettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Diálogo para cambiar/agregar etapas de una tarea */}
+      <Dialog open={stagesDialogOpen} onOpenChange={setStagesDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-purple-500" />
+              Cambiar etapa
+            </DialogTitle>
+            <DialogDescription>
+              Selecciona en qué etapas del pipeline se mostrará
+              {stagesTarget ? ` "${stagesTarget.title}"` : " esta tarea"}. Puedes elegir más de una.
+              Si no seleccionas ninguna, se mostrará en todas las etapas.
+            </DialogDescription>
+          </DialogHeader>
+
+          {stageOptions.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic py-4">
+              No hay etapas de pipeline configuradas
+              {selectedAgencyId ? " para esta agencia." : "."}
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  {stagesDraft.length === 0
+                    ? "Todas las etapas"
+                    : `${stagesDraft.length} seleccionada${stagesDraft.length === 1 ? "" : "s"}`}
+                </span>
+                {stagesDraft.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setStagesDraft([])}
+                  >
+                    Limpiar
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-1 rounded-lg border p-2 max-h-64 overflow-y-auto">
+                {stageOptions.map((stage) => (
+                  <label
+                    key={stage}
+                    className="flex items-center gap-2 rounded-md px-2 py-2 text-sm cursor-pointer hover:bg-muted/60 transition-colors"
+                  >
+                    <Checkbox
+                      checked={stagesDraft.includes(stage)}
+                      onCheckedChange={(value) => toggleStageDraft(stage, value === true)}
+                    />
+                    <span className="truncate">{stage}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStagesDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={saveTemplateStages} disabled={savingStages || stageOptions.length === 0}>
+              {savingStages ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
