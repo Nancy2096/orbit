@@ -623,6 +623,39 @@ export function TaskDetailView({
     }))
   }
 
+  // Acciones de la sección Descripción: guardar (registra usuario + hora), editar, copiar enlace y eliminar.
+  const saveDescriptionSnapshot = () => {
+    const now = new Date().toISOString()
+    setDescriptionSavedInfo({ by: currentUser.name, at: now })
+    setDescriptionUpdatedAt(now)
+    logActivity("Descripción guardada")
+  }
+
+  const focusDescriptionEditor = () => {
+    if (typeof document === "undefined") return
+    const editor = document.querySelector<HTMLElement>('#descripcion [contenteditable="true"]')
+    document.getElementById("descripcion")?.scrollIntoView({ behavior: "smooth", block: "center" })
+    editor?.focus()
+  }
+
+  const copyDescriptionLink = () => {
+    const url = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}#descripcion` : "#descripcion"
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(url).catch(() => {})
+    }
+    logActivity("Enlace de la descripción copiado")
+  }
+
+  const deleteDescription = () => {
+    setTask((prev: any) => ({ ...prev, description: "" }))
+    setDescriptionImages([])
+    setDescriptionAttachments([])
+    setDescriptionDriveLinks([])
+    setDescriptionSavedInfo(null)
+    setDescriptionUpdatedAt(null)
+    logActivity("Descripción eliminada")
+  }
+
   // Lee archivos de imagen soltados y devuelve promesas con data URL para mostrarlos embebidos.
   const readImageFiles = (files: FileList | File[]): Promise<{ id: string; name: string; url: string }[]> => {
     const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"))
@@ -665,6 +698,8 @@ export function TaskDetailView({
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState(task.description)
   const [descriptionUpdatedAt, setDescriptionUpdatedAt] = useState<string | null>(null)
+  // Registro del último guardado de la descripción (usuario + hora)
+  const [descriptionSavedInfo, setDescriptionSavedInfo] = useState<{ by: string; at: string } | null>(null)
 
   const saveDescription = () => {
     setTask(prev => ({ ...prev, description: descriptionDraft }))
@@ -1767,15 +1802,46 @@ export function TaskDetailView({
             </div>
 
             {/* Description */}
-              <Card className="border-b-2 border-b-purple-500">
-                <CardHeader className="flex flex-row items-center justify-between">
+              <Card id="descripcion" className="border-b-2 border-b-purple-500">
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
                   <CardTitle className="text-lg">Descripción</CardTitle>
-                  {descriptionUpdatedAt && (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Última edición: {formatDateTime(descriptionUpdatedAt)}
-                    </p>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {descriptionSavedInfo && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 whitespace-nowrap">
+                        <Clock className="h-3 w-3" />
+                        Guardado por {descriptionSavedInfo.by} · {formatDateTime(descriptionSavedInfo.at)}
+                      </p>
+                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Más acciones de la descripción"
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-64">
+                        <DropdownMenuItem onSelect={() => focusDescriptionEditor()}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Editar descripción
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => copyDescriptionLink()}>
+                          <Link2 className="h-4 w-4 mr-2" />
+                          Copiar el enlace de la descripción
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onSelect={() => deleteDescription()}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Eliminar descripción
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </CardHeader>
                 <CardContent
                   onDragOver={(e) => { e.preventDefault(); setIsDescDragOver(true) }}
@@ -1951,8 +2017,12 @@ export function TaskDetailView({
                       Drive
                     </Button>
                     {isDescDragOver && (
-                      <span className="ml-auto text-xs text-muted-foreground">Suelta la imagen aquí</span>
+                      <span className="text-xs text-muted-foreground">Suelta la imagen aquí</span>
                     )}
+                    <Button size="sm" className="h-8 ml-auto" onClick={saveDescriptionSnapshot}>
+                      <Save className="h-4 w-4 mr-1" />
+                      Guardar
+                    </Button>
                   </div>
 
                   {/* Tags */}
