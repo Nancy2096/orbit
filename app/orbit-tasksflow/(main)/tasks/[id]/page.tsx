@@ -1235,17 +1235,8 @@ export function TaskDetailView({
                 </span>
               </div>
 
-              {/* Acciones: Subtareas, Tareas Relacionadas e Historial */}
+              {/* Acciones: Tareas Relacionadas e Historial */}
               <div className="flex flex-col items-stretch gap-3">
-                <button
-                  type="button"
-                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showSubtasks ? "text-primary" : "text-foreground"}`}
-                  onClick={() => setShowSubtasks(v => !v)}
-                >
-                  <ListChecks className="h-4 w-4" />
-                  <span className="flex-1 text-left">Subtareas</span>
-                  {showSubtasks ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                </button>
                 <button
                   type="button"
                   className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showRelated ? "text-primary" : "text-foreground"}`}
@@ -2008,6 +1999,15 @@ export function TaskDetailView({
                     <Button
                       variant="ghost"
                       size="sm"
+                      className={`h-8 px-2 ${showSubtasks ? "text-primary" : ""}`}
+                      onClick={() => setShowSubtasks(v => !v)}
+                    >
+                      <ListChecks className="h-4 w-4 mr-1" />
+                      Subtareas
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="h-8 px-2"
                       onClick={() => {
                         const input = document.createElement("input")
@@ -2043,9 +2043,9 @@ export function TaskDetailView({
                       </svg>
                       Drive
                     </Button>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {isDescDragOver ? "Suelta la imagen aquí" : "Arrastra una imagen para insertarla"}
-                    </span>
+                    {isDescDragOver && (
+                      <span className="ml-auto text-xs text-muted-foreground">Suelta la imagen aquí</span>
+                    )}
                   </div>
 
                   {/* Tags */}
