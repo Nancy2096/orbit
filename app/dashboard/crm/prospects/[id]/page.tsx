@@ -277,6 +277,8 @@ export default function ProspectDetailPage() {
 
   // Metadatos del prospecto necesarios para la conversión a cliente
   const [prospectAgencyId, setProspectAgencyId] = useState<string | null>(null)
+  // Fecha de registro del prospecto, base para calcular vencimientos de tareas automáticas.
+  const [prospectCreatedAt, setProspectCreatedAt] = useState<string | null>(null)
   const [convertedClientId, setConvertedClientId] = useState<string | null>(null)
   const [convertModalOpen, setConvertModalOpen] = useState(false)
   const [converting, setConverting] = useState(false)
@@ -456,6 +458,7 @@ state_province: prospectData.state_province || "",
 
     const agencyId = prospectData.agency_id || selectedAgencyId
     setProspectAgencyId(agencyId)
+    setProspectCreatedAt(prospectData.created_at || null)
 
     // Catálogo de razones de no compra de la agencia (categorías activas + submotivos activos).
     const [lossCatsRes, lossSubsRes] = await Promise.all([
@@ -485,6 +488,7 @@ state_province: prospectData.state_province || "",
         agencyId,
         assignedTo: prospectData.assigned_to || null,
         registeredAt: prospectData.created_at || new Date().toISOString(),
+        stageId: prospectData.stage_id || null,
         createdBy: authData?.user?.id ?? null,
       })
       await syncAutomaticTasksWithStage(supabase, prospectId, prospectData.stage_id || null)
@@ -670,8 +674,21 @@ state_province: prospectData.state_province || "",
       return
     }
 
-    // Pausar o reanudar las tareas automáticas según la etapa del prospecto:
-    // activas en Prospecto e Intento de Contacto (etapas 1 y 2), pausadas al salir de la etapa 2.
+    // Materializar las tareas predefinidas que apliquen a la nueva etapa del
+    // prospecto (idempotente) y luego pausar/reanudar según la etapa configurada.
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      await applyTaskTemplatesToProspect(supabase, {
+        prospectId,
+        agencyId: prospectAgencyId || selectedAgencyId,
+        assignedTo: newAssignedTo,
+        registeredAt: prospectCreatedAt || new Date().toISOString(),
+        stageId: formData.stage_id || null,
+        createdBy: authData?.user?.id ?? null,
+      })
+    } catch (e) {
+      console.error("[v0] Error al aplicar plantillas de tareas por etapa:", e)
+    }
     await syncAutomaticTasksWithStage(supabase, prospectId, formData.stage_id || null)
 
     // Disparador automático: si la acción futura es "Programar recontacto", crear

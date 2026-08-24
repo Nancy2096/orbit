@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
+import { RichTextEditor } from "@/app/orbit-tasksflow/_components/rich-text-editor"
 import {
   ArrowLeft,
   Clock,
@@ -232,6 +233,12 @@ export default function RssTaskDetailPage() {
   const [isTracking, setIsTracking] = useState(false)
   const [newComment, setNewComment] = useState("")
   const [commentAttachments, setCommentAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
+  // Tipo de comentario (Propuesta / Ajuste / Entregables): solo se puede elegir uno,
+  // y al elegirlo se captura una cantidad manual.
+  const [commentType, setCommentType] = useState("")
+  const [commentQuantity, setCommentQuantity] = useState("")
+  // Aprobación Interna de la sección de comentarios: registra quién y cuándo aprobó.
+  const [internalApproval, setInternalApproval] = useState<{ by: string; at: string } | null>(null)
   const [newNote, setNewNote] = useState("")
   const [noteIsPrivate, setNoteIsPrivate] = useState(false)
   const [noteAttachments, setNoteAttachments] = useState<{id: string; name: string; type: string; size: string}[]>([])
@@ -275,6 +282,8 @@ export default function RssTaskDetailPage() {
       author: { name: "Usuario Actual", initials: "UA" },
       text: newComment,
       date: new Date().toISOString(),
+      type: commentType || null,
+      quantity: commentType ? (parseInt(commentQuantity || "0", 10) || 0) : 0,
       attachments: [...commentAttachments]
     }
     setTask(prev => ({
@@ -282,6 +291,8 @@ export default function RssTaskDetailPage() {
       comments: [...prev.comments, comment]
     }))
     setNewComment("")
+    setCommentType("")
+    setCommentQuantity("")
     setCommentAttachments([])
   }
 
@@ -484,7 +495,11 @@ export default function RssTaskDetailPage() {
                   <CardTitle className="text-lg">Descripción</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-muted-foreground">{task.description}</p>
+                  <RichTextEditor
+                    value={task.description || ""}
+                    onChange={(html) => setTask((prev: any) => ({ ...prev, description: html }))}
+                    placeholder="Escribe una descripción o arrastra una imagen aquí…"
+                  />
                   {task.hashtags && task.hashtags.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
                       <span className="text-sm text-muted-foreground mr-2">Hashtags:</span>
@@ -685,6 +700,52 @@ export default function RssTaskDetailPage() {
                     ))}
                   </div>
                 )}
+                {/* Tipo de comentario: selección única con cantidad manual al lado */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Tipo:</span>
+                  {[
+                    { key: "propuesta", label: "Propuesta" },
+                    { key: "ajuste", label: "Ajuste" },
+                    { key: "entregables", label: "Entregables" },
+                  ].map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => {
+                        // Selección única: reemplaza el tipo o lo deselecciona y limpia la cantidad.
+                        setCommentType((prev) => {
+                          const next = prev === t.key ? "" : t.key
+                          if (next !== t.key) setCommentQuantity("")
+                          return next
+                        })
+                      }}
+                      className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                        commentType === t.key
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input bg-background hover:bg-muted"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                  {commentType && (
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="comment-quantity" className="text-sm text-muted-foreground">
+                        Cantidad:
+                      </Label>
+                      <Input
+                        id="comment-quantity"
+                        type="number"
+                        min={0}
+                        placeholder="0"
+                        value={commentQuantity}
+                        onChange={(e) => setCommentQuantity(e.target.value)}
+                        className="h-8 w-20"
+                        aria-label={`Cantidad de ${commentType}`}
+                      />
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center justify-between">
                   <Button 
                     variant="ghost" 
@@ -698,11 +759,43 @@ export default function RssTaskDetailPage() {
                     <Paperclip className="h-4 w-4" />
                     Adjuntar
                   </Button>
-                  <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
-                    <Send className="h-4 w-4 mr-2" />
-                    Enviar
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" disabled={!newComment.trim()} onClick={addComment}>
+                      <Send className="h-4 w-4 mr-2" />
+                      Enviar
+                    </Button>
+                    {/* Aprobación Interna: botón llamativo pegado a la derecha */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={internalApproval ? "default" : "outline"}
+                      title={
+                        internalApproval
+                          ? `Aprobado por ${internalApproval.by} · ${formatDateTime(internalApproval.at)}`
+                          : "Marcar como aprobado internamente"
+                      }
+                      onClick={() =>
+                        setInternalApproval((prev) =>
+                          prev ? null : { by: "Usuario Actual", at: new Date().toISOString() },
+                        )
+                      }
+                      className={
+                        internalApproval
+                          ? "border-2 border-green-600 bg-green-600 text-white hover:bg-green-700"
+                          : "border-2 border-green-600 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/30"
+                      }
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      Aprobación Interna
+                    </Button>
+                  </div>
                 </div>
+                {internalApproval && (
+                  <p className="text-right text-xs text-green-700 dark:text-green-400">
+                    Aprobado por <span className="font-medium">{internalApproval.by}</span> ·{" "}
+                    {formatDateTime(internalApproval.at)}
+                  </p>
+                )}
               </div>
               
               <Separator />
@@ -718,6 +811,11 @@ export default function RssTaskDetailPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{comment.author.name}</span>
                         <span className="text-xs text-muted-foreground">{formatDateTime(comment.date)}</span>
+                        {comment.type && (
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {comment.type}{comment.quantity ? ` · ${comment.quantity}` : ""}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm">{comment.text}</p>
                       {comment.attachments?.length > 0 && (
@@ -740,6 +838,7 @@ export default function RssTaskDetailPage() {
                   </div>
                 ))}
               </div>
+
             </CardContent>
           </Card>
         </TabsContent>
@@ -1148,10 +1247,10 @@ export default function RssTaskDetailPage() {
               </div>
               <div className="col-span-2 space-y-2">
                 <Label>Descripción</Label>
-                <Textarea 
+                <RichTextEditor
                   value={editedTask.description || ""}
-                  onChange={(e) => setEditedTask({...editedTask, description: e.target.value})}
-                  className="min-h-[80px]"
+                  onChange={(html) => setEditedTask({ ...editedTask, description: html })}
+                  placeholder="Escribe una descripción o arrastra una imagen aquí…"
                 />
               </div>
             </div>

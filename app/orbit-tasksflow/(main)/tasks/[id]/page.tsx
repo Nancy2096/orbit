@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/app/orbit-tasksflow/_components/rich-text-editor"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -59,6 +60,8 @@ import {
   Check,
   History,
   Rocket,
+  SmilePlus,
+  Pin,
 } from "lucide-react"
 import {
   Popover,
@@ -402,11 +405,15 @@ export function TaskDetailView({
   // Adjuntos, enlaces de Drive e imágenes embebidas de la Descripción
   const [descriptionDriveLinks, setDescriptionDriveLinks] = useState<{ id: string; name: string; url: string }[]>([])
   const [descriptionImages, setDescriptionImages] = useState<{ id: string; name: string; url: string }[]>([])
+  const [descriptionAttachments, setDescriptionAttachments] = useState<{ id: string; name: string; type: string; size: string }[]>([])
   const [showAddDescDriveLink, setShowAddDescDriveLink] = useState(false)
   const [newDescDriveLinkName, setNewDescDriveLinkName] = useState("")
   const [newDescDriveLinkUrl, setNewDescDriveLinkUrl] = useState("")
   const [isDescDragOver, setIsDescDragOver] = useState(false)
   const [isNoteDragOver, setIsNoteDragOver] = useState(false)
+  // Edición inline de comentarios
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [editingNoteText, setEditingNoteText] = useState("")
   const [workedHoursInput, setWorkedHoursInput] = useState<number>(() => Math.floor(task.workedHours))
   const [workedMinutesInput, setWorkedMinutesInput] = useState<number>(() => Math.round((task.workedHours % 1) * 60))
   const [proposalsCount, setProposalsCount] = useState<number>(0)
@@ -446,11 +453,14 @@ export function TaskDetailView({
   // Refs a los textarea para aplicar el formato de texto desde la barra.
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null)
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null)
-  // Tipo de comentario (Propuesta / Ajuste / Entregables) y tiempo estimado
-  // que se le dedicó a esa parte de la tarea (para la sección de Comentarios).
-  const [noteTypes, setNoteTypes] = useState<string[]>([])
+  // Tipo de comentario (Propuesta / Ajuste / Entregables): solo se puede elegir uno,
+  // y al elegirlo se captura una cantidad manual. Además del tiempo estimado dedicado.
+  const [noteType, setNoteType] = useState<string>("")
+  const [noteQuantity, setNoteQuantity] = useState<string>("")
   const [noteHours, setNoteHours] = useState<string>("")
   const [noteMinutes, setNoteMinutes] = useState<string>("")
+  // Aprobación Interna de la sección de comentarios: registra quién y cuándo aprobó.
+  const [internalApproval, setInternalApproval] = useState<{ by: string; at: string } | null>(null)
 
   const addDeliverable = () => {
     if (!newDeliverableUrl.trim()) return
@@ -554,6 +564,92 @@ export function TaskDetailView({
     logActivity("Comentario eliminado")
   }
 
+  // Acciones por comentario (nota): fijar, editar, copiar enlace, eliminar y reaccionar.
+  const togglePinNote = (noteId: string) => {
+    setTask((prev: any) => ({
+      ...prev,
+      notes: (prev.notes || []).map((n: any) => n.id === noteId ? { ...n, pinned: !n.pinned } : n),
+    }))
+    logActivity("Comentario fijado/desfijado")
+  }
+
+  const deleteNote = (noteId: string) => {
+    setTask((prev: any) => ({
+      ...prev,
+      notes: (prev.notes || []).filter((n: any) => n.id !== noteId),
+    }))
+    logActivity("Comentario eliminado")
+  }
+
+  const startEditNote = (note: any) => {
+    setEditingNoteId(note.id)
+    setEditingNoteText(note.text)
+  }
+
+  const saveEditNote = () => {
+    if (!editingNoteId) return
+    const trimmed = editingNoteText.trim()
+    if (!trimmed) return
+    setTask((prev: any) => ({
+      ...prev,
+      notes: (prev.notes || []).map((n: any) => n.id === editingNoteId ? { ...n, text: trimmed, edited: true } : n),
+    }))
+    setEditingNoteId(null)
+    setEditingNoteText("")
+    logActivity("Comentario editado")
+  }
+
+  const copyNoteLink = (noteId: string) => {
+    const url = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}#comentario-${noteId}` : `#comentario-${noteId}`
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(url).catch(() => {})
+    }
+    logActivity("Enlace del comentario copiado")
+  }
+
+  const toggleNoteReaction = (noteId: string, emoji: string) => {
+    setTask((prev: any) => ({
+      ...prev,
+      notes: (prev.notes || []).map((n: any) => {
+        if (n.id !== noteId) return n
+        const reactions = { ...(n.reactions || {}) }
+        if (reactions[emoji]) {
+          delete reactions[emoji]
+        } else {
+          reactions[emoji] = (reactions[emoji] || 0) + 1
+        }
+        return { ...n, reactions }
+      }),
+    }))
+  }
+
+  // Acciones de la sección Descripción: guardar (registra usuario + hora), editar, copiar enlace y eliminar.
+  const focusDescriptionEditor = () => {
+    if (typeof document === "undefined") return
+    const editor = document.querySelector<HTMLElement>('#descripcion [contenteditable="true"]')
+    document.getElementById("descripcion")?.scrollIntoView({ behavior: "smooth", block: "center" })
+    editor?.focus()
+  }
+
+  const copyDescriptionLink = () => {
+    const url = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}#descripcion` : "#descripcion"
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(url).catch(() => {})
+    }
+    logActivity("Enlace de la descripción copiado")
+  }
+
+  const deleteDescription = () => {
+    setTask((prev: any) => ({ ...prev, description: "" }))
+    setDescriptionDraft("")
+    setDescriptionImages([])
+    setDescriptionAttachments([])
+    setDescriptionDriveLinks([])
+    setDescriptionSavedInfo(null)
+    setDescriptionUpdatedAt(null)
+    logActivity("Descripción eliminada")
+  }
+
   // Lee archivos de imagen soltados y devuelve promesas con data URL para mostrarlos embebidos.
   const readImageFiles = (files: FileList | File[]): Promise<{ id: string; name: string; url: string }[]> => {
     const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"))
@@ -596,18 +692,25 @@ export function TaskDetailView({
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState(task.description)
   const [descriptionUpdatedAt, setDescriptionUpdatedAt] = useState<string | null>(null)
+  // Registro del último guardado de la descripción (usuario + hora)
+  const [descriptionSavedInfo, setDescriptionSavedInfo] = useState<{ by: string; at: string } | null>(null)
 
   const saveDescription = () => {
+    const now = new Date().toISOString()
     setTask(prev => ({ ...prev, description: descriptionDraft }))
-    setDescriptionUpdatedAt(new Date().toISOString())
+    setDescriptionUpdatedAt(now)
+    setDescriptionSavedInfo({ by: currentUser.name, at: now })
     setIsEditingDescription(false)
-    logActivity("Descripción actualizada")
+    logActivity("Descripción guardada")
   }
 
   const cancelEditDescription = () => {
     setDescriptionDraft(task.description)
     setIsEditingDescription(false)
   }
+
+  // Hay cambios sin guardar cuando el borrador difiere de lo persistido en la tarea.
+  const descriptionHasChanges = descriptionDraft !== task.description
 
   // --- Vincular tareas de cualquier cuenta ---
   const [showLinkTaskDialog, setShowLinkTaskDialog] = useState(false)
@@ -1198,23 +1301,6 @@ export function TaskDetailView({
               </div>
             </div>
 
-            {/* Notas */}
-            <button
-              type="button"
-              className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showComments && !showHistory ? "text-primary" : "text-foreground"}`}
-              onClick={() => {
-                setShowHistory(false)
-                setShowComments(v => !v)
-              }}
-            >
-              <MessageCircle className="h-4 w-4" />
-              <span className="flex-1 text-left">Notas</span>
-              {showComments && !showHistory ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
             </div>
 
             {/* Columna derecha */}
@@ -1230,17 +1316,8 @@ export function TaskDetailView({
                 </span>
               </div>
 
-              {/* Acciones: Subtareas, Tareas Relacionadas e Historial */}
+              {/* Acciones: Tareas Relacionadas e Historial */}
               <div className="flex flex-col items-stretch gap-3">
-                <button
-                  type="button"
-                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showSubtasks ? "text-primary" : "text-foreground"}`}
-                  onClick={() => setShowSubtasks(v => !v)}
-                >
-                  <ListChecks className="h-4 w-4" />
-                  <span className="flex-1 text-left">Subtareas</span>
-                  {showSubtasks ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                </button>
                 <button
                   type="button"
                   className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showRelated ? "text-primary" : "text-foreground"}`}
@@ -1258,6 +1335,22 @@ export function TaskDetailView({
                   <History className="h-4 w-4" />
                   <span className="flex-1 text-left">Historial</span>
                   {showHistory ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-1.5 rounded-md -mx-1 px-1 py-0.5 text-sm font-bold transition-colors hover:bg-muted focus:outline-none ${showComments && !showHistory ? "text-primary" : "text-foreground"}`}
+                  onClick={() => {
+                    setShowHistory(false)
+                    setShowComments(v => !v)
+                  }}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  <span className="flex-1 text-left">Notas</span>
+                  {showComments && !showHistory ? (
+                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  )}
                 </button>
               </div>
             </div>
@@ -1502,163 +1595,6 @@ export function TaskDetailView({
         </Card>
       )}
 
-      {/* Panel desplegable: Subtareas (debajo del cuadro morado) */}
-      {showSubtasks && (
-        <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <ListChecks className="h-5 w-5" />
-                Subtareas
-              </CardTitle>
-              <CardDescription>
-                {task.subtasks.filter(s => s.completed).length} de {task.subtasks.length} completadas
-              </CardDescription>
-            </div>
-            <Button size="sm" onClick={() => setShowAddSubtask(prev => !prev)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nueva Subtarea
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {showAddSubtask && (
-              <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30">
-                <Input
-                  autoFocus
-                  placeholder="Nombre de la subtarea..."
-                  value={newSubtaskName}
-                  onChange={(e) => setNewSubtaskName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                      e.preventDefault()
-                      addSubtask()
-                    } else if (e.key === "Escape") {
-                      setShowAddSubtask(false)
-                      setNewSubtaskName("")
-                    }
-                  }}
-                />
-                <Button size="sm" onClick={addSubtask} disabled={!newSubtaskName.trim()}>
-                  Agregar
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => { setShowAddSubtask(false); setNewSubtaskName("") }}>
-                  Cancelar
-                </Button>
-              </div>
-            )}
-
-            {task.subtasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No hay subtareas todavía. Agrega la primera.
-              </p>
-            ) : (
-              <ol className="space-y-2">
-                {task.subtasks.map((subtask, index) => (
-                  <li
-                    key={subtask.id}
-                    className={`group flex items-center gap-3 p-3 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
-                  >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-                      {index + 1}
-                    </span>
-                    <Checkbox
-                      checked={subtask.completed}
-                      onCheckedChange={() => toggleSubtask(subtask.id)}
-                      aria-label={`Marcar "${subtask.name}" como ${subtask.completed ? 'pendiente' : 'completada'}`}
-                    />
-                    <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
-                      {subtask.name}
-                    </span>
-
-                    {/* Asignado de la subtarea */}
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
-                          aria-label={`Asignar subtarea "${subtask.name}"`}
-                        >
-                          {subtask.assignee ? (
-                            <>
-                              <Avatar className="h-5 w-5">
-                                <AvatarFallback className="text-[9px]">{subtask.assignee.initials}</AvatarFallback>
-                              </Avatar>
-                              <span className="hidden sm:inline max-w-[90px] truncate">{subtask.assignee.name}</span>
-                            </>
-                          ) : (
-                            <>
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              <span className="hidden sm:inline text-muted-foreground">Asignar</span>
-                            </>
-                          )}
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-56 p-2" align="end">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium px-2 py-1">Asignar a</p>
-                          {task.projectTeam?.map((member: any) => (
-                            <button
-                              key={member.id}
-                              onClick={() => setSubtaskAssignee(subtask.id, member)}
-                              className={`flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left ${subtask.assignee?.id === member.id ? "bg-muted" : ""}`}
-                            >
-                              <Avatar className="h-6 w-6">
-                                <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
-                              </Avatar>
-                              <span className="text-sm">{member.name}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-
-                    {/* Fecha de entrega de la subtarea */}
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
-                          aria-label={`Fecha de entrega de "${subtask.name}"`}
-                        >
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <span className={subtask.dueDate ? "" : "text-muted-foreground hidden sm:inline"}>
-                            {subtask.dueDate ? formatDate(subtask.dueDate) : "Fecha"}
-                          </span>
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="end">
-                        <CalendarPicker
-                          mode="single"
-                          selected={subtask.dueDate ? new Date(`${subtask.dueDate}T00:00:00`) : undefined}
-                          onSelect={(date) => {
-                            if (!date) return
-                            const y = date.getFullYear()
-                            const m = String(date.getMonth() + 1).padStart(2, "0")
-                            const d = String(date.getDate()).padStart(2, "0")
-                            setSubtaskDueDate(subtask.id, `${y}-${m}-${d}`)
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive shrink-0"
-                      onClick={() => deleteSubtask(subtask.id)}
-                      aria-label={`Eliminar ${subtask.name}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {/* Panel desplegable: Tareas Relacionadas (debajo del cuadro morado) */}
       {showRelated && (
         <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -1864,58 +1800,57 @@ export function TaskDetailView({
             </div>
 
             {/* Description */}
-              <Card className="border-b-2 border-b-purple-500">
-                <CardHeader className="flex flex-row items-center justify-between">
+              <Card id="descripcion" className="border-b-2 border-b-purple-500">
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
                   <CardTitle className="text-lg">Descripción</CardTitle>
-                  {!isEditingDescription && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => {
-                        setDescriptionDraft(task.description)
-                        setIsEditingDescription(true)
-                      }}
-                    >
-                      <Edit className="h-4 w-4" />
-                      Editar
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {descriptionSavedInfo && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 whitespace-nowrap">
+                        <Clock className="h-3 w-3" />
+                        Guardado por {descriptionSavedInfo.by} · {formatDateTime(descriptionSavedInfo.at)}
+                      </p>
+                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Más acciones de la descripción"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-64">
+                        <DropdownMenuItem onSelect={() => focusDescriptionEditor()}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Editar descripción
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => copyDescriptionLink()}>
+                          <Link2 className="h-4 w-4 mr-2" />
+                          Copiar el enlace de la descripción
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onSelect={() => deleteDescription()}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Eliminar descripción
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </CardHeader>
                 <CardContent
                   onDragOver={(e) => { e.preventDefault(); setIsDescDragOver(true) }}
                   onDragLeave={() => setIsDescDragOver(false)}
                   onDrop={handleDescriptionDrop}
                 >
-                  {isEditingDescription ? (
-                    <div className="space-y-3">
-                      <Textarea
-                        value={descriptionDraft}
-                        onChange={(e) => setDescriptionDraft(e.target.value)}
-                        className="min-h-[120px]"
-                        placeholder="Describe la tarea..."
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={cancelEditDescription}>
-                          Cancelar
-                        </Button>
-                        <Button size="sm" onClick={saveDescription}>
-                          <Save className="h-4 w-4 mr-2" />
-                          Guardar
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-muted-foreground whitespace-pre-wrap">{task.description}</p>
-                      {descriptionUpdatedAt && (
-                        <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          Última edición: {formatDateTime(descriptionUpdatedAt)}
-                        </p>
-                      )}
-                    </>
-                  )}
+                  <RichTextEditor
+                    value={descriptionDraft || ""}
+                    onChange={(html) => setDescriptionDraft(html)}
+                    placeholder="Escribe una descripción o arrastra una imagen aquí…"
+                  />
 
                   {/* Imágenes embebidas (arrastra imágenes aquí) */}
                   {descriptionImages.length > 0 && (
@@ -1930,6 +1865,29 @@ export function TaskDetailView({
                             aria-label={`Quitar ${img.name}`}
                           >
                             <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Archivos adjuntos de la descripción */}
+                  {descriptionAttachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      {descriptionAttachments.map((file) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-muted border rounded-lg text-sm"
+                        >
+                          <Paperclip className="h-3 w-3 text-muted-foreground" />
+                          <span className="max-w-[150px] truncate">{file.name}</span>
+                          <span className="text-xs text-muted-foreground">{file.size}</span>
+                          <button
+                            onClick={() => setDescriptionAttachments(prev => prev.filter(f => f.id !== file.id))}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label={`Quitar ${file.name}`}
+                          >
+                            <X className="h-3 w-3" />
                           </button>
                         </div>
                       ))}
@@ -2009,27 +1967,38 @@ export function TaskDetailView({
                     <Button
                       variant="ghost"
                       size="sm"
+                      className={`h-8 px-2 ${showSubtasks ? "text-primary" : ""}`}
+                      onClick={() => setShowSubtasks(v => !v)}
+                    >
+                      <ListChecks className="h-4 w-4 mr-1" />
+                      Subtareas
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="h-8 px-2"
                       onClick={() => {
                         const input = document.createElement("input")
                         input.type = "file"
-                        input.accept = "image/*"
                         input.multiple = true
-                        input.onchange = async (e) => {
+                        input.onchange = (e) => {
                           const files = (e.target as HTMLInputElement).files
-                          if (files) {
-                            const images = await readImageFiles(files)
-                            if (images.length) {
-                              setDescriptionImages(prev => [...prev, ...images])
-                              logActivity(`Imagen agregada a la descripción (${images.length})`)
-                            }
+                          if (files && files.length) {
+                            const newFiles = Array.from(files).map(f => ({
+                              id: `da-${Date.now()}-${Math.random()}`,
+                              name: f.name,
+                              type: f.type.split('/')[0] || 'file',
+                              size: `${(f.size / 1024).toFixed(1)} KB`,
+                            }))
+                            setDescriptionAttachments(prev => [...prev, ...newFiles])
+                            logActivity(`Archivo adjuntado a la descripción (${newFiles.length})`)
                           }
                         }
                         input.click()
                       }}
                     >
-                      <FileImage className="h-4 w-4 mr-1" />
-                      Imagen
+                      <Paperclip className="h-4 w-4 mr-1" />
+                      Adjuntar
                     </Button>
                     <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setShowAddDescDriveLink(true)}>
                       <svg className="h-4 w-4 mr-1" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
@@ -2042,9 +2011,18 @@ export function TaskDetailView({
                       </svg>
                       Drive
                     </Button>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {isDescDragOver ? "Suelta la imagen aquí" : "Arrastra una imagen para insertarla"}
-                    </span>
+                    {isDescDragOver && (
+                      <span className="text-xs text-muted-foreground">Suelta la imagen aquí</span>
+                    )}
+                    <div className="ml-auto flex items-center gap-2">
+                      {descriptionHasChanges && (
+                        <span className="text-xs text-muted-foreground">Cambios sin guardar</span>
+                      )}
+                      <Button size="sm" className="h-8" onClick={saveDescription} disabled={!descriptionHasChanges}>
+                        <Save className="h-4 w-4 mr-1" />
+                        Guardar
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Tags */}
@@ -2060,6 +2038,163 @@ export function TaskDetailView({
                   )}
                 </CardContent>
               </Card>
+
+              {/* Panel desplegable: Subtareas (debajo de Descripción) */}
+              {showSubtasks && (
+                <Card className="border-b-2 border-b-purple-500 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <ListChecks className="h-5 w-5" />
+                        Subtareas
+                      </CardTitle>
+                      <CardDescription>
+                        {task.subtasks.filter(s => s.completed).length} de {task.subtasks.length} completadas
+                      </CardDescription>
+                    </div>
+                    <Button size="sm" onClick={() => setShowAddSubtask(prev => !prev)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Nueva Subtarea
+                    </Button>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {showAddSubtask && (
+                      <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/30">
+                        <Input
+                          autoFocus
+                          placeholder="Nombre de la subtarea..."
+                          value={newSubtaskName}
+                          onChange={(e) => setNewSubtaskName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                              e.preventDefault()
+                              addSubtask()
+                            } else if (e.key === "Escape") {
+                              setShowAddSubtask(false)
+                              setNewSubtaskName("")
+                            }
+                          }}
+                        />
+                        <Button size="sm" onClick={addSubtask} disabled={!newSubtaskName.trim()}>
+                          Agregar
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setShowAddSubtask(false); setNewSubtaskName("") }}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    )}
+
+                    {task.subtasks.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No hay subtareas todavía. Agrega la primera.
+                      </p>
+                    ) : (
+                      <ol className="space-y-2">
+                        {task.subtasks.map((subtask, index) => (
+                          <li
+                            key={subtask.id}
+                            className={`group flex items-center gap-3 p-3 border rounded-lg transition-colors ${subtask.completed ? 'bg-muted/50' : 'hover:bg-muted/30'}`}
+                          >
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                              {index + 1}
+                            </span>
+                            <Checkbox
+                              checked={subtask.completed}
+                              onCheckedChange={() => toggleSubtask(subtask.id)}
+                              aria-label={`Marcar "${subtask.name}" como ${subtask.completed ? 'pendiente' : 'completada'}`}
+                            />
+                            <span className={`flex-1 text-sm ${subtask.completed ? 'line-through text-muted-foreground' : ''}`}>
+                              {subtask.name}
+                            </span>
+
+                            {/* Asignado de la subtarea */}
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
+                                  aria-label={`Asignar subtarea "${subtask.name}"`}
+                                >
+                                  {subtask.assignee ? (
+                                    <>
+                                      <Avatar className="h-5 w-5">
+                                        <AvatarFallback className="text-[9px]">{subtask.assignee.initials}</AvatarFallback>
+                                      </Avatar>
+                                      <span className="hidden sm:inline max-w-[90px] truncate">{subtask.assignee.name}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <User className="h-4 w-4 text-muted-foreground" />
+                                      <span className="hidden sm:inline text-muted-foreground">Asignar</span>
+                                    </>
+                                  )}
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-56 p-2" align="end">
+                                <div className="space-y-1">
+                                  <p className="text-sm font-medium px-2 py-1">Asignar a</p>
+                                  {task.projectTeam?.map((member: any) => (
+                                    <button
+                                      key={member.id}
+                                      onClick={() => setSubtaskAssignee(subtask.id, member)}
+                                      className={`flex items-center gap-2 w-full px-2 py-2 rounded hover:bg-muted transition-colors text-left ${subtask.assignee?.id === member.id ? "bg-muted" : ""}`}
+                                    >
+                                      <Avatar className="h-6 w-6">
+                                        <AvatarFallback className="text-xs">{member.initials}</AvatarFallback>
+                                      </Avatar>
+                                      <span className="text-sm">{member.name}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+
+                            {/* Fecha de entrega de la subtarea */}
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs hover:bg-muted transition-colors focus:outline-none shrink-0"
+                                  aria-label={`Fecha de entrega de "${subtask.name}"`}
+                                >
+                                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                                  <span className={subtask.dueDate ? "" : "text-muted-foreground hidden sm:inline"}>
+                                    {subtask.dueDate ? formatDate(subtask.dueDate) : "Fecha"}
+                                  </span>
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="end">
+                                <CalendarPicker
+                                  mode="single"
+                                  selected={subtask.dueDate ? new Date(`${subtask.dueDate}T00:00:00`) : undefined}
+                                  onSelect={(date) => {
+                                    if (!date) return
+                                    const y = date.getFullYear()
+                                    const m = String(date.getMonth() + 1).padStart(2, "0")
+                                    const d = String(date.getDate()).padStart(2, "0")
+                                    setSubtaskDueDate(subtask.id, `${y}-${m}-${d}`)
+                                  }}
+                                  initialFocus
+                                />
+                              </PopoverContent>
+                            </Popover>
+
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive shrink-0"
+                              onClick={() => deleteSubtask(subtask.id)}
+                              aria-label={`Eliminar ${subtask.name}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Notes */}
               <Card className="border-b-2 border-b-purple-500">
@@ -2210,18 +2345,45 @@ export function TaskDetailView({
                           { key: "ajuste", label: "Ajuste" },
                           { key: "entregables", label: "Entregables" },
                         ].map((t) => (
-                          <label key={t.key} className="flex items-center gap-1.5 text-sm">
-                            <Checkbox
-                              checked={noteTypes.includes(t.key)}
-                              onCheckedChange={(checked) =>
-                                setNoteTypes((prev) =>
-                                  checked ? [...prev, t.key] : prev.filter((x) => x !== t.key)
-                                )
-                              }
-                            />
-                            <span>{t.label}</span>
-                          </label>
+                          <button
+                            key={t.key}
+                            type="button"
+                            onClick={() => {
+                              // Selección única: al elegir otro tipo se reemplaza; volver a
+                              // hacer clic en el mismo tipo lo deselecciona y limpia la cantidad.
+                              setNoteType((prev) => {
+                                const next = prev === t.key ? "" : t.key
+                                if (next !== t.key) setNoteQuantity("")
+                                return next
+                              })
+                            }}
+                            className={`rounded-full border px-3 py-1 text-sm transition-colors ${
+                              noteType === t.key
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-input bg-background hover:bg-muted"
+                            }`}
+                          >
+                            {t.label}
+                          </button>
                         ))}
+                        {/* Recuadro de cantidad manual, aparece al seleccionar un tipo */}
+                        {noteType && (
+                          <div className="flex items-center gap-1.5">
+                            <Label htmlFor="note-quantity" className="text-sm text-muted-foreground">
+                              Cantidad:
+                            </Label>
+                            <Input
+                              id="note-quantity"
+                              type="number"
+                              min={0}
+                              placeholder="0"
+                              value={noteQuantity}
+                              onChange={(e) => setNoteQuantity(e.target.value)}
+                              className="h-8 w-20"
+                              aria-label={`Cantidad de ${noteType}`}
+                            />
+                          </div>
+                        )}
                         <Separator orientation="vertical" className="h-4" />
                         <div className="flex items-center gap-1">
                           <Button 
@@ -2303,7 +2465,8 @@ export function TaskDetailView({
                               author: { name: "Usuario Actual", initials: "UA" },
                               text: newNote,
                               date: new Date().toISOString(),
-                              types: noteTypes,
+                              types: noteType ? [noteType] : [],
+                              quantity: noteType ? (parseInt(noteQuantity || "0", 10) || 0) : 0,
                               estimatedMinutes:
                                 (parseInt(noteHours || "0", 10) || 0) * 60 +
                                 (parseInt(noteMinutes || "0", 10) || 0),
@@ -2315,7 +2478,8 @@ export function TaskDetailView({
                               notes: [...(prev.notes || []), note],
                             }))
                             setNewNote("")
-                            setNoteTypes([])
+                            setNoteType("")
+                            setNoteQuantity("")
                             setNoteHours("")
                             setNoteMinutes("")
                             setNoteAttachments([])
@@ -2325,23 +2489,140 @@ export function TaskDetailView({
                           <Plus className="h-4 w-4 mr-2" />
                           Agregar Comentario
                         </Button>
+                        {/* Aprobación Interna: botón llamativo pegado a la derecha */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={internalApproval ? "default" : "outline"}
+                          title={
+                            internalApproval
+                              ? `Aprobado por ${internalApproval.by} · ${formatDateTime(internalApproval.at)}`
+                              : "Marcar como aprobado internamente"
+                          }
+                          onClick={() =>
+                            setInternalApproval((prev) =>
+                              prev ? null : { by: "Usuario Actual", at: new Date().toISOString() },
+                            )
+                          }
+                          className={
+                            internalApproval
+                              ? "border-2 border-green-600 bg-green-600 text-white hover:bg-green-700"
+                              : "border-2 border-green-600 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/30"
+                          }
+                        >
+                          <CheckCircle2 className="h-4 w-4 mr-2" />
+                          Aprobación Interna
+                        </Button>
                       </div>
                     </div>
+                    {internalApproval && (
+                      <p className="text-right text-xs text-green-700 dark:text-green-400">
+                        Aprobado por <span className="font-medium">{internalApproval.by}</span> ·{" "}
+                        {formatDateTime(internalApproval.at)}
+                      </p>
+                    )}
                   </div>
 
                   {/* Notes List */}
                   <div className="space-y-3">
-                    {task.notes?.map((note: any) => (
-                      <div key={note.id} className="p-4 rounded-lg border bg-muted/30">
-                        <div className="flex items-center justify-between mb-2 gap-2">
+                    {[...(task.notes || [])].sort((a: any, b: any) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)).map((note: any) => (
+                      <div
+                        key={note.id}
+                        id={`comentario-${note.id}`}
+                        className={`group relative p-4 rounded-lg border bg-muted/30 ${note.pinned ? "ring-1 ring-primary/40 bg-primary/5" : ""}`}
+                      >
+                        {/* Barra de acciones (visible: carita y "...", el resto se despliega al pasar el cursor) */}
+                        <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border bg-background p-0.5 shadow-sm">
+                          {/* Reacciones rápidas: ocultas hasta hover */}
+                          <div className="hidden items-center gap-0.5 group-hover:flex">
+                            {["👍", "👀", "🙌"].map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => toggleNoteReaction(note.id, emoji)}
+                                aria-label={`Reaccionar con ${emoji}`}
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-base transition-colors hover:bg-accent"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                          {/* Agregar reacción (carita) - siempre visible en gris */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="Agregar reacción"
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                              >
+                                <SmilePlus className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56">
+                              <DropdownMenuLabel>Reaccionar</DropdownMenuLabel>
+                              <div className="grid grid-cols-4 gap-1 p-1">
+                                {reactionEmojis.map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => toggleNoteReaction(note.id, emoji)}
+                                    aria-label={`Reaccionar con ${emoji}`}
+                                    className="flex h-9 items-center justify-center rounded-md text-xl transition-colors hover:bg-accent"
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          {/* Más acciones ("...") - siempre visible en gris */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="Más acciones"
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-64">
+                              <DropdownMenuItem onSelect={() => togglePinNote(note.id)}>
+                                <Pin className="h-4 w-4 mr-2" />
+                                {note.pinned ? "Desfijar del inicio" : "Fijar al inicio"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => startEditNote(note)}>
+                                <Edit className="h-4 w-4 mr-2" />
+                                Editar comentario
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => copyNoteLink(note.id)}>
+                                <Link2 className="h-4 w-4 mr-2" />
+                                Copiar el enlace del comentario
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onSelect={() => deleteNote(note.id)}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Eliminar comentario
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+
+                        <div className="flex items-center justify-between mb-2 gap-2 pr-16">
                           <div className="flex items-center gap-2 flex-wrap">
+                            {note.pinned && (
+                              <Pin className="h-3.5 w-3.5 text-primary shrink-0" aria-label="Fijado" />
+                            )}
                             <Avatar className="h-6 w-6">
                               <AvatarFallback className="text-[10px]">{note.author.initials}</AvatarFallback>
                             </Avatar>
                             <span className="text-sm font-medium">{note.author.name}</span>
                             {note.types?.map((t: string) => (
                               <Badge key={t} variant="outline" className="text-xs capitalize">
-                                {t}
+                                {t}{note.quantity ? ` · ${note.quantity}` : ""}
                               </Badge>
                             ))}
                             {note.estimatedMinutes > 0 && (
@@ -2353,7 +2634,46 @@ export function TaskDetailView({
                           </div>
                           <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(note.date)}</span>
                         </div>
-                        <p className="text-sm">{note.text}</p>
+                        {editingNoteId === note.id ? (
+                          <div className="space-y-2">
+                            <Textarea
+                              value={editingNoteText}
+                              onChange={(e) => setEditingNoteText(e.target.value)}
+                              className="min-h-[80px]"
+                              autoFocus
+                            />
+                            <div className="flex items-center justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => { setEditingNoteId(null); setEditingNoteText("") }}>
+                                Cancelar
+                              </Button>
+                              <Button size="sm" onClick={saveEditNote} disabled={!editingNoteText.trim()}>
+                                Guardar
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm">
+                            {note.text}
+                            {note.edited && <span className="ml-1 text-xs text-muted-foreground">(editado)</span>}
+                          </p>
+                        )}
+
+                        {/* Reacciones del comentario */}
+                        {note.reactions && Object.keys(note.reactions).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {Object.entries(note.reactions).map(([emoji, count]: [string, any]) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => toggleNoteReaction(note.id, emoji)}
+                                className="flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs transition-colors hover:bg-accent"
+                              >
+                                <span>{emoji}</span>
+                                <span className="text-muted-foreground">{count}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         
                         {/* Note Attachments & Drive Links */}
                         {((note.attachments && note.attachments.length > 0) || (note.driveLinks && note.driveLinks.length > 0)) && (
@@ -2414,6 +2734,7 @@ export function TaskDetailView({
                       </div>
                     ))}
                   </div>
+
                 </CardContent>
               </Card>
 
@@ -2589,11 +2910,10 @@ export function TaskDetailView({
             
             <div className="space-y-2">
               <Label htmlFor="edit-description">Descripción</Label>
-              <Textarea 
-                id="edit-description"
+              <RichTextEditor
                 value={editedTask.description}
-                onChange={(e) => setEditedTask(prev => ({ ...prev, description: e.target.value }))}
-                className="min-h-[100px]"
+                onChange={(html) => setEditedTask(prev => ({ ...prev, description: html }))}
+                placeholder="Escribe una descripción o arrastra una imagen aquí…"
               />
             </div>
             

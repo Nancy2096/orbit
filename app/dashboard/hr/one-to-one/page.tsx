@@ -45,6 +45,8 @@ import {
   REPORT_SELECT,
   formatLongDate,
   staffFullName,
+  reportDepartment,
+  staffDepartment,
 } from "@/lib/one-to-one"
 import { OneToOneNotifications } from "@/components/hr/one-to-one-notifications"
 
@@ -58,6 +60,7 @@ export default function OneToOneReportsPage() {
   const [staffList, setStaffList] = useState<StaffMember[]>([])
   const [reports, setReports] = useState<OneToOneReport[]>([])
   const [loading, setLoading] = useState(true)
+  const [filterDepartment, setFilterDepartment] = useState<string>("all")
   const [filterStaff, setFilterStaff] = useState<string>("all")
 
   useEffect(() => {
@@ -80,14 +83,14 @@ export default function OneToOneReportsPage() {
   const fetchStaff = async () => {
     let query = supabase
       .from("staff")
-      .select("id, first_name, last_name, position, agency_id")
+      .select("id, first_name, last_name, position, agency_id, department_id, department:department_id(name)")
       .eq("is_active", true)
     // Con "all" se muestran todas las agencias; de lo contrario se filtra.
     if (selectedAgency !== "all") {
       query = query.or(`agency_id.eq.${selectedAgency},agency_id.is.null`)
     }
     const { data } = await query.order("first_name")
-    setStaffList(data || [])
+    setStaffList((data as unknown as StaffMember[]) || [])
   }
 
   const fetchReports = async () => {
@@ -101,9 +104,28 @@ export default function OneToOneReportsPage() {
     setLoading(false)
   }
 
+  // Opciones de departamento derivadas de los reportes de la selección de agencia actual.
+  const departmentOptions = useMemo(() => {
+    const set = new Set<string>()
+    reports.forEach((r) => set.add(reportDepartment(r)))
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"))
+  }, [reports])
+
+  // El dropdown de colaboradores se acota al departamento seleccionado.
+  const staffOptions = useMemo(
+    () =>
+      filterDepartment === "all"
+        ? staffList
+        : staffList.filter((s) => staffDepartment(s) === filterDepartment),
+    [staffList, filterDepartment],
+  )
+
   const filteredReports = useMemo(
-    () => (filterStaff === "all" ? reports : reports.filter((r) => r.staff_id === filterStaff)),
-    [reports, filterStaff],
+    () =>
+      reports
+        .filter((r) => filterDepartment === "all" || reportDepartment(r) === filterDepartment)
+        .filter((r) => filterStaff === "all" || r.staff_id === filterStaff),
+    [reports, filterDepartment, filterStaff],
   )
 
   // Se separan los registros del personal ACTIVO de los que tienen otro estado
@@ -202,25 +224,10 @@ export default function OneToOneReportsPage() {
             personal. Sección confidencial.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Select value={selectedAgency} onValueChange={setSelectedAgency}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Seleccionar agencia" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las agencias</SelectItem>
-              {agencies.map((agency) => (
-                <SelectItem key={agency.id} value={agency.id}>
-                  {agency.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={() => router.push("/dashboard/hr/one-to-one/new")}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nueva Reunión 1a1
-          </Button>
-        </div>
+        <Button onClick={() => router.push("/dashboard/hr/one-to-one/new")}>
+          <Plus className="mr-2 h-4 w-4" />
+          Nueva Reunión 1a1
+        </Button>
       </div>
 
       {/* Recordatorios de reuniones por hito (1er, 2do, 3er mes) */}
@@ -234,22 +241,73 @@ export default function OneToOneReportsPage() {
         </p>
       </div>
 
-      {/* Filtro por colaborador */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Label className="text-sm text-muted-foreground sm:w-40">Filtrar por colaborador</Label>
-        <Select value={filterStaff} onValueChange={setFilterStaff}>
-          <SelectTrigger className="w-full sm:w-[280px]">
-            <SelectValue placeholder="Todos los colaboradores" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los colaboradores</SelectItem>
-            {staffList.map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                {s.first_name} {s.last_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* Filtros: Agencia, Departamento y Colaborador en una sola línea */}
+      <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs text-muted-foreground">Agencia</Label>
+          <Select
+            value={selectedAgency}
+            onValueChange={(value) => {
+              setSelectedAgency(value)
+              // Al cambiar de agencia se reinician los filtros dependientes.
+              setFilterDepartment("all")
+              setFilterStaff("all")
+            }}
+          >
+            <SelectTrigger className="w-full md:w-[220px]">
+              <SelectValue placeholder="Seleccionar agencia" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las agencias</SelectItem>
+              {agencies.map((agency) => (
+                <SelectItem key={agency.id} value={agency.id}>
+                  {agency.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs text-muted-foreground">Departamento</Label>
+          <Select
+            value={filterDepartment}
+            onValueChange={(value) => {
+              setFilterDepartment(value)
+              // Reiniciar colaborador para evitar una selección fuera del departamento.
+              setFilterStaff("all")
+            }}
+          >
+            <SelectTrigger className="w-full md:w-[220px]">
+              <SelectValue placeholder="Todos los departamentos" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los departamentos</SelectItem>
+              {departmentOptions.map((dept) => (
+                <SelectItem key={dept} value={dept}>
+                  {dept}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs text-muted-foreground">Colaborador</Label>
+          <Select value={filterStaff} onValueChange={setFilterStaff}>
+            <SelectTrigger className="w-full md:w-[260px]">
+              <SelectValue placeholder="Todos los colaboradores" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los colaboradores</SelectItem>
+              {staffOptions.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.first_name} {s.last_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Lista de reportes */}

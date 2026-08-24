@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
   SelectContent,
@@ -35,6 +36,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { toast } from "sonner"
@@ -44,13 +60,15 @@ import {
   Plus,
   Pencil,
   Trash2,
-  GripVertical,
   ListChecks,
   ArrowUp,
   ArrowDown,
   UserCog,
   Clock,
   MessageSquareText,
+  Layers,
+  MoreHorizontal,
+  Copy,
 } from "lucide-react"
 
 interface TaskTemplate {
@@ -62,6 +80,9 @@ interface TaskTemplate {
   order_index: number
   offset_days: number
   offset_minutes: number
+  timing_anchor: string | null
+  offset_days_quote: number
+  offset_minutes_quote: number
   requires_manager: boolean
   requires_director: boolean
   manager_staff_id: string | null
@@ -70,6 +91,7 @@ interface TaskTemplate {
   whatsapp_message: string | null
   email_subject: string | null
   email_message: string | null
+  pipeline_stages: string[] | null
 }
 
 interface StaffMember {
@@ -114,6 +136,9 @@ const emptyForm = {
   priority: "medium",
   offset_days: 0,
   offset_minutes: 0,
+  timing_anchor: "registro",
+  offset_days_quote: 0,
+  offset_minutes_quote: 0,
   requires_manager: false,
   requires_director: false,
   manager_staff_id: "",
@@ -121,11 +146,14 @@ const emptyForm = {
   whatsapp_message: "",
   email_subject: "",
   email_message: "",
+  pipeline_stages: [] as string[],
 }
 
 export default function TaskSettingsPage() {
   const { selectedAgencyId, selectedAgency } = useAgency()
   const [templates, setTemplates] = useState<TaskTemplate[]>([])
+  // Etapas del pipeline disponibles (nombres distintos) para elegir dónde se muestra cada tarea.
+  const [stageOptions, setStageOptions] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -133,6 +161,12 @@ export default function TaskSettingsPage() {
   const [editing, setEditing] = useState<TaskTemplate | null>(null)
   const [toDelete, setToDelete] = useState<TaskTemplate | null>(null)
   const [formData, setFormData] = useState(emptyForm)
+
+  // Diálogo dedicado para cambiar/agregar etapas de una tarea desde el menú de acciones.
+  const [stagesDialogOpen, setStagesDialogOpen] = useState(false)
+  const [stagesTarget, setStagesTarget] = useState<TaskTemplate | null>(null)
+  const [stagesDraft, setStagesDraft] = useState<string[]>([])
+  const [savingStages, setSavingStages] = useState(false)
 
   // Gerente por agencia
   const [staff, setStaff] = useState<StaffMember[]>([])
@@ -160,7 +194,36 @@ export default function TaskSettingsPage() {
       setManagerStaffId("")
     }
     fetchStaff()
+    fetchStages()
   }, [selectedAgencyId])
+
+  async function fetchStages() {
+    // Las etapas son por agencia; se ofrecen las de la agencia seleccionada, o
+    // los nombres distintos de todas si aún no hay una agencia elegida.
+    let query = supabase
+      .from("crm_pipeline_stages")
+      .select("name, sort_order, agency_id")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+    if (selectedAgencyId) {
+      query = query.eq("agency_id", selectedAgencyId)
+    }
+    const { data, error } = await query
+    if (error) {
+      console.error("Error fetching pipeline stages:", error)
+      return
+    }
+    // Nombres únicos conservando el orden por sort_order.
+    const seen = new Set<string>()
+    const names: string[] = []
+    for (const row of data || []) {
+      if (row.name && !seen.has(row.name)) {
+        seen.add(row.name)
+        names.push(row.name)
+      }
+    }
+    setStageOptions(names)
+  }
 
   async function fetchTemplates() {
     setLoading(true)
@@ -242,6 +305,9 @@ export default function TaskSettingsPage() {
       priority: tpl.priority || "medium",
       offset_days: tpl.offset_days,
       offset_minutes: tpl.offset_minutes,
+      timing_anchor: tpl.timing_anchor || "registro",
+      offset_days_quote: tpl.offset_days_quote ?? 0,
+      offset_minutes_quote: tpl.offset_minutes_quote ?? 0,
       requires_manager: tpl.requires_manager,
       requires_director: tpl.requires_director ?? false,
       manager_staff_id: tpl.manager_staff_id || "",
@@ -249,6 +315,7 @@ export default function TaskSettingsPage() {
       whatsapp_message: tpl.whatsapp_message || "",
       email_subject: tpl.email_subject || "",
       email_message: tpl.email_message || "",
+      pipeline_stages: tpl.pipeline_stages || [],
     })
     setDialogOpen(true)
   }
@@ -268,17 +335,20 @@ export default function TaskSettingsPage() {
             description: formData.description || null,
             task_type: formData.task_type,
             priority: formData.priority,
-            offset_days: formData.offset_days,
-            offset_minutes: formData.offset_minutes,
+            offset_days: formData.timing_anchor === "registro" ? formData.offset_days : 0,
+            offset_minutes: formData.timing_anchor === "registro" ? formData.offset_minutes : 0,
+            timing_anchor: formData.timing_anchor,
+            offset_days_quote: formData.timing_anchor === "cotizacion" ? formData.offset_days_quote : 0,
+            offset_minutes_quote: formData.timing_anchor === "cotizacion" ? formData.offset_minutes_quote : 0,
             requires_manager: formData.requires_manager,
             requires_director: formData.requires_director,
             manager_staff_id: formData.requires_manager ? formData.manager_staff_id || null : null,
             director_staff_id: formData.requires_director ? formData.director_staff_id || null : null,
-            whatsapp_message: formData.whatsapp_message || null,
-            email_subject: formData.email_subject || null,
-            email_message: formData.email_message || null,
-            updated_at: new Date().toISOString(),
-          })
+          whatsapp_message: formData.whatsapp_message || null,
+          email_subject: formData.email_subject || null,
+          email_message: formData.email_message || null,
+          pipeline_stages: formData.pipeline_stages,
+        })
           .eq("id", editing.id)
         if (error) throw error
         toast.success("Tarea predefinida actualizada")
@@ -289,8 +359,11 @@ export default function TaskSettingsPage() {
           description: formData.description || null,
           task_type: formData.task_type,
           priority: formData.priority,
-          offset_days: formData.offset_days,
-          offset_minutes: formData.offset_minutes,
+          offset_days: formData.timing_anchor === "registro" ? formData.offset_days : 0,
+          offset_minutes: formData.timing_anchor === "registro" ? formData.offset_minutes : 0,
+          timing_anchor: formData.timing_anchor,
+          offset_days_quote: formData.timing_anchor === "cotizacion" ? formData.offset_days_quote : 0,
+          offset_minutes_quote: formData.timing_anchor === "cotizacion" ? formData.offset_minutes_quote : 0,
           requires_manager: formData.requires_manager,
           requires_director: formData.requires_director,
           manager_staff_id: formData.requires_manager ? formData.manager_staff_id || null : null,
@@ -298,6 +371,7 @@ export default function TaskSettingsPage() {
           whatsapp_message: formData.whatsapp_message || null,
           email_subject: formData.email_subject || null,
           email_message: formData.email_message || null,
+          pipeline_stages: formData.pipeline_stages,
           order_index: maxOrder + 1,
           is_active: true,
         })
@@ -361,12 +435,83 @@ export default function TaskSettingsPage() {
     }
   }
 
-  const offsetLabel = (days: number, minutes: number) => {
-    if (days === 0 && minutes === 0) return "Al registrar el prospecto"
+  async function duplicateTemplate(tpl: TaskTemplate) {
+    try {
+      const maxOrder = templates.length > 0 ? Math.max(...templates.map((t) => t.order_index)) : 0
+      const { error } = await supabase.from("crm_task_templates").insert({
+        title: `${tpl.title} (copia)`,
+        description: tpl.description || null,
+        task_type: tpl.task_type,
+        priority: tpl.priority,
+        offset_days: tpl.offset_days,
+        offset_minutes: tpl.offset_minutes,
+        timing_anchor: tpl.timing_anchor || "registro",
+        offset_days_quote: tpl.offset_days_quote ?? 0,
+        offset_minutes_quote: tpl.offset_minutes_quote ?? 0,
+        requires_manager: tpl.requires_manager,
+        requires_director: tpl.requires_director,
+        manager_staff_id: tpl.manager_staff_id || null,
+        director_staff_id: tpl.director_staff_id || null,
+        whatsapp_message: tpl.whatsapp_message || null,
+        email_subject: tpl.email_subject || null,
+        email_message: tpl.email_message || null,
+        pipeline_stages: tpl.pipeline_stages || [],
+        order_index: maxOrder + 1,
+        is_active: tpl.is_active,
+      })
+      if (error) throw error
+      toast.success("Tarea duplicada")
+      fetchTemplates()
+    } catch (error) {
+      console.error("Error duplicating template:", error)
+      toast.error("Error al duplicar la tarea")
+    }
+  }
+
+  // Abre el diálogo dedicado para cambiar/agregar etapas de una tarea.
+  function openStagesDialog(tpl: TaskTemplate) {
+    setStagesTarget(tpl)
+    setStagesDraft(tpl.pipeline_stages || [])
+    setStagesDialogOpen(true)
+  }
+
+  function toggleStageDraft(stage: string, checked: boolean) {
+    setStagesDraft((prev) => (checked ? [...prev, stage] : prev.filter((s) => s !== stage)))
+  }
+
+  // Guarda las etapas seleccionadas en el diálogo dedicado.
+  async function saveTemplateStages() {
+    if (!stagesTarget) return
+    setSavingStages(true)
+    try {
+      const { error } = await supabase
+        .from("crm_task_templates")
+        .update({ pipeline_stages: stagesDraft, updated_at: new Date().toISOString() })
+        .eq("id", stagesTarget.id)
+      if (error) throw error
+      setTemplates((prev) =>
+        prev.map((t) => (t.id === stagesTarget.id ? { ...t, pipeline_stages: stagesDraft } : t)),
+      )
+      toast.success("Etapas actualizadas")
+      setStagesDialogOpen(false)
+      setStagesTarget(null)
+    } catch (error) {
+      console.error("Error updating template stages:", error)
+      toast.error("Error al actualizar las etapas")
+    } finally {
+      setSavingStages(false)
+    }
+  }
+
+  const offsetLabel = (days: number, minutes: number, anchor: string = "registro") => {
+    const eventoBase = anchor === "cotizacion" ? "el envío de la cotización" : "el registro del prospecto"
+    if (days === 0 && minutes === 0) {
+      return anchor === "cotizacion" ? "Al enviar la cotización" : "Al registrar el prospecto"
+    }
     const parts: string[] = []
     if (days > 0) parts.push(`${days} día${days === 1 ? "" : "s"}`)
     if (minutes > 0) parts.push(`${minutes} min`)
-    return `${parts.join(" y ")} después del registro`
+    return `${parts.join(" y ")} después de ${eventoBase}`
   }
 
   return (
@@ -459,82 +604,137 @@ export default function TaskSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {templates.map((tpl, index) => (
-                <div
-                  key={tpl.id}
-                  className={`flex items-center gap-4 p-4 rounded-lg border ${
-                    tpl.is_active ? "bg-background" : "bg-muted/50 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <GripVertical className="h-5 w-5" />
-                    <span className="text-sm font-mono w-6">{index + 1}</span>
-                  </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-24">Orden</TableHead>
+                    <TableHead>Tarea</TableHead>
+                    <TableHead className="min-w-[200px]">Etapa</TableHead>
+                    <TableHead className="w-24 text-center">Activa</TableHead>
+                    <TableHead className="w-16 text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {templates.map((tpl, index) => (
+                    <TableRow key={tpl.id} className={tpl.is_active ? "" : "bg-muted/50 opacity-60"}>
+                      {/* Orden y reordenamiento */}
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-mono text-muted-foreground w-5">{index + 1}</span>
+                          <div className="flex flex-col">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              onClick={() => moveTemplate(tpl, "up")}
+                              disabled={index === 0}
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              onClick={() => moveTemplate(tpl, "down")}
+                              disabled={index === templates.length - 1}
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </TableCell>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium truncate">{tpl.title}</span>
-                      <Badge variant="secondary">
-                        {TASK_TYPES.find((t) => t.value === tpl.task_type)?.label || tpl.task_type}
-                      </Badge>
-                      {tpl.requires_manager && (
-                        <Badge className="bg-blue-500 text-white">
-                          <UserCog className="h-3 w-3 mr-1" />
-                          Gerente
-                        </Badge>
-                      )}
-                      {tpl.requires_director && (
-                        <Badge className="bg-purple-500 text-white">
-                          <UserCog className="h-3 w-3 mr-1" />
-                          Director
-                        </Badge>
-                      )}
-                      {!tpl.is_active && <Badge variant="outline">Inactiva</Badge>}
-                    </div>
-                    <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {offsetLabel(tpl.offset_days, tpl.offset_minutes)}
-                    </div>
-                  </div>
+                      {/* Tarea */}
+                      <TableCell>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{tpl.title}</span>
+                            <Badge variant="secondary">
+                              {TASK_TYPES.find((t) => t.value === tpl.task_type)?.label || tpl.task_type}
+                            </Badge>
+                            {tpl.requires_manager && (
+                              <Badge className="bg-blue-500 text-white">
+                                <UserCog className="h-3 w-3 mr-1" />
+                                Gerente
+                              </Badge>
+                            )}
+                            {tpl.requires_director && (
+                              <Badge className="bg-purple-500 text-white">
+                                <UserCog className="h-3 w-3 mr-1" />
+                                Director
+                              </Badge>
+                            )}
+                            {!tpl.is_active && <Badge variant="outline">Inactiva</Badge>}
+                          </div>
+                          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            {tpl.timing_anchor === "cotizacion"
+                              ? offsetLabel(tpl.offset_days_quote, tpl.offset_minutes_quote, "cotizacion")
+                              : offsetLabel(tpl.offset_days, tpl.offset_minutes, "registro")}
+                          </div>
+                        </div>
+                      </TableCell>
 
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => moveTemplate(tpl, "up")}
-                      disabled={index === 0}
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => moveTemplate(tpl, "down")}
-                      disabled={index === templates.length - 1}
-                    >
-                      <ArrowDown className="h-4 w-4" />
-                    </Button>
-                  </div>
+                      {/* Etapa */}
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {tpl.pipeline_stages && tpl.pipeline_stages.length > 0 ? (
+                            tpl.pipeline_stages.map((stage) => (
+                              <Badge key={stage} variant="outline" className="text-[11px] px-1.5 py-0 font-normal">
+                                {stage}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Todas las etapas</span>
+                          )}
+                        </div>
+                      </TableCell>
 
-                  <div className="flex items-center gap-2">
-                    <Switch checked={tpl.is_active} onCheckedChange={() => toggleActive(tpl)} />
-                    <Button variant="ghost" size="icon" onClick={() => openEditDialog(tpl)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        setToDelete(tpl)
-                        setDeleteDialogOpen(true)
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                      {/* Activa */}
+                      <TableCell className="text-center">
+                        <Switch checked={tpl.is_active} onCheckedChange={() => toggleActive(tpl)} />
+                      </TableCell>
+
+                      {/* Acciones */}
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Más acciones">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuItem onSelect={() => openEditDialog(tpl)}>
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Editar tarea
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => duplicateTemplate(tpl)}>
+                              <Copy className="h-4 w-4 mr-2" />
+                              Duplicar tarea
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => openStagesDialog(tpl)}>
+                              <Layers className="h-4 w-4 mr-2" />
+                              Cambiar etapa
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => {
+                                setToDelete(tpl)
+                                setDeleteDialogOpen(true)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Eliminar tarea
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
         </Card>
@@ -656,42 +856,190 @@ export default function TaskSettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-2 pt-2 border-t">
-              <Label className="flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                ¿Cuándo debe realizarse? (respecto al registro del prospecto)
-              </Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="offset_days" className="text-xs text-muted-foreground">
-                    Días después
-                  </Label>
-                  <Input
-                    id="offset_days"
-                    type="number"
-                    min={0}
-                    value={formData.offset_days}
-                    onChange={(e) =>
-                      setFormData({ ...formData, offset_days: Math.max(0, parseInt(e.target.value) || 0) })
-                    }
+            <div className="space-y-4 pt-2 border-t">
+              <p className="text-sm text-muted-foreground">
+                Selecciona respecto a qué evento se calcula el vencimiento de esta tarea.
+              </p>
+
+              {/* Pregunta 1: respecto al registro del prospecto */}
+              <div
+                className={`space-y-2 rounded-lg border p-3 transition-colors ${
+                  formData.timing_anchor === "registro" ? "border-primary bg-primary/5" : ""
+                }`}
+              >
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.timing_anchor === "registro"}
+                    onCheckedChange={(value) => {
+                      if (value === true) setFormData({ ...formData, timing_anchor: "registro" })
+                    }}
                   />
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <Clock className="h-4 w-4" />
+                    ¿Cuándo debe realizarse? (respecto al registro del prospecto)
+                  </span>
+                </label>
+                <div className="grid grid-cols-2 gap-4 pl-6">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="offset_days" className="text-xs text-muted-foreground">
+                      Días después
+                    </Label>
+                    <Input
+                      id="offset_days"
+                      type="number"
+                      min={0}
+                      disabled={formData.timing_anchor !== "registro"}
+                      value={formData.offset_days}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offset_days: Math.max(0, parseInt(e.target.value) || 0) })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="offset_minutes" className="text-xs text-muted-foreground">
+                      Minutos después
+                    </Label>
+                    <Input
+                      id="offset_minutes"
+                      type="number"
+                      min={0}
+                      disabled={formData.timing_anchor !== "registro"}
+                      value={formData.offset_minutes}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offset_minutes: Math.max(0, parseInt(e.target.value) || 0) })
+                      }
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="offset_minutes" className="text-xs text-muted-foreground">
-                    Minutos después
-                  </Label>
-                  <Input
-                    id="offset_minutes"
-                    type="number"
-                    min={0}
-                    value={formData.offset_minutes}
-                    onChange={(e) =>
-                      setFormData({ ...formData, offset_minutes: Math.max(0, parseInt(e.target.value) || 0) })
-                    }
-                  />
-                </div>
+                {formData.timing_anchor === "registro" && (
+                  <p className="text-xs text-muted-foreground pl-6">
+                    {offsetLabel(formData.offset_days, formData.offset_minutes)}
+                  </p>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">{offsetLabel(formData.offset_days, formData.offset_minutes)}</p>
+
+              {/* Pregunta 2: respecto al envío de la cotización */}
+              <div
+                className={`space-y-2 rounded-lg border p-3 transition-colors ${
+                  formData.timing_anchor === "cotizacion" ? "border-primary bg-primary/5" : ""
+                }`}
+              >
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.timing_anchor === "cotizacion"}
+                    onCheckedChange={(value) => {
+                      if (value === true) setFormData({ ...formData, timing_anchor: "cotizacion" })
+                    }}
+                  />
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <Clock className="h-4 w-4" />
+                    ¿Cuándo debe realizarse? (respecto al envío de la cotización)
+                  </span>
+                </label>
+                <div className="grid grid-cols-2 gap-4 pl-6">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="offset_days_quote" className="text-xs text-muted-foreground">
+                      Días después
+                    </Label>
+                    <Input
+                      id="offset_days_quote"
+                      type="number"
+                      min={0}
+                      disabled={formData.timing_anchor !== "cotizacion"}
+                      value={formData.offset_days_quote}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offset_days_quote: Math.max(0, parseInt(e.target.value) || 0) })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="offset_minutes_quote" className="text-xs text-muted-foreground">
+                      Minutos después
+                    </Label>
+                    <Input
+                      id="offset_minutes_quote"
+                      type="number"
+                      min={0}
+                      disabled={formData.timing_anchor !== "cotizacion"}
+                      value={formData.offset_minutes_quote}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offset_minutes_quote: Math.max(0, parseInt(e.target.value) || 0) })
+                      }
+                    />
+                  </div>
+                </div>
+                {formData.timing_anchor === "cotizacion" && (
+                  <p className="text-xs text-muted-foreground pl-6">
+                    {offsetLabel(formData.offset_days_quote, formData.offset_minutes_quote, "cotizacion")}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Etapas del pipeline donde se muestra la tarea */}
+            <div className="space-y-3 pt-2 border-t">
+              <div className="space-y-0.5">
+                <Label className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-purple-500" />
+                  Etapas del pipeline
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Selecciona en qué etapas del pipeline se mostrará esta tarea. Puedes elegir más de una.
+                  Si no seleccionas ninguna, se mostrará en todas las etapas.
+                </p>
+              </div>
+
+              {stageOptions.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">
+                  No hay etapas de pipeline configuradas
+                  {selectedAgencyId ? " para esta agencia." : "."}
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {formData.pipeline_stages.length === 0
+                        ? "Todas las etapas"
+                        : `${formData.pipeline_stages.length} seleccionada${formData.pipeline_stages.length === 1 ? "" : "s"}`}
+                    </span>
+                    {formData.pipeline_stages.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setFormData({ ...formData, pipeline_stages: [] })}
+                      >
+                        Limpiar
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-3 max-h-52 overflow-y-auto">
+                    {stageOptions.map((stage) => {
+                      const checked = formData.pipeline_stages.includes(stage)
+                      return (
+                        <label
+                          key={stage}
+                          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-muted/60 transition-colors"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(value) => {
+                              setFormData((prev) => ({
+                                ...prev,
+                                pipeline_stages: value === true
+                                  ? [...prev.pipeline_stages, stage]
+                                  : prev.pipeline_stages.filter((s) => s !== stage),
+                              }))
+                            }}
+                          />
+                          <span className="truncate">{stage}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Apoyo del gerente comercial */}
@@ -835,6 +1183,74 @@ export default function TaskSettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Diálogo para cambiar/agregar etapas de una tarea */}
+      <Dialog open={stagesDialogOpen} onOpenChange={setStagesDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-purple-500" />
+              Cambiar etapa
+            </DialogTitle>
+            <DialogDescription>
+              Selecciona en qué etapas del pipeline se mostrará
+              {stagesTarget ? ` "${stagesTarget.title}"` : " esta tarea"}. Puedes elegir más de una.
+              Si no seleccionas ninguna, se mostrará en todas las etapas.
+            </DialogDescription>
+          </DialogHeader>
+
+          {stageOptions.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic py-4">
+              No hay etapas de pipeline configuradas
+              {selectedAgencyId ? " para esta agencia." : "."}
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  {stagesDraft.length === 0
+                    ? "Todas las etapas"
+                    : `${stagesDraft.length} seleccionada${stagesDraft.length === 1 ? "" : "s"}`}
+                </span>
+                {stagesDraft.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setStagesDraft([])}
+                  >
+                    Limpiar
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-1 rounded-lg border p-2 max-h-64 overflow-y-auto">
+                {stageOptions.map((stage) => (
+                  <label
+                    key={stage}
+                    className="flex items-center gap-2 rounded-md px-2 py-2 text-sm cursor-pointer hover:bg-muted/60 transition-colors"
+                  >
+                    <Checkbox
+                      checked={stagesDraft.includes(stage)}
+                      onCheckedChange={(value) => toggleStageDraft(stage, value === true)}
+                    />
+                    <span className="truncate">{stage}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStagesDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={saveTemplateStages} disabled={savingStages || stageOptions.length === 0}>
+              {savingStages ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

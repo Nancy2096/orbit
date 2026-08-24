@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { createClient } from "@/lib/supabase/client"
-import { syncAutomaticTasksWithStage } from "@/lib/crm-task-templates"
+import { applyTaskTemplatesToProspect, syncAutomaticTasksWithStage } from "@/lib/crm-task-templates"
 import { toast } from "sonner"
 import { 
   UserPlus, 
@@ -235,9 +235,21 @@ export default function PipelinePage() {
       return
     }
 
-    // Pausar o reanudar las tareas automáticas según la nueva etapa:
-    // se mantienen activas en Prospecto e Intento de Contacto (etapas 1 y 2)
-    // y se pausan al salir de la etapa 2.
+    // Materializar las tareas predefinidas que apliquen a la nueva etapa
+    // (idempotente) y luego pausar/reanudar según la etapa configurada.
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      await applyTaskTemplatesToProspect(supabase, {
+        prospectId,
+        agencyId: selectedAgencyId,
+        assignedTo: prospect?.assigned_to || null,
+        registeredAt: prospect?.created_at || new Date().toISOString(),
+        stageId: newStageId,
+        createdBy: authData?.user?.id ?? null,
+      })
+    } catch (e) {
+      console.error("[v0] Error al aplicar plantillas de tareas por etapa:", e)
+    }
     await syncAutomaticTasksWithStage(supabase, prospectId, newStageId)
 
     // Update local state. Mover de etapa cuenta como interacción, por lo que se

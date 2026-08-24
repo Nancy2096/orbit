@@ -378,6 +378,7 @@ export default function NewProspectPage() {
           agencyId: selectedAgencyId,
           assignedTo: formData.assigned_to || null,
           registeredAt: prospect.created_at || new Date().toISOString(),
+          stageId: prospect.stage_id || formData.stage_id || null,
           createdBy: authData?.user?.id ?? null,
         })
       } catch (e) {

@@ -207,7 +207,8 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
   }
 
   function handleCityChange(cityName: string) {
-    setFormData({ ...formData, city: cityName, postal_code: "" })
+    // El código postal se captura manualmente, por lo que no se reinicia al cambiar de ciudad.
+    setFormData({ ...formData, city: cityName })
     const postalCodes = getPostalCodesByCity(formData.country, formData.state, cityName)
     setAvailablePostalCodes(postalCodes)
   }
@@ -872,22 +873,13 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="postal_code">Código Postal</FieldLabel>
-                    <Select
-                      value={formData.postal_code}
-                      onValueChange={(value) => setFormData({ ...formData, postal_code: value })}
-                      disabled={!formData.city}
-                    >
-                      <SelectTrigger id="postal_code">
-                        <SelectValue placeholder={formData.city ? "Selecciona C.P." : "Selecciona ciudad primero"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availablePostalCodes.map((cp) => (
-                          <SelectItem key={cp} value={cp}>
-                            {cp}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      id="postal_code"
+                      inputMode="numeric"
+                      value={formData.postal_code || ""}
+                      onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
+                      placeholder="Ingresa el código postal"
+                    />
                   </Field>
                 </div>
 
