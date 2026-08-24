@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
+import { RichTextEditor } from "@/app/orbit-tasksflow/_components/rich-text-editor"
 import {
   ArrowLeft,
   Clock,
@@ -494,7 +495,11 @@ export default function RssTaskDetailPage() {
                   <CardTitle className="text-lg">Descripción</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-muted-foreground">{task.description}</p>
+                  <RichTextEditor
+                    value={task.description || ""}
+                    onChange={(html) => setTask((prev: any) => ({ ...prev, description: html }))}
+                    placeholder="Escribe una descripción o arrastra una imagen aquí…"
+                  />
                   {task.hashtags && task.hashtags.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
                       <span className="text-sm text-muted-foreground mr-2">Hashtags:</span>
@@ -1242,10 +1247,10 @@ export default function RssTaskDetailPage() {
               </div>
               <div className="col-span-2 space-y-2">
                 <Label>Descripción</Label>
-                <Textarea 
+                <RichTextEditor
                   value={editedTask.description || ""}
-                  onChange={(e) => setEditedTask({...editedTask, description: e.target.value})}
-                  className="min-h-[80px]"
+                  onChange={(html) => setEditedTask({ ...editedTask, description: html })}
+                  placeholder="Escribe una descripción o arrastra una imagen aquí…"
                 />
               </div>
             </div>
