@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/app/orbit-tasksflow/_components/rich-text-editor"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -1892,11 +1893,10 @@ export function TaskDetailView({
                 >
                   {isEditingDescription ? (
                     <div className="space-y-3">
-                      <Textarea
+                      <RichTextEditor
                         value={descriptionDraft}
-                        onChange={(e) => setDescriptionDraft(e.target.value)}
-                        className="min-h-[120px]"
-                        placeholder="Describe la tarea..."
+                        onChange={(html) => setDescriptionDraft(html)}
+                        placeholder="Escribe una descripción o arrastra una imagen aquí…"
                       />
                       <div className="flex items-center justify-end gap-2">
                         <Button variant="outline" size="sm" onClick={cancelEditDescription}>
@@ -1910,7 +1910,10 @@ export function TaskDetailView({
                     </div>
                   ) : (
                     <>
-                      <p className="text-muted-foreground whitespace-pre-wrap">{task.description}</p>
+                      <div
+                        className="prose prose-sm max-w-none text-muted-foreground [&_img]:rounded-md [&_a]:text-primary [&_a]:underline"
+                        dangerouslySetInnerHTML={{ __html: task.description || "<p></p>" }}
+                      />
                       {descriptionUpdatedAt && (
                         <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
                           <Clock className="h-3 w-3" />
@@ -2652,11 +2655,10 @@ export function TaskDetailView({
             
             <div className="space-y-2">
               <Label htmlFor="edit-description">Descripción</Label>
-              <Textarea 
-                id="edit-description"
+              <RichTextEditor
                 value={editedTask.description}
-                onChange={(e) => setEditedTask(prev => ({ ...prev, description: e.target.value }))}
-                className="min-h-[100px]"
+                onChange={(html) => setEditedTask(prev => ({ ...prev, description: html }))}
+                placeholder="Escribe una descripción o arrastra una imagen aquí…"
               />
             </div>
             
