@@ -80,6 +80,9 @@ interface TaskTemplate {
   order_index: number
   offset_days: number
   offset_minutes: number
+  timing_anchor: string | null
+  offset_days_quote: number
+  offset_minutes_quote: number
   requires_manager: boolean
   requires_director: boolean
   manager_staff_id: string | null
@@ -133,6 +136,9 @@ const emptyForm = {
   priority: "medium",
   offset_days: 0,
   offset_minutes: 0,
+  timing_anchor: "registro",
+  offset_days_quote: 0,
+  offset_minutes_quote: 0,
   requires_manager: false,
   requires_director: false,
   manager_staff_id: "",
@@ -299,6 +305,9 @@ export default function TaskSettingsPage() {
       priority: tpl.priority || "medium",
       offset_days: tpl.offset_days,
       offset_minutes: tpl.offset_minutes,
+      timing_anchor: tpl.timing_anchor || "registro",
+      offset_days_quote: tpl.offset_days_quote ?? 0,
+      offset_minutes_quote: tpl.offset_minutes_quote ?? 0,
       requires_manager: tpl.requires_manager,
       requires_director: tpl.requires_director ?? false,
       manager_staff_id: tpl.manager_staff_id || "",
@@ -326,8 +335,11 @@ export default function TaskSettingsPage() {
             description: formData.description || null,
             task_type: formData.task_type,
             priority: formData.priority,
-            offset_days: formData.offset_days,
-            offset_minutes: formData.offset_minutes,
+            offset_days: formData.timing_anchor === "registro" ? formData.offset_days : 0,
+            offset_minutes: formData.timing_anchor === "registro" ? formData.offset_minutes : 0,
+            timing_anchor: formData.timing_anchor,
+            offset_days_quote: formData.timing_anchor === "cotizacion" ? formData.offset_days_quote : 0,
+            offset_minutes_quote: formData.timing_anchor === "cotizacion" ? formData.offset_minutes_quote : 0,
             requires_manager: formData.requires_manager,
             requires_director: formData.requires_director,
             manager_staff_id: formData.requires_manager ? formData.manager_staff_id || null : null,
@@ -347,8 +359,11 @@ export default function TaskSettingsPage() {
           description: formData.description || null,
           task_type: formData.task_type,
           priority: formData.priority,
-          offset_days: formData.offset_days,
-          offset_minutes: formData.offset_minutes,
+          offset_days: formData.timing_anchor === "registro" ? formData.offset_days : 0,
+          offset_minutes: formData.timing_anchor === "registro" ? formData.offset_minutes : 0,
+          timing_anchor: formData.timing_anchor,
+          offset_days_quote: formData.timing_anchor === "cotizacion" ? formData.offset_days_quote : 0,
+          offset_minutes_quote: formData.timing_anchor === "cotizacion" ? formData.offset_minutes_quote : 0,
           requires_manager: formData.requires_manager,
           requires_director: formData.requires_director,
           manager_staff_id: formData.requires_manager ? formData.manager_staff_id || null : null,
@@ -430,6 +445,9 @@ export default function TaskSettingsPage() {
         priority: tpl.priority,
         offset_days: tpl.offset_days,
         offset_minutes: tpl.offset_minutes,
+        timing_anchor: tpl.timing_anchor || "registro",
+        offset_days_quote: tpl.offset_days_quote ?? 0,
+        offset_minutes_quote: tpl.offset_minutes_quote ?? 0,
         requires_manager: tpl.requires_manager,
         requires_director: tpl.requires_director,
         manager_staff_id: tpl.manager_staff_id || null,
@@ -485,12 +503,15 @@ export default function TaskSettingsPage() {
     }
   }
 
-  const offsetLabel = (days: number, minutes: number) => {
-    if (days === 0 && minutes === 0) return "Al registrar el prospecto"
+  const offsetLabel = (days: number, minutes: number, anchor: string = "registro") => {
+    const eventoBase = anchor === "cotizacion" ? "el envío de la cotización" : "el registro del prospecto"
+    if (days === 0 && minutes === 0) {
+      return anchor === "cotizacion" ? "Al enviar la cotización" : "Al registrar el prospecto"
+    }
     const parts: string[] = []
     if (days > 0) parts.push(`${days} día${days === 1 ? "" : "s"}`)
     if (minutes > 0) parts.push(`${minutes} min`)
-    return `${parts.join(" y ")} después del registro`
+    return `${parts.join(" y ")} después de ${eventoBase}`
   }
 
   return (
@@ -648,7 +669,9 @@ export default function TaskSettingsPage() {
                           </div>
                           <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                             <Clock className="h-3 w-3" />
-                            {offsetLabel(tpl.offset_days, tpl.offset_minutes)}
+                            {tpl.timing_anchor === "cotizacion"
+                              ? offsetLabel(tpl.offset_days_quote, tpl.offset_minutes_quote, "cotizacion")
+                              : offsetLabel(tpl.offset_days, tpl.offset_minutes, "registro")}
                           </div>
                         </div>
                       </TableCell>
@@ -833,42 +856,124 @@ export default function TaskSettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-2 pt-2 border-t">
-              <Label className="flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                ¿Cuándo debe realizarse? (respecto al registro del prospecto)
-              </Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="offset_days" className="text-xs text-muted-foreground">
-                    Días después
-                  </Label>
-                  <Input
-                    id="offset_days"
-                    type="number"
-                    min={0}
-                    value={formData.offset_days}
-                    onChange={(e) =>
-                      setFormData({ ...formData, offset_days: Math.max(0, parseInt(e.target.value) || 0) })
-                    }
+            <div className="space-y-4 pt-2 border-t">
+              <p className="text-sm text-muted-foreground">
+                Selecciona respecto a qué evento se calcula el vencimiento de esta tarea.
+              </p>
+
+              {/* Pregunta 1: respecto al registro del prospecto */}
+              <div
+                className={`space-y-2 rounded-lg border p-3 transition-colors ${
+                  formData.timing_anchor === "registro" ? "border-primary bg-primary/5" : ""
+                }`}
+              >
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.timing_anchor === "registro"}
+                    onCheckedChange={(value) => {
+                      if (value === true) setFormData({ ...formData, timing_anchor: "registro" })
+                    }}
                   />
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <Clock className="h-4 w-4" />
+                    ¿Cuándo debe realizarse? (respecto al registro del prospecto)
+                  </span>
+                </label>
+                <div className="grid grid-cols-2 gap-4 pl-6">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="offset_days" className="text-xs text-muted-foreground">
+                      Días después
+                    </Label>
+                    <Input
+                      id="offset_days"
+                      type="number"
+                      min={0}
+                      disabled={formData.timing_anchor !== "registro"}
+                      value={formData.offset_days}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offset_days: Math.max(0, parseInt(e.target.value) || 0) })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="offset_minutes" className="text-xs text-muted-foreground">
+                      Minutos después
+                    </Label>
+                    <Input
+                      id="offset_minutes"
+                      type="number"
+                      min={0}
+                      disabled={formData.timing_anchor !== "registro"}
+                      value={formData.offset_minutes}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offset_minutes: Math.max(0, parseInt(e.target.value) || 0) })
+                      }
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="offset_minutes" className="text-xs text-muted-foreground">
-                    Minutos después
-                  </Label>
-                  <Input
-                    id="offset_minutes"
-                    type="number"
-                    min={0}
-                    value={formData.offset_minutes}
-                    onChange={(e) =>
-                      setFormData({ ...formData, offset_minutes: Math.max(0, parseInt(e.target.value) || 0) })
-                    }
-                  />
-                </div>
+                {formData.timing_anchor === "registro" && (
+                  <p className="text-xs text-muted-foreground pl-6">
+                    {offsetLabel(formData.offset_days, formData.offset_minutes)}
+                  </p>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">{offsetLabel(formData.offset_days, formData.offset_minutes)}</p>
+
+              {/* Pregunta 2: respecto al envío de la cotización */}
+              <div
+                className={`space-y-2 rounded-lg border p-3 transition-colors ${
+                  formData.timing_anchor === "cotizacion" ? "border-primary bg-primary/5" : ""
+                }`}
+              >
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.timing_anchor === "cotizacion"}
+                    onCheckedChange={(value) => {
+                      if (value === true) setFormData({ ...formData, timing_anchor: "cotizacion" })
+                    }}
+                  />
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <Clock className="h-4 w-4" />
+                    ¿Cuándo debe realizarse? (respecto al envío de la cotización)
+                  </span>
+                </label>
+                <div className="grid grid-cols-2 gap-4 pl-6">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="offset_days_quote" className="text-xs text-muted-foreground">
+                      Días después
+                    </Label>
+                    <Input
+                      id="offset_days_quote"
+                      type="number"
+                      min={0}
+                      disabled={formData.timing_anchor !== "cotizacion"}
+                      value={formData.offset_days_quote}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offset_days_quote: Math.max(0, parseInt(e.target.value) || 0) })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="offset_minutes_quote" className="text-xs text-muted-foreground">
+                      Minutos después
+                    </Label>
+                    <Input
+                      id="offset_minutes_quote"
+                      type="number"
+                      min={0}
+                      disabled={formData.timing_anchor !== "cotizacion"}
+                      value={formData.offset_minutes_quote}
+                      onChange={(e) =>
+                        setFormData({ ...formData, offset_minutes_quote: Math.max(0, parseInt(e.target.value) || 0) })
+                      }
+                    />
+                  </div>
+                </div>
+                {formData.timing_anchor === "cotizacion" && (
+                  <p className="text-xs text-muted-foreground pl-6">
+                    {offsetLabel(formData.offset_days_quote, formData.offset_minutes_quote, "cotizacion")}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Etapas del pipeline donde se muestra la tarea */}
