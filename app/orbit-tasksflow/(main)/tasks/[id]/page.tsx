@@ -403,6 +403,7 @@ export function TaskDetailView({
   // Adjuntos, enlaces de Drive e imágenes embebidas de la Descripción
   const [descriptionDriveLinks, setDescriptionDriveLinks] = useState<{ id: string; name: string; url: string }[]>([])
   const [descriptionImages, setDescriptionImages] = useState<{ id: string; name: string; url: string }[]>([])
+  const [descriptionAttachments, setDescriptionAttachments] = useState<{ id: string; name: string; type: string; size: string }[]>([])
   const [showAddDescDriveLink, setShowAddDescDriveLink] = useState(false)
   const [newDescDriveLinkName, setNewDescDriveLinkName] = useState("")
   const [newDescDriveLinkUrl, setNewDescDriveLinkUrl] = useState("")
@@ -1911,6 +1912,29 @@ export function TaskDetailView({
                     </div>
                   )}
 
+                  {/* Archivos adjuntos de la descripción */}
+                  {descriptionAttachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      {descriptionAttachments.map((file) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-muted border rounded-lg text-sm"
+                        >
+                          <Paperclip className="h-3 w-3 text-muted-foreground" />
+                          <span className="max-w-[150px] truncate">{file.name}</span>
+                          <span className="text-xs text-muted-foreground">{file.size}</span>
+                          <button
+                            onClick={() => setDescriptionAttachments(prev => prev.filter(f => f.id !== file.id))}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label={`Quitar ${file.name}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Enlaces de Google Drive de la descripción */}
                   {descriptionDriveLinks.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-4">
@@ -1988,23 +2012,25 @@ export function TaskDetailView({
                       onClick={() => {
                         const input = document.createElement("input")
                         input.type = "file"
-                        input.accept = "image/*"
                         input.multiple = true
-                        input.onchange = async (e) => {
+                        input.onchange = (e) => {
                           const files = (e.target as HTMLInputElement).files
-                          if (files) {
-                            const images = await readImageFiles(files)
-                            if (images.length) {
-                              setDescriptionImages(prev => [...prev, ...images])
-                              logActivity(`Imagen agregada a la descripción (${images.length})`)
-                            }
+                          if (files && files.length) {
+                            const newFiles = Array.from(files).map(f => ({
+                              id: `da-${Date.now()}-${Math.random()}`,
+                              name: f.name,
+                              type: f.type.split('/')[0] || 'file',
+                              size: `${(f.size / 1024).toFixed(1)} KB`,
+                            }))
+                            setDescriptionAttachments(prev => [...prev, ...newFiles])
+                            logActivity(`Archivo adjuntado a la descripción (${newFiles.length})`)
                           }
                         }
                         input.click()
                       }}
                     >
-                      <FileImage className="h-4 w-4 mr-1" />
-                      Imagen
+                      <Paperclip className="h-4 w-4 mr-1" />
+                      Adjuntar
                     </Button>
                     <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setShowAddDescDriveLink(true)}>
                       <svg className="h-4 w-4 mr-1" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
