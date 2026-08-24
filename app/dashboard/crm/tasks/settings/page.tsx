@@ -36,6 +36,26 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { toast } from "sonner"
@@ -45,7 +65,6 @@ import {
   Plus,
   Pencil,
   Trash2,
-  GripVertical,
   ListChecks,
   ArrowUp,
   ArrowDown,
@@ -53,6 +72,8 @@ import {
   Clock,
   MessageSquareText,
   Layers,
+  MoreHorizontal,
+  Copy,
 } from "lucide-react"
 
 interface TaskTemplate {
@@ -398,6 +419,54 @@ export default function TaskSettingsPage() {
     }
   }
 
+  async function duplicateTemplate(tpl: TaskTemplate) {
+    try {
+      const maxOrder = templates.length > 0 ? Math.max(...templates.map((t) => t.order_index)) : 0
+      const { error } = await supabase.from("crm_task_templates").insert({
+        title: `${tpl.title} (copia)`,
+        description: tpl.description || null,
+        task_type: tpl.task_type,
+        priority: tpl.priority,
+        offset_days: tpl.offset_days,
+        offset_minutes: tpl.offset_minutes,
+        requires_manager: tpl.requires_manager,
+        requires_director: tpl.requires_director,
+        manager_staff_id: tpl.manager_staff_id || null,
+        director_staff_id: tpl.director_staff_id || null,
+        whatsapp_message: tpl.whatsapp_message || null,
+        email_subject: tpl.email_subject || null,
+        email_message: tpl.email_message || null,
+        pipeline_stages: tpl.pipeline_stages || [],
+        order_index: maxOrder + 1,
+        is_active: tpl.is_active,
+      })
+      if (error) throw error
+      toast.success("Tarea duplicada")
+      fetchTemplates()
+    } catch (error) {
+      console.error("Error duplicating template:", error)
+      toast.error("Error al duplicar la tarea")
+    }
+  }
+
+  // Cambia/agrega etapas del pipeline directamente desde el menú de acciones.
+  async function setTemplateStages(tpl: TaskTemplate, stages: string[]) {
+    try {
+      const { error } = await supabase
+        .from("crm_task_templates")
+        .update({ pipeline_stages: stages, updated_at: new Date().toISOString() })
+        .eq("id", tpl.id)
+      if (error) throw error
+      // Actualización optimista para que el menú refleje el cambio de inmediato.
+      setTemplates((prev) =>
+        prev.map((t) => (t.id === tpl.id ? { ...t, pipeline_stages: stages } : t)),
+      )
+    } catch (error) {
+      console.error("Error updating template stages:", error)
+      toast.error("Error al actualizar las etapas")
+    }
+  }
+
   const offsetLabel = (days: number, minutes: number) => {
     if (days === 0 && minutes === 0) return "Al registrar el prospecto"
     const parts: string[] = []
@@ -496,94 +565,171 @@ export default function TaskSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {templates.map((tpl, index) => (
-                <div
-                  key={tpl.id}
-                  className={`flex items-center gap-4 p-4 rounded-lg border ${
-                    tpl.is_active ? "bg-background" : "bg-muted/50 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <GripVertical className="h-5 w-5" />
-                    <span className="text-sm font-mono w-6">{index + 1}</span>
-                  </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-24">Orden</TableHead>
+                    <TableHead>Tarea</TableHead>
+                    <TableHead className="min-w-[200px]">Etapa</TableHead>
+                    <TableHead className="w-24 text-center">Activa</TableHead>
+                    <TableHead className="w-16 text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {templates.map((tpl, index) => (
+                    <TableRow key={tpl.id} className={tpl.is_active ? "" : "bg-muted/50 opacity-60"}>
+                      {/* Orden y reordenamiento */}
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-mono text-muted-foreground w-5">{index + 1}</span>
+                          <div className="flex flex-col">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              onClick={() => moveTemplate(tpl, "up")}
+                              disabled={index === 0}
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              onClick={() => moveTemplate(tpl, "down")}
+                              disabled={index === templates.length - 1}
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </TableCell>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium truncate">{tpl.title}</span>
-                      <Badge variant="secondary">
-                        {TASK_TYPES.find((t) => t.value === tpl.task_type)?.label || tpl.task_type}
-                      </Badge>
-                      {tpl.requires_manager && (
-                        <Badge className="bg-blue-500 text-white">
-                          <UserCog className="h-3 w-3 mr-1" />
-                          Gerente
-                        </Badge>
-                      )}
-                      {tpl.requires_director && (
-                        <Badge className="bg-purple-500 text-white">
-                          <UserCog className="h-3 w-3 mr-1" />
-                          Director
-                        </Badge>
-                      )}
-                      {!tpl.is_active && <Badge variant="outline">Inactiva</Badge>}
-                    </div>
-                    <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {offsetLabel(tpl.offset_days, tpl.offset_minutes)}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                      <Layers className="h-3 w-3 text-muted-foreground" />
-                      {tpl.pipeline_stages && tpl.pipeline_stages.length > 0 ? (
-                        tpl.pipeline_stages.map((stage) => (
-                          <Badge key={stage} variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
-                            {stage}
-                          </Badge>
-                        ))
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Todas las etapas</span>
-                      )}
-                    </div>
-                  </div>
+                      {/* Tarea */}
+                      <TableCell>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{tpl.title}</span>
+                            <Badge variant="secondary">
+                              {TASK_TYPES.find((t) => t.value === tpl.task_type)?.label || tpl.task_type}
+                            </Badge>
+                            {tpl.requires_manager && (
+                              <Badge className="bg-blue-500 text-white">
+                                <UserCog className="h-3 w-3 mr-1" />
+                                Gerente
+                              </Badge>
+                            )}
+                            {tpl.requires_director && (
+                              <Badge className="bg-purple-500 text-white">
+                                <UserCog className="h-3 w-3 mr-1" />
+                                Director
+                              </Badge>
+                            )}
+                            {!tpl.is_active && <Badge variant="outline">Inactiva</Badge>}
+                          </div>
+                          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            {offsetLabel(tpl.offset_days, tpl.offset_minutes)}
+                          </div>
+                        </div>
+                      </TableCell>
 
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => moveTemplate(tpl, "up")}
-                      disabled={index === 0}
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => moveTemplate(tpl, "down")}
-                      disabled={index === templates.length - 1}
-                    >
-                      <ArrowDown className="h-4 w-4" />
-                    </Button>
-                  </div>
+                      {/* Etapa */}
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {tpl.pipeline_stages && tpl.pipeline_stages.length > 0 ? (
+                            tpl.pipeline_stages.map((stage) => (
+                              <Badge key={stage} variant="outline" className="text-[11px] px-1.5 py-0 font-normal">
+                                {stage}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Todas las etapas</span>
+                          )}
+                        </div>
+                      </TableCell>
 
-                  <div className="flex items-center gap-2">
-                    <Switch checked={tpl.is_active} onCheckedChange={() => toggleActive(tpl)} />
-                    <Button variant="ghost" size="icon" onClick={() => openEditDialog(tpl)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        setToDelete(tpl)
-                        setDeleteDialogOpen(true)
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                      {/* Activa */}
+                      <TableCell className="text-center">
+                        <Switch checked={tpl.is_active} onCheckedChange={() => toggleActive(tpl)} />
+                      </TableCell>
+
+                      {/* Acciones */}
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Más acciones">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuItem onSelect={() => openEditDialog(tpl)}>
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Editar tarea
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => duplicateTemplate(tpl)}>
+                              <Copy className="h-4 w-4 mr-2" />
+                              Duplicar tarea
+                            </DropdownMenuItem>
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger>
+                                <Layers className="h-4 w-4 mr-2" />
+                                Cambiar etapa
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+                                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                                  {stageOptions.length === 0
+                                    ? "Sin etapas configuradas"
+                                    : "Selecciona una o más etapas"}
+                                </DropdownMenuLabel>
+                                {stageOptions.map((stage) => {
+                                  const current = tpl.pipeline_stages || []
+                                  const checked = current.includes(stage)
+                                  return (
+                                    <DropdownMenuCheckboxItem
+                                      key={stage}
+                                      checked={checked}
+                                      onSelect={(e) => e.preventDefault()}
+                                      onCheckedChange={(value) => {
+                                        const next = value
+                                          ? [...current, stage]
+                                          : current.filter((s) => s !== stage)
+                                        setTemplateStages(tpl, next)
+                                      }}
+                                    >
+                                      {stage}
+                                    </DropdownMenuCheckboxItem>
+                                  )
+                                })}
+                                {(tpl.pipeline_stages?.length ?? 0) > 0 && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onSelect={() => setTemplateStages(tpl, [])}>
+                                      Mostrar en todas las etapas
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => {
+                                setToDelete(tpl)
+                                setDeleteDialogOpen(true)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Eliminar tarea
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
         </Card>
