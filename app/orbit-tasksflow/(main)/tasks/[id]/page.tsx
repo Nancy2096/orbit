@@ -1871,19 +1871,11 @@ export function TaskDetailView({
               <Card className="border-b-2 border-b-purple-500">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-lg">Descripción</CardTitle>
-                  {!isEditingDescription && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => {
-                        setDescriptionDraft(task.description)
-                        setIsEditingDescription(true)
-                      }}
-                    >
-                      <Edit className="h-4 w-4" />
-                      Editar
-                    </Button>
+                  {descriptionUpdatedAt && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      Última edición: {formatDateTime(descriptionUpdatedAt)}
+                    </p>
                   )}
                 </CardHeader>
                 <CardContent
@@ -1891,37 +1883,14 @@ export function TaskDetailView({
                   onDragLeave={() => setIsDescDragOver(false)}
                   onDrop={handleDescriptionDrop}
                 >
-                  {isEditingDescription ? (
-                    <div className="space-y-3">
-                      <RichTextEditor
-                        value={descriptionDraft}
-                        onChange={(html) => setDescriptionDraft(html)}
-                        placeholder="Escribe una descripción o arrastra una imagen aquí…"
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={cancelEditDescription}>
-                          Cancelar
-                        </Button>
-                        <Button size="sm" onClick={saveDescription}>
-                          <Save className="h-4 w-4 mr-2" />
-                          Guardar
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div
-                        className="prose prose-sm max-w-none text-muted-foreground [&_img]:rounded-md [&_a]:text-primary [&_a]:underline"
-                        dangerouslySetInnerHTML={{ __html: task.description || "<p></p>" }}
-                      />
-                      {descriptionUpdatedAt && (
-                        <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          Última edición: {formatDateTime(descriptionUpdatedAt)}
-                        </p>
-                      )}
-                    </>
-                  )}
+                  <RichTextEditor
+                    value={task.description || ""}
+                    onChange={(html) => {
+                      setTask((prev: any) => ({ ...prev, description: html }))
+                      setDescriptionUpdatedAt(new Date().toISOString())
+                    }}
+                    placeholder="Escribe una descripción o arrastra una imagen aquí…"
+                  />
 
                   {/* Imágenes embebidas (arrastra imágenes aquí) */}
                   {descriptionImages.length > 0 && (
