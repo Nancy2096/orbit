@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { parseLocalDate } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -595,7 +596,7 @@ if (agencyId) {
 
     let matchesDate = true
     if (dateRange.start || dateRange.end) {
-      const issued = invoice.issue_date ? new Date(invoice.issue_date) : null
+      const issued = invoice.issue_date ? parseLocalDate(invoice.issue_date) : null
       if (!issued) {
         matchesDate = false
       } else {
@@ -642,7 +643,7 @@ if (agencyId) {
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
-    const date = new Date(dateString)
+    const date = parseLocalDate(dateString)
     return date.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })
   }
 

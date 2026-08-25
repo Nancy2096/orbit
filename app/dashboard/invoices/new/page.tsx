@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { addMonthsToDateString } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -344,13 +345,12 @@ useEffect(() => {
   }, [formData.account_id, items, accounts])
   
   useEffect(() => {
-  // Calculate due date based on payment terms
-    if (formData.issue_date && formData.payment_terms) {
-      const issueDate = new Date(formData.issue_date)
-      issueDate.setDate(issueDate.getDate() + formData.payment_terms)
-      setFormData(prev => ({ ...prev, due_date: issueDate.toISOString().split("T")[0] }))
+  // La fecha de vencimiento se calcula automáticamente a 3 meses después de
+  // la fecha de emisión, usando aritmética en horario local para no desfasar días.
+    if (formData.issue_date) {
+      setFormData(prev => ({ ...prev, due_date: addMonthsToDateString(formData.issue_date, 3) }))
     }
-  }, [formData.issue_date, formData.payment_terms])
+  }, [formData.issue_date])
 
   const fetchAgencies = async () => {
     const { data } = await supabase.from("agencies").select("id, name").eq("is_active", true).order("name")
