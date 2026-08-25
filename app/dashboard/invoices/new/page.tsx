@@ -1089,6 +1089,9 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
                       onChange={(e) => setFormData({ ...formData, issue_date: e.target.value })}
                       required
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Fecha en que se elaboró la factura. La fecha de alta en el sistema se registra automáticamente al guardar.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="payment_terms">Días de Crédito</Label>

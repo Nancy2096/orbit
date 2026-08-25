@@ -440,8 +440,20 @@ export default function InvoiceDetailPage() {
   }
 
   const formatDate = (dateString: string | null) => {
+  if (!dateString) return "-"
+  return new Date(dateString).toLocaleDateString("es-MX", { day: "2-digit", month: "long", year: "numeric" })
+  }
+
+  // Fecha con hora, usada para la fecha de alta en el sistema (auditoría).
+  const formatDateTime = (dateString: string | null) => {
     if (!dateString) return "-"
-    return new Date(dateString).toLocaleDateString("es-MX", { day: "2-digit", month: "long", year: "numeric" })
+    return new Date(dateString).toLocaleString("es-MX", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
   }
 
   // Branding helpers
@@ -621,6 +633,13 @@ export default function InvoiceDetailPage() {
                 <div>
                   <div className="text-muted-foreground">Moneda</div>
                   <div className="font-medium">{invoice.currency?.code || "MXN"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Fecha de Alta en el Sistema</div>
+                  <div className="font-medium flex items-center gap-1" title="Fecha en que se registró la factura en el sistema (no editable)">
+                    <Clock className="h-4 w-4" />
+                    {formatDateTime(invoice.created_at)}
+                  </div>
                 </div>
               </div>
               {(invoice.cfdi_use || invoice.payment_method) && (
