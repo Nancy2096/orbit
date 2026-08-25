@@ -193,6 +193,8 @@ export default function NewInvoicePage() {
   })
 
   const [items, setItems] = useState<InvoiceItem[]>([])
+  // Vista previa del próximo folio consecutivo (se confirma/reserva al guardar).
+  const [folioPreview, setFolioPreview] = useState("")
   const [showItemDialog, setShowItemDialog] = useState(false)
   const [newItem, setNewItem] = useState<InvoiceItem>({
     id: "",
@@ -276,8 +278,22 @@ useEffect(() => {
       fetchClients(formData.agency_id)
       fetchServices(formData.agency_id)
       fetchAgencyStaff(formData.agency_id)
+      fetchFolioPreview(formData.agency_id)
+    } else {
+      setFolioPreview("")
     }
   }, [formData.agency_id])
+
+  // Consulta (sin reservar) el último folio para mostrar el siguiente en la vista previa.
+  async function fetchFolioPreview(agencyId: string) {
+    const { data, error } = await supabase.rpc("peek_invoice_folio", { p_agency_id: agencyId })
+    if (error) {
+      console.error("[v0] Error al obtener la vista previa del folio:", error)
+      setFolioPreview("")
+      return
+    }
+    setFolioPreview(formatFolio(Number(data ?? 0) + 1))
+  }
 
   // Cargar cuentas y proyectos relacionados cuando cambia el cliente
   useEffect(() => {
@@ -626,6 +642,18 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
     setItems(items.filter(item => item.id !== id))
   }
 
+  // Edita una partida existente en línea (precio, cantidad o descuento) y
+  // recalcula sus totales automáticamente.
+  const updateItem = (id: string, field: keyof InvoiceItem, value: number) => {
+    setItems(prev =>
+      prev.map(item =>
+        item.id === id
+          ? calculateItemTotals({ ...item, [field]: Number.isFinite(value) ? value : 0 })
+          : item,
+      ),
+    )
+  }
+
   const calculateTotals = () => {
     const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0)
     const taxAmount = items.reduce((sum, item) => sum + item.tax_amount, 0)
@@ -633,15 +661,22 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
     return { subtotal, taxAmount, total }
   }
 
-  const generateInvoiceNumber = async () => {
+  const formatFolio = (folio: number) => {
     const year = new Date().getFullYear()
-    const { count } = await supabase
-      .from("invoices")
-      .select("*", { count: "exact", head: true })
-      .eq("agency_id", formData.agency_id)
-    
-    const nextNumber = (count || 0) + 1
-    return `FAC-${year}-${String(nextNumber).padStart(5, "0")}`
+    return `FAC-${year}-${String(folio).padStart(5, "0")}`
+  }
+
+  // Reserva atómica del siguiente folio consecutivo para la agencia.
+  // El folio se incrementa de forma permanente: aunque la factura se cancele,
+  // ese folio no se reutiliza.
+  const reserveInvoiceNumber = async () => {
+    const { data, error } = await supabase.rpc("next_invoice_folio", {
+      p_agency_id: formData.agency_id,
+    })
+    if (error || data == null) {
+      throw new Error(error?.message || "No se pudo reservar el folio de la factura")
+    }
+    return formatFolio(Number(data))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -656,7 +691,17 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
     }
 
     const totals = calculateTotals()
-    const invoiceNumber = formData.invoice_number || await generateInvoiceNumber()
+
+    // Siempre reservamos el folio de forma atómica al guardar para garantizar
+    // que sea consecutivo y único, incluso si otro usuario factura al mismo tiempo.
+    let invoiceNumber: string
+    try {
+      invoiceNumber = await reserveInvoiceNumber()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo generar el folio de la factura")
+      setLoading(false)
+      return
+    }
 
     const { data: invoice, error: invoiceError } = await supabase
       .from("invoices")
@@ -779,10 +824,15 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
                     <Label htmlFor="invoice_number">Número de Factura</Label>
                     <Input
                       id="invoice_number"
-                      value={formData.invoice_number}
-                      onChange={(e) => setFormData({ ...formData, invoice_number: e.target.value })}
-                      placeholder="Auto-generado si se deja vacío"
+                      value={folioPreview}
+                      readOnly
+                      disabled
+                      className="font-mono bg-muted"
+                      placeholder={formData.agency_id ? "Generando folio..." : "Selecciona una agencia"}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Folio consecutivo. Se asigna al guardar y no se reutiliza aunque la factura se cancele.
+                    </p>
                   </div>
                 </div>
 
@@ -1277,9 +1327,46 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
                       {items.map((item) => (
                         <TableRow key={item.id}>
                           <TableCell>{item.description}</TableCell>
-                          <TableCell className="text-right">{item.quantity}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(item.unit_price)}</TableCell>
-                          <TableCell className="text-right">{item.discount_percentage}%</TableCell>
+                          <TableCell className="text-right">
+                            <Input
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={item.quantity}
+                              onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value))}
+                              className="h-8 w-20 text-right ml-auto"
+                              aria-label={`Cantidad de ${item.description}`}
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <span className="text-muted-foreground">{invoiceCurrency?.symbol || "$"}</span>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={item.unit_price}
+                                onChange={(e) => updateItem(item.id, "unit_price", parseFloat(e.target.value))}
+                                className="h-8 w-28 text-right"
+                                aria-label={`Precio unitario de ${item.description}`}
+                              />
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step="0.01"
+                                value={item.discount_percentage}
+                                onChange={(e) => updateItem(item.id, "discount_percentage", parseFloat(e.target.value))}
+                                className="h-8 w-16 text-right"
+                                aria-label={`Descuento de ${item.description}`}
+                              />
+                              <span className="text-muted-foreground">%</span>
+                            </div>
+                          </TableCell>
                           <TableCell className="text-right">{formatCurrency(item.subtotal)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(item.tax_amount)}</TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(item.total)}</TableCell>
