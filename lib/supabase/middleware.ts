@@ -6,6 +6,20 @@ export async function updateSession(request: NextRequest) {
     request,
   })
 
+  const { pathname } = request.nextUrl
+
+  // Solo las rutas de dashboard y auth necesitan evaluar la sesión para
+  // redirigir. Para el resto (páginas públicas, root, etc.) evitamos la
+  // llamada a getUser(), que hace una petición de red a Supabase en cada
+  // request. Así, si el servicio de auth responde lento, no se congela
+  // toda la aplicación (imágenes, archivos y demás siguen cargando).
+  const needsAuthCheck =
+    pathname.startsWith('/dashboard') || pathname.startsWith('/auth')
+
+  if (!needsAuthCheck) {
+    return supabaseResponse
+  }
+
   // With Fluid compute, don't put this client in a global environment
   // variable. Always create a new one on each request.
   const supabase = createServerClient(
