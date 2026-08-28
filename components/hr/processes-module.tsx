@@ -65,7 +65,10 @@ import {
   Flag,
   Clock,
   Network,
+  Link2,
+  ExternalLink,
 } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 interface Department {
   id: string
@@ -86,6 +89,8 @@ interface ProcessStep {
   responsible_position_id: string | null
   responsible_department_id: string | null
   estimated_duration: string
+  resource_url: string | null
+  resource_url_added_at: string | null
 }
 
 interface Process {
@@ -140,6 +145,134 @@ function buildDuration(amount: string, unit: DurationUnit): string {
   return `${trimmed} ${unit}`
 }
 
+// Asegura que el enlace tenga protocolo para que sea funcional al abrirlo.
+function normalizeUrl(url: string): string {
+  const trimmed = url.trim()
+  if (!trimmed) return ""
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
+// Fecha/hora legible del momento en que se subió el enlace.
+function formatLinkDate(iso: string | null): string {
+  if (!iso) return ""
+  return new Date(iso).toLocaleString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+// Botón/ícono de enlace junto a "Puesto responsable". Permite subir un link
+// externo (Drive, web, etc.), lo hace funcional (abrir en nueva pestaña) y
+// registra la fecha/hora en que se subió.
+function StepResourceLink({
+  url,
+  addedAt,
+  onSave,
+  onRemove,
+}: {
+  url: string | null
+  addedAt: string | null
+  onSave: (url: string, addedAt: string) => void
+  onRemove: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState(url || "")
+  const hasLink = !!url
+
+  // Sincroniza el input al abrir para reflejar el valor actual del paso.
+  useEffect(() => {
+    if (open) setValue(url || "")
+  }, [open, url])
+
+  const save = () => {
+    const normalized = normalizeUrl(value)
+    if (!normalized) return
+    // Si el enlace no cambió, se conserva la fecha original; si cambió (o es
+    // nuevo), se registra la fecha/hora actual.
+    const nextDate = normalized === (url || "") && addedAt ? addedAt : new Date().toISOString()
+    onSave(normalized, nextDate)
+    setOpen(false)
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className={`h-9 w-9 ${hasLink ? "border-primary text-primary" : "text-muted-foreground"}`}
+          aria-label={hasLink ? "Editar enlace del paso" : "Agregar enlace del paso"}
+          title={hasLink ? "Editar enlace" : "Agregar enlace"}
+        >
+          <Link2 className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Enlace externo (Drive, web, etc.)</Label>
+          <Input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                save()
+              }
+            }}
+            placeholder="https://drive.google.com/..."
+            className="h-9"
+          />
+        </div>
+
+        {hasLink && (
+          <div className="rounded-md border bg-muted/50 px-3 py-2 text-xs">
+            <a
+              href={url as string}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 font-medium text-primary hover:underline break-all"
+            >
+              <ExternalLink className="h-3 w-3 shrink-0" />
+              Abrir enlace
+            </a>
+            {addedAt && (
+              <p className="mt-1 text-muted-foreground">Subido el {formatLinkDate(addedAt)}</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-between gap-2">
+          {hasLink ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-destructive"
+              onClick={() => {
+                onRemove()
+                setValue("")
+                setOpen(false)
+              }}
+            >
+              Quitar
+            </Button>
+          ) : (
+            <span />
+          )}
+          <Button type="button" size="sm" onClick={save} disabled={!value.trim()}>
+            Guardar enlace
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function ProcessesModule({ agencyId }: { agencyId: string }) {
   const supabase = createClient()
 
@@ -192,7 +325,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
       supabase
         .from("processes")
         .select(
-          "id, department_id, name, description, objective, start_point, end_point, status, process_steps(id, step_order, title, description, responsible_position_id, responsible_department_id, estimated_duration), process_departments(department_id), process_positions(position_id)",
+          "id, department_id, name, description, objective, start_point, end_point, status, process_steps(id, step_order, title, description, responsible_position_id, responsible_department_id, estimated_duration, resource_url, resource_url_added_at), process_departments(department_id), process_positions(position_id)",
         )
         .eq("agency_id", agencyId)
         .order("created_at", { ascending: false }),
@@ -251,6 +384,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
         responsible_position_id: s.responsible_position_id,
         responsible_department_id: s.responsible_department_id,
         estimated_duration: s.estimated_duration || "",
+        resource_url: s.resource_url ?? null,
+        resource_url_added_at: s.resource_url_added_at ?? null,
       })),
     )
     setDialogOpen(true)
@@ -266,6 +401,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
         responsible_position_id: null,
         responsible_department_id: ownerDepartmentId !== NONE ? ownerDepartmentId : null,
         estimated_duration: "",
+        resource_url: null,
+        resource_url_added_at: null,
       },
     ])
 
@@ -341,6 +478,8 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
               responsible_position_id: s.responsible_position_id,
               responsible_department_id: s.responsible_department_id,
               estimated_duration: s.estimated_duration.trim() || null,
+              resource_url: s.resource_url?.trim() || null,
+              resource_url_added_at: s.resource_url?.trim() ? s.resource_url_added_at : null,
             })),
           ),
         ),
@@ -589,6 +728,22 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                           </span>
                                         )
                                       })()}
+                                      {s.resource_url && (
+                                        <a
+                                          href={s.resource_url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                                        >
+                                          <ExternalLink className="h-3 w-3 shrink-0" />
+                                          Enlace del paso
+                                          {s.resource_url_added_at && (
+                                            <span className="text-muted-foreground font-normal">
+                                              (subido el {formatLinkDate(s.resource_url_added_at)})
+                                            </span>
+                                          )}
+                                        </a>
+                                      )}
                                     </div>
                                   </li>
                                 ))}
@@ -619,7 +774,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
 
       {/* Builder dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar proceso" : "Nuevo proceso"}</DialogTitle>
             <DialogDescription>
@@ -787,7 +942,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                             placeholder="Descripción / instrucciones del paso"
                             rows={2}
                           />
-                          <div className="grid gap-2 sm:grid-cols-3">
+                          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
                             <div className="space-y-1">
                               <Label className="text-xs">Área responsable</Label>
                               <Select
@@ -842,7 +997,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                     <Input
                                       type="number"
                                       min={0}
-                                      className="h-9"
+                                      className="h-9 w-16 shrink-0"
                                       value={parsed.amount}
                                       onChange={(e) =>
                                         updateStep(i, {
@@ -859,7 +1014,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                         })
                                       }
                                     >
-                                      <SelectTrigger className="h-9 w-28">
+                                      <SelectTrigger className="h-9 min-w-0 flex-1">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -872,6 +1027,21 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                   </div>
                                 )
                               })()}
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Link</Label>
+                              <div className="flex h-9 items-center">
+                                <StepResourceLink
+                                  url={s.resource_url}
+                                  addedAt={s.resource_url_added_at}
+                                  onSave={(resource_url, resource_url_added_at) =>
+                                    updateStep(i, { resource_url, resource_url_added_at })
+                                  }
+                                  onRemove={() =>
+                                    updateStep(i, { resource_url: null, resource_url_added_at: null })
+                                  }
+                                />
+                              </div>
                             </div>
                           </div>
                         </div>

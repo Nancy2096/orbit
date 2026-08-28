@@ -46,7 +46,8 @@ import {
   Plus, 
   Search, 
   Receipt, 
-  Pencil, 
+  Pencil,
+  Eye, 
   Trash2, 
   DollarSign, 
   TrendingDown, 
@@ -280,13 +281,17 @@ export default function ExpensesPage() {
 
     if (staffData) {
       setCurrentUserStaff(staffData)
-      // Pre-fill the requested_by_id always with logged user
-      // If user has an agency, also pre-fill agency_id
-      setExpenseForm(prev => ({
-        ...prev,
-        agency_id: staffData.agency_id || prev.agency_id,
-        requested_by_id: staffData.id
-      }))
+      // Prellenar el solicitante con el usuario logueado SOLO si no se está
+      // editando un gasto existente. Al editar, se conserva el solicitante
+      // original del gasto para no reasignarlo al usuario actual.
+      setExpenseForm(prev => {
+        if (editingExpense) return prev
+        return {
+          ...prev,
+          agency_id: staffData.agency_id || prev.agency_id,
+          requested_by_id: staffData.id,
+        }
+      })
     }
   }
 
@@ -328,13 +333,18 @@ export default function ExpensesPage() {
   }, [expenseForm.requested_by_id, showExpenseDialog])
 
   // Al abrir el formulario de un gasto nuevo con agencia seleccionada, se
-  // consulta el siguiente número consecutivo para mostrarlo como referencia.
+  // consulta (SIN reservar) el siguiente número consecutivo como referencia.
+  // El folio real se reserva atómicamente al guardar, no al previsualizar,
+  // para no consumir números si el usuario cierra sin guardar.
   useEffect(() => {
     if (showExpenseDialog && !editingExpense && expenseForm.agency_id) {
-      generateExpenseNumber(expenseForm.agency_id).then(setPreviewNumber)
+      supabase
+        .rpc("peek_expense_folio", { p_agency_id: expenseForm.agency_id })
+        .then(({ data }) => setPreviewNumber(formatExpenseFolio(Number(data ?? 0) + 1)))
     } else if (!showExpenseDialog) {
       setPreviewNumber("")
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showExpenseDialog, editingExpense, expenseForm.agency_id])
 
   const fetchAgencies = async () => {
@@ -600,15 +610,22 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     })
   }
 
-  const generateExpenseNumber = async (agencyId: string) => {
+  const formatExpenseFolio = (folio: number) => {
     const year = new Date().getFullYear()
-    const { count } = await supabase
-      .from("expenses")
-      .select("*", { count: "exact", head: true })
-      .eq("agency_id", agencyId)
-    
-    const nextNumber = (count || 0) + 1
-    return `GAS-${year}-${String(nextNumber).padStart(5, "0")}`
+    return `GAS-${year}-${String(folio).padStart(5, "0")}`
+  }
+
+  // Reserva atómica del siguiente folio consecutivo del gasto. El folio se
+  // incrementa de forma permanente: aunque el gasto se elimine, ese número
+  // no se reutiliza y es único.
+  const generateExpenseNumber = async (agencyId: string) => {
+    const { data, error } = await supabase.rpc("next_expense_folio", {
+      p_agency_id: agencyId,
+    })
+    if (error || data == null) {
+      throw new Error(error?.message || "No se pudo reservar el número de gasto")
+    }
+    return formatExpenseFolio(Number(data))
   }
 
   // Sube el comprobante/factura del gasto a Blob (privado) y guarda la URL.
@@ -634,6 +651,11 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
   }
 
   const handleSaveExpense = async (submitForApproval: boolean) => {
+    // Un gasto aprobado es de solo lectura: no se puede editar, guardar como
+    // borrador ni reenviar a aprobación. Solo se puede ver y eliminar.
+    if (editingExpense && editingExpense.approval_status === "approved") {
+      return
+    }
     // Datos mínimos para cualquier guardado (incluido el borrador).
     if (!expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id) return
     // Para enviar a aprobación es obligatorio elegir un aprobador.
@@ -700,7 +722,15 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         })
       }
     } else {
-      const expenseNumber = await generateExpenseNumber(expenseForm.agency_id)
+      let expenseNumber: string
+      try {
+        expenseNumber = await generateExpenseNumber(expenseForm.agency_id)
+      } catch (err) {
+        console.error("Error generating expense number:", err)
+        alert("No se pudo generar el número de gasto. Intenta de nuevo.")
+        setSaving(false)
+        return
+      }
       const { data: newExpense, error } = await supabase
         .from("expenses")
         .insert({
@@ -1016,6 +1046,10 @@ const resetExpenseForm = () => {
     })
   }
 
+  // Un gasto aprobado es de solo lectura: no se puede editar ni reenviar,
+  // únicamente consultar (y eliminar desde la tabla).
+  const isApprovedReadOnly = !!editingExpense && editingExpense.approval_status === "approved"
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -1284,8 +1318,13 @@ const resetExpenseForm = () => {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleEditExpense(expense)}
+                                title={expense.approval_status === "approved" ? "Ver gasto (aprobado)" : "Editar gasto"}
                               >
-                                <Pencil className="h-4 w-4" />
+                                {expense.approval_status === "approved" ? (
+                                  <Eye className="h-4 w-4" />
+                                ) : (
+                                  <Pencil className="h-4 w-4" />
+                                )}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -1374,13 +1413,19 @@ const resetExpenseForm = () => {
 
       {/* Expense Dialog */}
       <Dialog open={showExpenseDialog} onOpenChange={setShowExpenseDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[92vh] flex flex-col">
           <DialogHeader className="flex-shrink-0">
-            <DialogTitle>{editingExpense ? "Editar Gasto" : "Nuevo Gasto"}</DialogTitle>
-            <DialogDescription>Registra un gasto operativo</DialogDescription>
+            <DialogTitle>
+              {isApprovedReadOnly ? "Ver Gasto (aprobado)" : editingExpense ? "Editar Gasto" : "Nuevo Gasto"}
+            </DialogTitle>
+            <DialogDescription>
+              {isApprovedReadOnly
+                ? "Este gasto ya fue aprobado. Solo se puede consultar."
+                : "Registra un gasto operativo"}
+            </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto pr-2">
-          <div className="mb-4 flex flex-wrap items-center gap-4 rounded-md border bg-muted/50 px-4 py-3">
+          <div className="flex-1 overflow-y-auto px-1 pr-3">
+          <div className="mb-6 flex flex-wrap items-center gap-4 rounded-md border bg-muted/50 px-4 py-3">
             <div className="flex flex-col">
               <span className="text-xs text-muted-foreground">Número de Gasto</span>
               <span className="font-mono font-medium">
@@ -1394,15 +1439,15 @@ const resetExpenseForm = () => {
             <div className="ml-auto flex flex-col text-right">
               <span className="text-xs text-muted-foreground">Solicitante</span>
               <span className="font-medium">
-                {currentUserStaff
-                  ? `${currentUserStaff.first_name} ${currentUserStaff.last_name}`
-                  : editingExpense?.requested_by
-                    ? `${editingExpense.requested_by.first_name} ${editingExpense.requested_by.last_name}`
+                {editingExpense?.requested_by
+                  ? `${editingExpense.requested_by.first_name} ${editingExpense.requested_by.last_name}`
+                  : currentUserStaff
+                    ? `${currentUserStaff.first_name} ${currentUserStaff.last_name}`
                     : "-"}
               </span>
             </div>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
+          <fieldset disabled={isApprovedReadOnly} className="grid gap-x-6 gap-y-5 md:grid-cols-2 border-0 p-0 m-0 min-w-0">
             <div className="space-y-2">
               <Label>Agencia *</Label>
               <Select
@@ -1447,7 +1492,21 @@ const resetExpenseForm = () => {
             </div>
             <div className="space-y-2">
               <Label>Solicitado por *</Label>
-              {currentUserStaff ? (
+              {editingExpense ? (
+                // Al editar, el solicitante es SIEMPRE el que registró el gasto,
+                // NO el usuario actual. Se muestra como solo lectura para no
+                // reasignarlo por error al visualizar/editar un gasto ajeno.
+                <div className="flex items-center gap-2 h-10 px-3 py-2 rounded-md border bg-muted">
+                  <UserCheck className="h-4 w-4 text-primary" />
+                  <span className="font-medium">
+                    {editingExpense.requested_by
+                      ? `${editingExpense.requested_by.first_name} ${editingExpense.requested_by.last_name}`
+                      : "Solicitante original"}
+                  </span>
+                  <Badge variant="secondary" className="ml-auto text-xs">Solicitante original</Badge>
+                </div>
+              ) : currentUserStaff ? (
+                // Gasto nuevo: se prellena con el usuario actual como solicitante.
                 <div className="flex items-center gap-2 h-10 px-3 py-2 rounded-md border bg-muted">
                   <UserCheck className="h-4 w-4 text-primary" />
                   <span className="font-medium">{currentUserStaff.first_name} {currentUserStaff.last_name}</span>
@@ -1779,25 +1838,32 @@ const resetExpenseForm = () => {
                 <span>{formatCurrency(expenseForm.amount + expenseForm.tax_amount)}</span>
               </div>
             </div>
-          </div>
+          </fieldset>
           </div>
           <DialogFooter className="flex-shrink-0 border-t pt-4">
-            <Button variant="ghost" onClick={() => setShowExpenseDialog(false)}>Cancelar</Button>
-            <Button
-              variant="outline"
-              onClick={() => handleSaveExpense(false)}
-              disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id}
-            >
-              {saving && <Spinner className="mr-2 h-4 w-4" />}
-              Guardar como borrador
-            </Button>
-            <Button
-              onClick={() => handleSaveExpense(true)}
-              disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id}
-            >
-              {saving && <Spinner className="mr-2 h-4 w-4" />}
-              Enviar a aprobación
-            </Button>
+            {isApprovedReadOnly ? (
+              // Gasto aprobado: solo lectura. No se permite editar/guardar/reenviar.
+              <Button onClick={() => setShowExpenseDialog(false)}>Cerrar</Button>
+            ) : (
+              <>
+                <Button variant="ghost" onClick={() => setShowExpenseDialog(false)}>Cancelar</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleSaveExpense(false)}
+                  disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id}
+                >
+                  {saving && <Spinner className="mr-2 h-4 w-4" />}
+                  Guardar como borrador
+                </Button>
+                <Button
+                  onClick={() => handleSaveExpense(true)}
+                  disabled={saving || !expenseForm.agency_id || !expenseForm.description || expenseForm.amount <= 0 || !expenseForm.requested_by_id || !expenseForm.approver_id}
+                >
+                  {saving && <Spinner className="mr-2 h-4 w-4" />}
+                  Enviar a aprobación
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
