@@ -761,9 +761,11 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     if (!selectedExpenseForApproval) return
     setSaving(true)
 
-    // Get the approver (for now, we'll use the first staff with reports_to_id matching the requester)
-    // In a real scenario, this would come from the logged-in user
-    const approverId = staffList.find(s => s.reports_to_id === null)?.id || staffList[0]?.id
+    // El aprobador es la persona a la que se le solicitó la aprobación de este
+    // gasto (approver_id), NO un director genérico. Así, quien queda registrado
+    // en "Personas" y en el "Historial de aprobación" es el aprobador real.
+    const approverId =
+      ((selectedExpenseForApproval as Record<string, unknown>).approver_id as string) || null
 
     const { error } = await supabase
       .from("expenses")
@@ -794,7 +796,10 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     if (!selectedExpenseForApproval || !rejectionReason) return
     setSaving(true)
 
-    const approverId = staffList.find(s => s.reports_to_id === null)?.id || staffList[0]?.id
+    // El rechazo también lo registra la persona a la que se solicitó la
+    // aprobación de este gasto (approver_id), no un director genérico.
+    const approverId =
+      ((selectedExpenseForApproval as Record<string, unknown>).approver_id as string) || null
 
     const { error } = await supabase
       .from("expenses")
