@@ -38,19 +38,20 @@ import {
   Percent,
   Building2,
   X,
-  Settings,
   RefreshCw,
   Calendar,
   User,
   Hash,
   AlertCircle,
   Banknote,
-  Trash2
+  Trash2,
+  Pencil
 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -228,6 +229,15 @@ export default function ThirdPartyPaymentsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [paymentToDelete, setPaymentToDelete] = useState<ThirdPartyPayment | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Acuerdos con el cliente (solo locales al formulario). Cada acuerdo guarda
+  // su texto y la fecha/hora en que se registró, con opción de editar y borrar.
+  const [agreementsOpen, setAgreementsOpen] = useState(false)
+  const [clientAgreements, setClientAgreements] = useState<
+    { id: string; text: string; date: string }[]
+  >([])
+  const [agreementText, setAgreementText] = useState("")
+  const [editingAgreementId, setEditingAgreementId] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     agency_id: "",
@@ -589,6 +599,10 @@ const resetForm = () => {
       tax_rate: "16",
       notes: "",
     })
+    // Los acuerdos con el cliente son locales al formulario: se reinician.
+    setClientAgreements([])
+    setAgreementText("")
+    setEditingAgreementId(null)
   }
 
   const handleCreateInvoice = async (payment: ThirdPartyPayment) => {
@@ -758,6 +772,48 @@ const filteredPayments = payments.filter((payment) => {
 
   const { commission, tax, total } = calculateAmounts()
 
+  // --- Acuerdos con el cliente (locales al formulario) ---
+  const saveAgreement = () => {
+    const text = agreementText.trim()
+    if (!text) return
+    if (editingAgreementId) {
+      setClientAgreements((prev) =>
+        prev.map((a) => (a.id === editingAgreementId ? { ...a, text } : a)),
+      )
+    } else {
+      setClientAgreements((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), text, date: new Date().toISOString() },
+      ])
+    }
+    setAgreementText("")
+    setEditingAgreementId(null)
+  }
+
+  const editAgreement = (id: string) => {
+    const found = clientAgreements.find((a) => a.id === id)
+    if (!found) return
+    setAgreementText(found.text)
+    setEditingAgreementId(id)
+  }
+
+  const deleteAgreement = (id: string) => {
+    setClientAgreements((prev) => prev.filter((a) => a.id !== id))
+    if (editingAgreementId === id) {
+      setAgreementText("")
+      setEditingAgreementId(null)
+    }
+  }
+
+  const formatAgreementDate = (iso: string) =>
+    new Date(iso).toLocaleString("es-MX", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+
   const getInvoiceStatusBadge = (invoice: { status: string } | null) => {
     if (!invoice) return null
     const invoiceStatusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -789,12 +845,6 @@ const filteredPayments = payments.filter((payment) => {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/invoices/third-party/workflow">
-              <Settings className="mr-2 h-4 w-4" />
-              Flujo de Trabajo
-            </Link>
-          </Button>
           <Button onClick={() => {
     setSelectedVendor(null)
     setSelectedClient(null)
@@ -1470,6 +1520,21 @@ const filteredPayments = payments.filter((payment) => {
                         </Button>
                       ))}
                     </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="ml-2"
+                      onClick={() => setAgreementsOpen(true)}
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      Acuerdos clientes
+                      {clientAgreements.length > 0 && (
+                        <Badge variant="secondary" className="ml-2">
+                          {clientAgreements.length}
+                        </Badge>
+                      )}
+                    </Button>
                   </div>
                 </div>
 
@@ -1964,6 +2029,100 @@ const filteredPayments = payments.filter((payment) => {
               Cambiar Estado
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Acuerdos con el cliente */}
+      <Dialog open={agreementsOpen} onOpenChange={setAgreementsOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Acuerdos con el cliente
+            </DialogTitle>
+            <DialogDescription>
+              Registra los acuerdos con el cliente. Se guarda la fecha en que se agrega cada texto.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Alta / edición */}
+            <div className="space-y-2">
+              <Textarea
+                value={agreementText}
+                onChange={(e) => setAgreementText(e.target.value)}
+                placeholder="Escribe un acuerdo con el cliente..."
+                rows={3}
+              />
+              <div className="flex justify-end gap-2">
+                {editingAgreementId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setAgreementText("")
+                      setEditingAgreementId(null)
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                )}
+                <Button type="button" size="sm" onClick={saveAgreement} disabled={!agreementText.trim()}>
+                  {editingAgreementId ? "Guardar cambios" : "Agregar acuerdo"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Lista con bullets */}
+            {clientAgreements.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic text-center py-4">
+                Aún no hay acuerdos registrados.
+              </p>
+            ) : (
+              <ul className="space-y-3 max-h-[45vh] overflow-y-auto">
+                {clientAgreements.map((agreement) => (
+                  <li key={agreement.id} className="flex gap-3 rounded-lg border p-3">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" aria-hidden />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm whitespace-pre-wrap break-words">{agreement.text}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatAgreementDate(agreement.date)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => editAgreement(agreement.id)}
+                        aria-label="Editar acuerdo"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => deleteAgreement(agreement.id)}
+                        aria-label="Eliminar acuerdo"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAgreementsOpen(false)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
