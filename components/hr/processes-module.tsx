@@ -774,7 +774,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
 
       {/* Builder dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>{editingId ? "Editar proceso" : "Nuevo proceso"}</DialogTitle>
             <DialogDescription>
@@ -942,7 +942,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                             placeholder="Descripción / instrucciones del paso"
                             rows={2}
                           />
-                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
                             <div className="space-y-1">
                               <Label className="text-xs">Área responsable</Label>
                               <Select
@@ -997,7 +997,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                     <Input
                                       type="number"
                                       min={0}
-                                      className="h-9"
+                                      className="h-9 w-16 shrink-0"
                                       value={parsed.amount}
                                       onChange={(e) =>
                                         updateStep(i, {
@@ -1014,7 +1014,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                         })
                                       }
                                     >
-                                      <SelectTrigger className="h-9 w-28">
+                                      <SelectTrigger className="h-9 min-w-0 flex-1">
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
