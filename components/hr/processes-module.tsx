@@ -203,9 +203,9 @@ function StepResourceLink({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="icon"
-          className={`h-6 w-6 ${hasLink ? "text-primary" : "text-muted-foreground"}`}
+          className={`h-9 w-9 ${hasLink ? "border-primary text-primary" : "text-muted-foreground"}`}
           aria-label={hasLink ? "Editar enlace del paso" : "Agregar enlace del paso"}
           title={hasLink ? "Editar enlace" : "Agregar enlace"}
         >
@@ -942,7 +942,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                             placeholder="Descripción / instrucciones del paso"
                             rows={2}
                           />
-                          <div className="grid gap-2 sm:grid-cols-3">
+                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                             <div className="space-y-1">
                               <Label className="text-xs">Área responsable</Label>
                               <Select
@@ -968,19 +968,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                               </Select>
                             </div>
                             <div className="space-y-1">
-                              <div className="flex items-center gap-1">
-                                <Label className="text-xs">Puesto responsable</Label>
-                                <StepResourceLink
-                                  url={s.resource_url}
-                                  addedAt={s.resource_url_added_at}
-                                  onSave={(resource_url, resource_url_added_at) =>
-                                    updateStep(i, { resource_url, resource_url_added_at })
-                                  }
-                                  onRemove={() =>
-                                    updateStep(i, { resource_url: null, resource_url_added_at: null })
-                                  }
-                                />
-                              </div>
+                              <Label className="text-xs">Puesto responsable</Label>
                               <Select
                                 value={s.responsible_position_id || NONE}
                                 onValueChange={(v) =>
@@ -1039,6 +1027,21 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                                   </div>
                                 )
                               })()}
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Link</Label>
+                              <div className="flex h-9 items-center">
+                                <StepResourceLink
+                                  url={s.resource_url}
+                                  addedAt={s.resource_url_added_at}
+                                  onSave={(resource_url, resource_url_added_at) =>
+                                    updateStep(i, { resource_url, resource_url_added_at })
+                                  }
+                                  onRemove={() =>
+                                    updateStep(i, { resource_url: null, resource_url_added_at: null })
+                                  }
+                                />
+                              </div>
                             </div>
                           </div>
                         </div>
