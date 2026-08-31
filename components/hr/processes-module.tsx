@@ -1214,6 +1214,23 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                             {duration.amount ? `${duration.amount} ${duration.unit}` : s.estimated_duration}
                           </Badge>
                         )}
+                        {s.resource_url && (
+                          <a
+                            href={s.resource_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={
+                              s.resource_url_added_at
+                                ? `Subido el ${formatLinkDate(s.resource_url_added_at)}`
+                                : "Enlace del paso"
+                            }
+                          >
+                            <Badge className="gap-1 font-normal hover:opacity-90">
+                              <ExternalLink className="h-3 w-3" />
+                              Link
+                            </Badge>
+                          </a>
+                        )}
                       </div>
                     </div>
                   </div>
