@@ -69,7 +69,7 @@ interface Agency {
 
 const statusLabels: Record<string, string> = {
   draft: "Borrador",
-  calculating: "Calculando",
+  calculating: "Calculada",
   approved: "Aprobada",
   paid: "Pagada",
   cancelled: "Cancelada",
@@ -412,14 +412,19 @@ export default function PayrollPage() {
                                 {downloadingId === period.id ? "Descargando..." : "Descargar XLS"}
                               </DropdownMenuItem>
                             )}
+                            {/* Editar metadatos solo en borrador. Una nómina ya
+                                Calculada solo se modifica desde el detalle con el
+                                botón "Modificar". */}
+                            {period.status === "draft" && (
+                              <DropdownMenuItem asChild>
+                                <Link href={`/dashboard/hr/payroll/${period.id}/edit`}>
+                                  <Pencil className="mr-2 h-4 w-4" />
+                                  Editar
+                                </Link>
+                              </DropdownMenuItem>
+                            )}
                             {(period.status === "draft" || period.status === "calculating") && (
                               <>
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/dashboard/hr/payroll/${period.id}/edit`}>
-                                    <Pencil className="mr-2 h-4 w-4" />
-                                    Editar
-                                  </Link>
-                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem 
                                   className="text-destructive focus:text-destructive"

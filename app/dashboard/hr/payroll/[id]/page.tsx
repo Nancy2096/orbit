@@ -59,6 +59,9 @@ interface PayrollPeriod {
   total_deductions: number
   total_net: number
   notes: string | null
+  // Fechas de auditoría (no modificables): cuándo se calculó y cuándo se aprobó.
+  calculated_at: string | null
+  approved_at: string | null
   // Concepto de pago (mismo para toda la nómina), editable al crear la nómina.
   payment_concept: string | null
   // Ajuste de impuestos/deducciones guardado para este periodo (se conserva
@@ -158,7 +161,7 @@ const commissionTypeLabels: Record<string, string> = {
 
 const statusLabels: Record<string, string> = {
   draft: "Borrador",
-  calculating: "Calculando",
+  calculating: "Calculada",
   approved: "Aprobada",
   paid: "Pagada",
   cancelled: "Cancelada",
@@ -183,6 +186,10 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const [entries, setEntries] = useState<PayrollEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [calculating, setCalculating] = useState(false)
+  // Una nómina "Calculada" queda bloqueada; solo se puede editar si el usuario
+  // activa el modo de modificación con el botón "Modificar". Una vez aprobada,
+  // no hay modo de modificación: solo visualización (más comprobantes de pago).
+  const [modifyMode, setModifyMode] = useState(false)
   const [editingEntry, setEditingEntry] = useState<PayrollEntry | null>(null)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [commissionDetailEntry, setCommissionDetailEntry] = useState<PayrollEntry | null>(null)
@@ -658,6 +665,10 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       const totalDeductions = updatedEntries.reduce((sum, e) => sum + e.deductions + e.loanDeductions + e.taxes, 0)
       const totalNet = updatedEntries.reduce((sum, e) => sum + e.net_pay, 0)
 
+      // Fecha de cálculo: se registra la primera vez que se calcula y se
+      // conserva en recálculos posteriores (es un dato de auditoría).
+      const calculatedAt = period.calculated_at ?? new Date().toISOString()
+
       // Update period totals
       const { error } = await supabase
         .from("payroll_periods")
@@ -666,6 +677,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           total_deductions: totalDeductions,
           total_net: totalNet,
           status: "calculating",
+          calculated_at: calculatedAt,
           // Conservar el ajuste usado para este cálculo.
           tax_config: payrollConfig,
         })
@@ -679,8 +691,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         total_deductions: totalDeductions,
         total_net: totalNet,
         status: "calculating",
+        calculated_at: calculatedAt,
         tax_config: payrollConfig,
       })
+
+      // Al terminar de (re)calcular, la nómina vuelve a quedar bloqueada.
+      setModifyMode(false)
 
       toast.success("Nómina calculada exitosamente")
     } catch (error) {
@@ -706,18 +722,22 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         data: { user },
       } = await supabase.auth.getUser()
 
+      const approvedAt = new Date().toISOString()
+
       const { error } = await supabase
         .from("payroll_periods")
         .update({
           status: "approved",
           approved_by: user?.id ?? null,
-          approved_at: new Date().toISOString(),
+          approved_at: approvedAt,
         })
         .eq("id", period.id)
 
       if (error) throw error
 
-      setPeriod({ ...period, status: "approved" })
+      // Una vez aprobada no se puede modificar: se cierra el modo modificación.
+      setModifyMode(false)
+      setPeriod({ ...period, status: "approved", approved_at: approvedAt })
       toast.success("Nómina aprobada")
     } catch (error) {
       console.error("Error approving payroll:", error)
@@ -891,6 +911,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const handleSaveEntry = () => {
     if (!editingEntry) return
 
+    // Salvaguarda: una nómina aprobada/pagada nunca se modifica, y una
+    // "Calculada" solo si el modo de modificación está activo.
+    const editable =
+      period?.status === "draft" || (period?.status === "calculating" && modifyMode)
+    if (!editable) {
+      toast.error("La nómina está bloqueada. Activa 'Modificar' para editar.")
+      setShowEditDialog(false)
+      return
+    }
+
     // Recalculate entry totals with configured tax rates
     const totalTaxRate = (payrollConfig.taxRate + payrollConfig.imssRate + payrollConfig.isrRate) / 100
     const grossPay = editingEntry.base_salary + editingEntry.bonuses + editingEntry.commissions + editingEntry.finiquito
@@ -958,6 +988,14 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   }
   const employeesWithoutSalary = entries.filter(e => !e.staff.monthly_salary || e.staff.monthly_salary === 0)
 
+  // Estado de la nómina para controlar la edición:
+  // - draft: siempre editable.
+  // - calculating ("Calculada"): bloqueada; editable solo en modo modificación.
+  // - approved/paid: solo lectura (excepto comprobantes de pago).
+  const isCalculated = period.status === "calculating"
+  const isApprovedOrPaid = period.status === "approved" || period.status === "paid"
+  const canEdit = period.status === "draft" || (isCalculated && modifyMode)
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -978,10 +1016,39 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             <p className="text-muted-foreground">
               {period.agency?.name || "Global (todas las agencias)"} • {formatDate(period.start_date)} - {formatDate(period.end_date)}
             </p>
+            {(period.calculated_at || period.approved_at) && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {period.calculated_at && (
+                  <span>
+                    Calculada el{" "}
+                    {new Date(period.calculated_at).toLocaleString("es-MX", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                )}
+                {period.calculated_at && period.approved_at && <span> • </span>}
+                {period.approved_at && (
+                  <span>
+                    Aprobada el{" "}
+                    {new Date(period.approved_at).toLocaleString("es-MX", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {(period.status === "draft" || period.status === "calculating") && (
+          {(period.status === "draft" || (isCalculated && modifyMode)) && (
             <Button variant="outline" onClick={() => setShowConfigDialog(true)}>
               <Settings className="mr-2 h-4 w-4" />
               Configurar Impuestos
@@ -997,8 +1064,31 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
               Calcular Nómina
             </Button>
           )}
-          {period.status === "calculating" && (
+          {isCalculated && !modifyMode && (
             <>
+              {/* Nómina Calculada y bloqueada: para cambiar algo hay que activar
+                  explícitamente el modo de modificación. */}
+              <Button variant="outline" onClick={() => setModifyMode(true)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Modificar
+              </Button>
+              {canApprovePayroll ? (
+                <Button onClick={handleApprovePayroll}>
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Aprobar
+                </Button>
+              ) : (
+                <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
+                  Solo el super administrador o el director general pueden aprobar la nómina.
+                </p>
+              )}
+            </>
+          )}
+          {isCalculated && modifyMode && (
+            <>
+              <Button variant="ghost" onClick={() => setModifyMode(false)}>
+                Listo
+              </Button>
               <Button variant="outline" onClick={handleCalculatePayroll} disabled={calculating}>
                 {calculating ? (
                   <Spinner className="mr-2 h-4 w-4" />
@@ -1296,7 +1386,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                       </TableCell>
                     )}
                     <TableCell>
-                      {(period.status === "draft" || period.status === "calculating") && (
+                      {canEdit && (
                         <Button 
                           variant="ghost" 
                           size="icon"
