@@ -403,10 +403,15 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         return d >= start && d <= end
       }
       // El "arrastre" de bonos/comisiones aprobados y pendientes SOLO aplica a la
-      // nómina activa (borrador o en cálculo). Una nómina ya aprobada/pagada del
-      // pasado nunca debe incorporar pendientes actuales: cada registro es único
-      // y no se debe modificar el pasado.
-      const isActivePeriod = periodData.status === "draft" || periodData.status === "calculating"
+      // nómina ACTUAL: la que aún no se aprueba/paga (borrador o en cálculo) Y
+      // cuyo periodo no pertenece al pasado (cierra hoy o en el futuro).
+      // Una nómina de un periodo ya terminado nunca debe incorporar pendientes
+      // nuevos, aunque siga en borrador: cada registro es único, se aplica a una
+      // sola nómina y el pasado no se modifica.
+      const today = new Date().toISOString().slice(0, 10)
+      const periodNotInPast = end >= today
+      const isActivePeriod =
+        (periodData.status === "draft" || periodData.status === "calculating") && periodNotInPast
 
       if (staffIds.length > 0) {
         const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
