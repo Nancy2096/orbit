@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { upload } from "@vercel/blob/client"
 import { createClient } from "@/lib/supabase/client"
+import { PayrollNotes } from "@/components/hr/payroll-notes"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -1464,6 +1465,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           )}
         </CardContent>
       </Card>
+
+      {/* Notas del periodo de nómina, al mismo nivel que el Detalle de Nómina */}
+      <PayrollNotes periodId={period.id} />
 
       {/* Input oculto para adjuntar comprobantes de pago (PDF o imagen) */}
       <input
