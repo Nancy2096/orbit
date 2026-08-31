@@ -428,9 +428,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             .from("commissions")
             .select("id, staff_id, commission_type, description, base_amount, commission_percentage, commission_amount, status, period_date, created_at, paid_at")
             .in("staff_id", staffIds)
-            // Solo comisiones aprobadas (pendientes de pago). Las pagadas ya se
-            // liquidaron en su nómina y no se muestran en la actual.
-            .eq("status", "approved"),
+            .in("status", ["approved", "paid"]),
           // Préstamos vigentes (activos/aprobados) con saldo pendiente.
           supabase
             .from("loans")
@@ -465,10 +463,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           })
         }
         for (const c of commissionsRes.data || []) {
-          // Solo comisiones aprobadas (pendientes de pago) que pertenecen al
-          // periodo SELECCIONADO, ligadas por su period_date (o fecha de
-          // registro). No se muestran las pagadas ni las de periodos anteriores.
-          const include = inPeriod(c.period_date, c.created_at)
+          // Reglas de inclusión de comisiones (p. ej. comisiones por citas):
+          // - Pagada: se liga ÚNICAMENTE al periodo en que se registró el pago
+          //   (paid_at). Así el pasado conserva "lo que fue" y la nómina actual
+          //   nunca muestra comisiones ya pagadas en periodos anteriores.
+          // - Aprobada/pendiente: SOLO entra en la nómina actual (activa) y si
+          //   pertenece al periodo (period_date). Nunca se arrastra al pasado.
+          const include =
+            c.status === "paid"
+              ? inPeriod(c.paid_at, c.created_at)
+              : isActivePeriod && inPeriod(c.period_date, c.created_at)
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
@@ -1643,8 +1647,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                         <Badge variant="outline" className="text-xs">
                           {commissionTypeLabels[item.commission_type] || item.commission_type}
                         </Badge>
-                        <Badge variant="secondary" className="text-[10px]">
-                          Aprobada
+                        <Badge
+                          variant={item.status === "paid" ? "default" : "secondary"}
+                          className="text-[10px]"
+                        >
+                          {item.status === "paid" ? "Pagada" : "Aprobada"}
                         </Badge>
                       </div>
                       {item.description && (
