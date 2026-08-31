@@ -423,7 +423,11 @@ export default function PayrollPage() {
                                 </Link>
                               </DropdownMenuItem>
                             )}
-                            {(period.status === "draft" || period.status === "calculating") && (
+                            {/* Se puede eliminar en borrador, calculada y
+                                aprobada. Solo una nómina pagada queda bloqueada. */}
+                            {(period.status === "draft" ||
+                              period.status === "calculating" ||
+                              period.status === "approved") && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem 

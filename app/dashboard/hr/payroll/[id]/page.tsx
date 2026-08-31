@@ -698,6 +698,10 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // conserva en recálculos posteriores (es un dato de auditoría).
       const calculatedAt = period.calculated_at ?? new Date().toISOString()
 
+      // Al recalcular una nómina ya aprobada se conserva su estado "approved"
+      // (no se degrada a "calculating"); solo un borrador pasa a "calculating".
+      const nextStatus = period.status === "approved" ? "approved" : "calculating"
+
       // Update period totals + snapshot inmutable de los renglones calculados.
       const { error } = await supabase
         .from("payroll_periods")
@@ -705,7 +709,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           total_gross: totalGross,
           total_deductions: totalDeductions,
           total_net: totalNet,
-          status: "calculating",
+          status: nextStatus,
           calculated_at: calculatedAt,
           // Congelar los renglones tal como quedaron en este cálculo.
           entries_snapshot: updatedEntries,
@@ -721,7 +725,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         total_gross: totalGross,
         total_deductions: totalDeductions,
         total_net: totalNet,
-        status: "calculating",
+        status: nextStatus,
         calculated_at: calculatedAt,
         entries_snapshot: updatedEntries,
         tax_config: payrollConfig,
@@ -943,10 +947,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const handleSaveEntry = async () => {
     if (!editingEntry || !period) return
 
-    // Salvaguarda: una nómina aprobada/pagada nunca se modifica, y una
-    // "Calculada" solo si el modo de modificación está activo.
+    // Salvaguarda: una nómina "Pagada" nunca se modifica. Una "Calculada" o
+    // "Aprobada" solo si el modo de modificación está activo.
     const editable =
-      period.status === "draft" || (period.status === "calculating" && modifyMode)
+      period.status === "draft" ||
+      ((period.status === "calculating" || period.status === "approved") && modifyMode)
     if (!editable) {
       toast.error("La nómina está bloqueada. Activa 'Modificar' para editar.")
       setShowEditDialog(false)
@@ -971,9 +976,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     )
     setEntries(newEntries)
 
-    // Si la nómina ya está calculada, la edición manual se persiste en el
-    // snapshot inmutable (y sus totales) para que quede congelada.
-    if (period.status === "calculating") {
+    // Si la nómina ya está calculada o aprobada, la edición manual se persiste
+    // en el snapshot inmutable (y sus totales) para que quede congelada.
+    if (period.status === "calculating" || period.status === "approved") {
       const totalGross = newEntries.reduce((sum, e) => sum + e.gross_pay, 0)
       const totalDeductions = newEntries.reduce((sum, e) => sum + e.deductions + e.loanDeductions + e.taxes, 0)
       const totalNet = newEntries.reduce((sum, e) => sum + e.net_pay, 0)
@@ -1052,11 +1057,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
   // Estado de la nómina para controlar la edición:
   // - draft: siempre editable.
-  // - calculating ("Calculada"): bloqueada; editable solo en modo modificación.
-  // - approved/paid: solo lectura (excepto comprobantes de pago).
+  // - calculating ("Calculada") y approved ("Aprobada"): bloqueadas por defecto,
+  //   pero se pueden modificar activando el modo de modificación (y eliminar
+  //   desde el listado).
+  // - paid ("Pagada"): totalmente bloqueada; solo lectura (excepto comprobantes).
   const isCalculated = period.status === "calculating"
-  const isApprovedOrPaid = period.status === "approved" || period.status === "paid"
-  const canEdit = period.status === "draft" || (isCalculated && modifyMode)
+  const isApproved = period.status === "approved"
+  const isPaid = period.status === "paid"
+  // Estados en los que la nómina puede modificarse (con modo modificación).
+  const isModifiable = isCalculated || isApproved
+  const canEdit = period.status === "draft" || (isModifiable && modifyMode)
 
   return (
     <div className="space-y-6">
@@ -1110,7 +1120,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {(period.status === "draft" || (isCalculated && modifyMode)) && (
+          {(period.status === "draft" || (isModifiable && modifyMode)) && (
             <Button variant="outline" onClick={() => setShowConfigDialog(true)}>
               <Settings className="mr-2 h-4 w-4" />
               Configurar Impuestos
@@ -1126,27 +1136,34 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
               Calcular Nómina
             </Button>
           )}
-          {isCalculated && !modifyMode && (
+          {isModifiable && !modifyMode && (
             <>
-              {/* Nómina Calculada y bloqueada: para cambiar algo hay que activar
-                  explícitamente el modo de modificación. */}
+              {/* Nómina Calculada o Aprobada: bloqueada por defecto. Para cambiar
+                  algo hay que activar explícitamente el modo de modificación. */}
               <Button variant="outline" onClick={() => setModifyMode(true)}>
                 <Pencil className="mr-2 h-4 w-4" />
                 Modificar
               </Button>
-              {canApprovePayroll ? (
-                <Button onClick={handleApprovePayroll}>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Aprobar
+              {isCalculated &&
+                (canApprovePayroll ? (
+                  <Button onClick={handleApprovePayroll}>
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Aprobar
+                  </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
+                    Solo el super administrador o el director general pueden aprobar la nómina.
+                  </p>
+                ))}
+              {isApproved && (
+                <Button onClick={handleMarkAsPaid}>
+                  <Wallet className="mr-2 h-4 w-4" />
+                  Marcar como Pagada
                 </Button>
-              ) : (
-                <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
-                  Solo el super administrador o el director general pueden aprobar la nómina.
-                </p>
               )}
             </>
           )}
-          {isCalculated && modifyMode && (
+          {isModifiable && modifyMode && (
             <>
               <Button variant="ghost" onClick={() => setModifyMode(false)}>
                 Listo
@@ -1159,23 +1176,24 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                 )}
                 Recalcular
               </Button>
-              {canApprovePayroll ? (
-                <Button onClick={handleApprovePayroll}>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Aprobar
+              {isCalculated &&
+                (canApprovePayroll ? (
+                  <Button onClick={handleApprovePayroll}>
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Aprobar
+                  </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
+                    Solo el super administrador o el director general pueden aprobar la nómina.
+                  </p>
+                ))}
+              {isApproved && (
+                <Button onClick={handleMarkAsPaid}>
+                  <Wallet className="mr-2 h-4 w-4" />
+                  Marcar como Pagada
                 </Button>
-              ) : (
-                <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
-                  Solo el super administrador o el director general pueden aprobar la nómina.
-                </p>
               )}
             </>
-          )}
-          {period.status === "approved" && (
-            <Button onClick={handleMarkAsPaid}>
-              <Wallet className="mr-2 h-4 w-4" />
-              Marcar como Pagada
-            </Button>
           )}
         </div>
       </div>
