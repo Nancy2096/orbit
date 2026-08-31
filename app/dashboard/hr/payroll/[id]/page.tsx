@@ -460,17 +460,17 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           })
         }
         for (const c of commissionsRes.data || []) {
-          // Reglas de inclusión de comisiones en el periodo:
-          // - Pagada: se muestra ÚNICAMENTE en el periodo en que se registró el
-          //   pago (paid_at), quedando ligada a una sola nómina.
-          // - Aprobada y pendiente: se arrastra SOLO a la nómina activa (borrador
-          //   o en cálculo), hasta que se pague. Nunca a nóminas pasadas ya
-          //   aprobadas/pagadas, para no modificar el pasado.
-          const createdOnOrBeforeEnd = String(c.created_at || "").slice(0, 10) <= end
+          // Reglas de inclusión de comisiones (p. ej. comisiones por citas): SOLO
+          // se muestran las que pertenecen al periodo SELECCIONADO, nunca las de
+          // periodos anteriores.
+          // - Pagada: se liga al periodo en que se registró el pago (paid_at).
+          // - Aprobada/pendiente: se liga al periodo de la comisión (period_date,
+          //   o su fecha de registro). Ya no se arrastran comisiones de periodos
+          //   pasados a la nómina actual.
           const include =
             c.status === "paid"
               ? inPeriod(c.paid_at, c.created_at)
-              : isActivePeriod && createdOnOrBeforeEnd
+              : inPeriod(c.period_date, c.created_at)
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
