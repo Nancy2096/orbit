@@ -62,6 +62,10 @@ interface PayrollPeriod {
   // Fechas de auditoría (no modificables): cuándo se calculó y cuándo se aprobó.
   calculated_at: string | null
   approved_at: string | null
+  // Snapshot inmutable de los renglones al momento de calcular la nómina. Si
+  // existe (nómina ya calculada/aprobada), se muestra tal cual y NO se
+  // reconstruye con datos actuales.
+  entries_snapshot: PayrollEntry[] | null
   // Concepto de pago (mismo para toda la nómina), editable al crear la nómina.
   payment_concept: string | null
   // Ajuste de impuestos/deducciones guardado para este periodo (se conserva
@@ -323,6 +327,17 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       }
       setPayrollConfig(config)
 
+      // Si la nómina ya fue calculada/aprobada y tiene un snapshot guardado,
+      // se muestra EXACTAMENTE como estaba en ese momento (empleados, sueldos,
+      // comisiones, bonos, etc.). No se reconstruye con datos actuales para que
+      // el pasado no refleje altas de personal ni comisiones nuevas.
+      const snapshot = periodData.entries_snapshot as PayrollEntry[] | null
+      if (periodData.status !== "draft" && Array.isArray(snapshot) && snapshot.length > 0) {
+        setEntries(snapshot)
+        setPeriod(periodData)
+        return
+      }
+
       // Un periodo GLOBAL no tiene agencia (agency_id null) => incluye a todo el personal
       const isGlobalPeriod = !periodData.agency_id
 
@@ -355,6 +370,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       //  - Personal en baja con finiquito pendiente (> 0 y no pagado): se incluye
       //    para liquidarlo. El resto de bajas anteriores al periodo se omite.
       const staffData = (staffRaw || []).filter((s) => {
+        // Excluir a quien ingresó DESPUÉS del cierre del periodo: aún no formaba
+        // parte de la empresa, por lo que no debe aparecer en nóminas pasadas.
+        if (s.hire_date && String(s.hire_date).slice(0, 10) > periodData.end_date) return false
         if (s.is_active) return true
         const hasFiniquito = Number(s.finiquito) > 0 && !s.finiquito_paid_at
         const changed = s.status_change_date
@@ -669,7 +687,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // conserva en recálculos posteriores (es un dato de auditoría).
       const calculatedAt = period.calculated_at ?? new Date().toISOString()
 
-      // Update period totals
+      // Update period totals + snapshot inmutable de los renglones calculados.
       const { error } = await supabase
         .from("payroll_periods")
         .update({
@@ -678,6 +696,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           total_net: totalNet,
           status: "calculating",
           calculated_at: calculatedAt,
+          // Congelar los renglones tal como quedaron en este cálculo.
+          entries_snapshot: updatedEntries,
           // Conservar el ajuste usado para este cálculo.
           tax_config: payrollConfig,
         })
@@ -692,6 +712,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         total_net: totalNet,
         status: "calculating",
         calculated_at: calculatedAt,
+        entries_snapshot: updatedEntries,
         tax_config: payrollConfig,
       })
 
@@ -908,13 +929,13 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     setShowEditDialog(true)
   }
 
-  const handleSaveEntry = () => {
-    if (!editingEntry) return
+  const handleSaveEntry = async () => {
+    if (!editingEntry || !period) return
 
     // Salvaguarda: una nómina aprobada/pagada nunca se modifica, y una
     // "Calculada" solo si el modo de modificación está activo.
     const editable =
-      period?.status === "draft" || (period?.status === "calculating" && modifyMode)
+      period.status === "draft" || (period.status === "calculating" && modifyMode)
     if (!editable) {
       toast.error("La nómina está bloqueada. Activa 'Modificar' para editar.")
       setShowEditDialog(false)
@@ -934,9 +955,39 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       net_pay: netPay,
     }
 
-    setEntries(entries.map(e => 
+    const newEntries = entries.map(e =>
       e.staff_id === updatedEntry.staff_id ? updatedEntry : e
-    ))
+    )
+    setEntries(newEntries)
+
+    // Si la nómina ya está calculada, la edición manual se persiste en el
+    // snapshot inmutable (y sus totales) para que quede congelada.
+    if (period.status === "calculating") {
+      const totalGross = newEntries.reduce((sum, e) => sum + e.gross_pay, 0)
+      const totalDeductions = newEntries.reduce((sum, e) => sum + e.deductions + e.loanDeductions + e.taxes, 0)
+      const totalNet = newEntries.reduce((sum, e) => sum + e.net_pay, 0)
+      const { error } = await supabase
+        .from("payroll_periods")
+        .update({
+          entries_snapshot: newEntries,
+          total_gross: totalGross,
+          total_deductions: totalDeductions,
+          total_net: totalNet,
+        })
+        .eq("id", period.id)
+      if (error) {
+        console.error("Error saving entry snapshot:", error)
+        toast.error("Error al guardar la modificación")
+        return
+      }
+      setPeriod({
+        ...period,
+        entries_snapshot: newEntries,
+        total_gross: totalGross,
+        total_deductions: totalDeductions,
+        total_net: totalNet,
+      })
+    }
 
     setShowEditDialog(false)
     setEditingEntry(null)
