@@ -406,16 +406,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const d = String(raw).slice(0, 10) // normaliza date/timestamp a YYYY-MM-DD
         return d >= start && d <= end
       }
-      // El "arrastre" de bonos/comisiones aprobados y pendientes SOLO aplica a la
-      // nómina ACTUAL: la que aún no se aprueba/paga (borrador o en cálculo) Y
-      // cuyo periodo no pertenece al pasado (cierra hoy o en el futuro).
-      // Una nómina de un periodo ya terminado nunca debe incorporar pendientes
-      // nuevos, aunque siga en borrador: cada registro es único, se aplica a una
-      // sola nómina y el pasado no se modifica.
-      const today = new Date().toISOString().slice(0, 10)
-      const periodNotInPast = end >= today
-      const isActivePeriod =
-        (periodData.status === "draft" || periodData.status === "calculating") && periodNotInPast
+      // Nota: bonos y comisiones se atribuyen al periodo en que se GENERARON
+      // (su fecha efectiva/registro), por lo que cada uno cae en un único
+      // periodo. No hay "arrastre" por estado ni por fecha de pago.
 
       if (staffIds.length > 0) {
         const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
@@ -442,17 +435,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         for (const b of bonusesRes.data || []) {
           // Los bonos de "días libres" no representan un monto en dinero
           if (b.benefit_type === "free_days") continue
-          // Reglas de inclusión de bonos en el periodo (igual que las comisiones):
-          // - Pagado: se muestra ÚNICAMENTE en el periodo en que se registró el
-          //   pago (paid_at), por lo que queda ligado a una sola nómina.
-          // - Aprobado y pendiente: se arrastra SOLO a la nómina activa (borrador
-          //   o en cálculo), hasta que se pague. Nunca a nóminas pasadas ya
-          //   aprobadas/pagadas, para no modificar el pasado.
-          const createdOnOrBeforeEnd = String(b.effective_date || b.created_at || "").slice(0, 10) <= end
-          const include =
-            b.status === "paid"
-              ? inPeriod(b.paid_at, b.created_at)
-              : isActivePeriod && createdOnOrBeforeEnd
+          // Igual que las comisiones: un bono pertenece al periodo en que se
+          // GENERÓ (effective_date, o en su defecto la fecha de registro), SIN
+          // importar si ya se pagó ni la fecha de pago (paid_at). Cada bono cae
+          // en un solo periodo y el pasado conserva exactamente lo que fue.
+          const include = inPeriod(b.effective_date, b.created_at)
           if (!include) continue
           bonusesByStaff[b.staff_id] = (bonusesByStaff[b.staff_id] || 0) + Number(b.amount || 0)
           if (!bonusItemsByStaff[b.staff_id]) bonusItemsByStaff[b.staff_id] = []
@@ -463,16 +450,15 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           })
         }
         for (const c of commissionsRes.data || []) {
-          // Reglas de inclusión de comisiones (p. ej. comisiones por citas):
-          // - Pagada: se liga ÚNICAMENTE al periodo en que se registró el pago
-          //   (paid_at). Así el pasado conserva "lo que fue" y la nómina actual
-          //   nunca muestra comisiones ya pagadas en periodos anteriores.
-          // - Aprobada/pendiente: SOLO entra en la nómina actual (activa) y si
-          //   pertenece al periodo (period_date). Nunca se arrastra al pasado.
-          const include =
-            c.status === "paid"
-              ? inPeriod(c.paid_at, c.created_at)
-              : isActivePeriod && inPeriod(c.period_date, c.created_at)
+          // Una comisión (p. ej. de citas) pertenece al periodo en que se GENERÓ
+          // —su period_date, o en su defecto la fecha de registro— SIN importar
+          // si ya se pagó ni la fecha de pago (paid_at). Así:
+          // - Cada comisión cae en un solo periodo: el de cuando se ganó.
+          // - Las nóminas pasadas muestran exactamente lo que se ganó en ese
+          //   periodo (aparecen como "Pagadas" si esa nómina ya se pagó).
+          // - Un pago registrado en otra fecha no arrastra la comisión a un
+          //   periodo ajeno (evita que comisiones de julio caigan en agosto).
+          const include = inPeriod(c.period_date, c.created_at)
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
