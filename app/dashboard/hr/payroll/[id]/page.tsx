@@ -402,6 +402,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const d = String(raw).slice(0, 10) // normaliza date/timestamp a YYYY-MM-DD
         return d >= start && d <= end
       }
+      // El "arrastre" de bonos/comisiones aprobados y pendientes SOLO aplica a la
+      // nómina activa (borrador o en cálculo). Una nómina ya aprobada/pagada del
+      // pasado nunca debe incorporar pendientes actuales: cada registro es único
+      // y no se debe modificar el pasado.
+      const isActivePeriod = periodData.status === "draft" || periodData.status === "calculating"
 
       if (staffIds.length > 0) {
         const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
@@ -429,16 +434,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           // Los bonos de "días libres" no representan un monto en dinero
           if (b.benefit_type === "free_days") continue
           // Reglas de inclusión de bonos en el periodo (igual que las comisiones):
-          // - Pagado: se muestra en el periodo en que se registró el pago (paid_at).
-          // - Aprobado y pendiente: se arrastra al periodo actual (mientras se haya
-          //   registrado a más tardar al cierre del periodo), hasta que se pague.
-          //   Así todo bono aprobado entra en la nómina más próxima aunque se haya
-          //   aprobado antes del inicio del periodo.
+          // - Pagado: se muestra ÚNICAMENTE en el periodo en que se registró el
+          //   pago (paid_at), por lo que queda ligado a una sola nómina.
+          // - Aprobado y pendiente: se arrastra SOLO a la nómina activa (borrador
+          //   o en cálculo), hasta que se pague. Nunca a nóminas pasadas ya
+          //   aprobadas/pagadas, para no modificar el pasado.
           const createdOnOrBeforeEnd = String(b.effective_date || b.created_at || "").slice(0, 10) <= end
           const include =
             b.status === "paid"
               ? inPeriod(b.paid_at, b.created_at)
-              : createdOnOrBeforeEnd
+              : isActivePeriod && createdOnOrBeforeEnd
           if (!include) continue
           bonusesByStaff[b.staff_id] = (bonusesByStaff[b.staff_id] || 0) + Number(b.amount || 0)
           if (!bonusItemsByStaff[b.staff_id]) bonusItemsByStaff[b.staff_id] = []
@@ -449,17 +454,17 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           })
         }
         for (const c of commissionsRes.data || []) {
-          // Reglas de inclusión de comisiones citas en el periodo:
-          // - Pagada: se muestra en el periodo en que se registró el pago (paid_at).
-          // - Aprobada y pendiente: se arrastra a este periodo (mientras se haya
-          //   generado a más tardar al cierre del periodo), hasta que se pague. Así
-          //   toda comisión aprobada se incluye en la nómina aunque se haya creado
-          //   antes del inicio del periodo.
+          // Reglas de inclusión de comisiones en el periodo:
+          // - Pagada: se muestra ÚNICAMENTE en el periodo en que se registró el
+          //   pago (paid_at), quedando ligada a una sola nómina.
+          // - Aprobada y pendiente: se arrastra SOLO a la nómina activa (borrador
+          //   o en cálculo), hasta que se pague. Nunca a nóminas pasadas ya
+          //   aprobadas/pagadas, para no modificar el pasado.
           const createdOnOrBeforeEnd = String(c.created_at || "").slice(0, 10) <= end
           const include =
             c.status === "paid"
               ? inPeriod(c.paid_at, c.created_at)
-              : createdOnOrBeforeEnd
+              : isActivePeriod && createdOnOrBeforeEnd
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
