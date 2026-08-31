@@ -110,6 +110,9 @@ interface CommissionItem {
   id: string
   commission_type: string
   description: string | null
+  // Desglose de cómo se llegó al monto: base × porcentaje = comisión.
+  base_amount: number | null
+  commission_percentage: number | null
   commission_amount: number
   period_date: string | null
   created_at: string
@@ -423,9 +426,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             .in("status", ["approved", "paid"]),
           supabase
             .from("commissions")
-            .select("id, staff_id, commission_type, description, commission_amount, status, period_date, created_at, paid_at")
+            .select("id, staff_id, commission_type, description, base_amount, commission_percentage, commission_amount, status, period_date, created_at, paid_at")
             .in("staff_id", staffIds)
-            .in("status", ["approved", "paid"]),
+            // Solo comisiones aprobadas (pendientes de pago). Las pagadas ya se
+            // liquidaron en su nómina y no se muestran en la actual.
+            .eq("status", "approved"),
           // Préstamos vigentes (activos/aprobados) con saldo pendiente.
           supabase
             .from("loans")
@@ -460,17 +465,10 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           })
         }
         for (const c of commissionsRes.data || []) {
-          // Reglas de inclusión de comisiones (p. ej. comisiones por citas): SOLO
-          // se muestran las que pertenecen al periodo SELECCIONADO, nunca las de
-          // periodos anteriores.
-          // - Pagada: se liga al periodo en que se registró el pago (paid_at).
-          // - Aprobada/pendiente: se liga al periodo de la comisión (period_date,
-          //   o su fecha de registro). Ya no se arrastran comisiones de periodos
-          //   pasados a la nómina actual.
-          const include =
-            c.status === "paid"
-              ? inPeriod(c.paid_at, c.created_at)
-              : inPeriod(c.period_date, c.created_at)
+          // Solo comisiones aprobadas (pendientes de pago) que pertenecen al
+          // periodo SELECCIONADO, ligadas por su period_date (o fecha de
+          // registro). No se muestran las pagadas ni las de periodos anteriores.
+          const include = inPeriod(c.period_date, c.created_at)
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
@@ -479,6 +477,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             id: c.id,
             commission_type: c.commission_type,
             description: c.description,
+            base_amount: c.base_amount != null ? Number(c.base_amount) : null,
+            commission_percentage: c.commission_percentage != null ? Number(c.commission_percentage) : null,
             commission_amount: Number(c.commission_amount || 0),
             period_date: c.period_date,
             created_at: c.created_at,
@@ -1643,16 +1643,26 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                         <Badge variant="outline" className="text-xs">
                           {commissionTypeLabels[item.commission_type] || item.commission_type}
                         </Badge>
-                        <Badge
-                          variant={item.status === "paid" ? "default" : "secondary"}
-                          className="text-[10px]"
-                        >
-                          {item.status === "paid" ? "Pagada" : "Aprobada"}
+                        <Badge variant="secondary" className="text-[10px]">
+                          Aprobada
                         </Badge>
                       </div>
                       {item.description && (
                         <p className="mt-1 truncate text-sm text-muted-foreground">{item.description}</p>
                       )}
+                      {/* Registro de cómo se llegó al monto: base × porcentaje. */}
+                      {item.base_amount != null && item.commission_percentage != null ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatCurrency(item.base_amount)} × {item.commission_percentage}% ={" "}
+                          <span className="font-medium text-foreground">
+                            {formatCurrency(item.commission_amount)}
+                          </span>
+                        </p>
+                      ) : item.base_amount != null ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Base: {formatCurrency(item.base_amount)}
+                        </p>
+                      ) : null}
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {formatDate(item.period_date || item.created_at)}
                       </p>
