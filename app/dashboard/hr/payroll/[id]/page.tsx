@@ -406,9 +406,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const d = String(raw).slice(0, 10) // normaliza date/timestamp a YYYY-MM-DD
         return d >= start && d <= end
       }
-      // Nota: bonos y comisiones se atribuyen al periodo en que se GENERARON
-      // (su fecha efectiva/registro), por lo que cada uno cae en un único
-      // periodo. No hay "arrastre" por estado ni por fecha de pago.
+      // Bonos y comisiones se atribuyen al periodo en que se GENERARON (su fecha
+      // efectiva/registro), por lo que cada uno cae en un único periodo.
+      // Si la nómina ya está PAGADA (finalizada), solo se muestran los conceptos
+      // que realmente se pagaron (status "paid"); los que siguen pendientes o
+      // aprobados nunca formaron parte de ese pago y no deben aparecer.
+      const isPaidPeriod = periodData.status === "paid"
 
       if (staffIds.length > 0) {
         const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
@@ -435,10 +438,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         for (const b of bonusesRes.data || []) {
           // Los bonos de "días libres" no representan un monto en dinero
           if (b.benefit_type === "free_days") continue
-          // Igual que las comisiones: un bono pertenece al periodo en que se
-          // GENERÓ (effective_date, o en su defecto la fecha de registro), SIN
-          // importar si ya se pagó ni la fecha de pago (paid_at). Cada bono cae
-          // en un solo periodo y el pasado conserva exactamente lo que fue.
+          // Un bono pertenece al periodo en que se GENERÓ (effective_date, o en
+          // su defecto la fecha de registro). En una nómina ya pagada solo se
+          // incluye si el bono realmente se pagó; los pendientes/aprobados no
+          // formaron parte de ese pago.
+          if (isPaidPeriod && b.status !== "paid") continue
           const include = inPeriod(b.effective_date, b.created_at)
           if (!include) continue
           bonusesByStaff[b.staff_id] = (bonusesByStaff[b.staff_id] || 0) + Number(b.amount || 0)
@@ -458,6 +462,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           //   periodo (aparecen como "Pagadas" si esa nómina ya se pagó).
           // - Un pago registrado en otra fecha no arrastra la comisión a un
           //   periodo ajeno (evita que comisiones de julio caigan en agosto).
+          // En una nómina ya pagada solo se incluye si la comisión realmente se
+          // pagó; las pendientes/aprobadas no formaron parte de ese pago.
+          if (isPaidPeriod && c.status !== "paid") continue
           const include = inPeriod(c.period_date, c.created_at)
           if (!include) continue
           commissionsByStaff[c.staff_id] =
