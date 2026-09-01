@@ -1073,16 +1073,32 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // 2) Comisiones (citas y demás) con el desglose de cómo se calcularon
       const comisiones: Record<string, unknown>[] = []
       for (const e of entries) {
-        for (const c of e.commissionItems || []) {
+        const items = e.commissionItems || []
+        if (items.length > 0) {
+          for (const c of items) {
+            comisiones.push({
+              Colaborador: staffName(e),
+              Tipo: commissionTypeLabels[c.commission_type] || c.commission_type,
+              Descripción: c.description || "",
+              Base: c.base_amount ?? "",
+              "Porcentaje (%)": c.commission_percentage ?? "",
+              Monto: c.commission_amount,
+              Estado: c.status === "paid" ? "Pagada" : "Aprobada",
+              Fecha: fmtDay(c.period_date || c.created_at),
+            })
+          }
+        } else if (Number(e.commissions) > 0) {
+          // Respaldo: snapshot congelado sin detalle de comisiones. Emitimos el
+          // total aplicado para no perder el registro en el XLS.
           comisiones.push({
             Colaborador: staffName(e),
-            Tipo: commissionTypeLabels[c.commission_type] || c.commission_type,
-            Descripción: c.description || "",
-            Base: c.base_amount ?? "",
-            "Porcentaje (%)": c.commission_percentage ?? "",
-            Monto: c.commission_amount,
-            Estado: c.status === "paid" ? "Pagada" : "Aprobada",
-            Fecha: fmtDay(c.period_date || c.created_at),
+            Tipo: "",
+            Descripción: "Comisión aplicada en el periodo",
+            Base: "",
+            "Porcentaje (%)": "",
+            Monto: Number(e.commissions),
+            Estado: "",
+            Fecha: "",
           })
         }
       }
@@ -1095,14 +1111,29 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // 3) Bonos
       const bonos: Record<string, unknown>[] = []
       for (const e of entries) {
-        for (const b of e.bonusItems || []) {
+        const items = e.bonusItems || []
+        if (items.length > 0) {
+          for (const b of items) {
+            bonos.push({
+              Colaborador: staffName(e),
+              Tipo: b.bonus_type || "",
+              Descripción: b.description || "",
+              Monto: b.amount,
+              Estado: b.status === "paid" ? "Pagado" : "Aprobado",
+              Fecha: fmtDay(b.effective_date || b.created_at),
+            })
+          }
+        } else if (Number(e.bonuses) > 0) {
+          // Respaldo: la nómina puede venir de un snapshot congelado que guardó
+          // el total de bonos pero no el detalle. Emitimos el monto aplicado
+          // para que el XLS siempre refleje lo que se pagó en el periodo.
           bonos.push({
             Colaborador: staffName(e),
-            Tipo: b.bonus_type || "",
-            Descripción: b.description || "",
-            Monto: b.amount,
-            Estado: b.status === "paid" ? "Pagado" : "Aprobado",
-            Fecha: fmtDay(b.effective_date || b.created_at),
+            Tipo: "",
+            Descripción: "Bono aplicado en el periodo",
+            Monto: Number(e.bonuses),
+            Estado: "",
+            Fecha: "",
           })
         }
       }
