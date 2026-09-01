@@ -44,9 +44,11 @@ import {
   Settings,
   Upload,
   Paperclip,
+  Download,
   X
 } from "lucide-react"
 import { toast } from "sonner"
+import * as XLSX from "xlsx"
 
 interface PayrollPeriod {
   id: string
@@ -137,6 +139,11 @@ interface BonusItem {
   id: string
   amount: number
   status: string
+  // Datos para el registro/exportación del bono.
+  bonus_type: string | null
+  description: string | null
+  effective_date: string | null
+  created_at: string | null
 }
 
 interface PayrollEntry {
@@ -217,6 +224,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const receiptInputRef = useRef<HTMLInputElement>(null)
   // staff_id objetivo del input de archivo (se establece antes de abrir el selector).
   const [receiptTargetStaffId, setReceiptTargetStaffId] = useState<string | null>(null)
+  // Descarga de la tabla del periodo en Excel (comisiones, bonos y notas).
+  const [downloadingXls, setDownloadingXls] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -417,7 +426,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
           supabase
             .from("bonuses")
-            .select("id, staff_id, amount, benefit_type, status, effective_date, created_at, paid_at")
+            .select("id, staff_id, amount, bonus_type, description, benefit_type, status, effective_date, created_at, paid_at")
             .in("staff_id", staffIds)
             .in("status", ["approved", "paid"]),
           supabase
@@ -451,6 +460,10 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             id: b.id,
             amount: Number(b.amount || 0),
             status: b.status,
+            bonus_type: b.bonus_type ?? null,
+            description: b.description ?? null,
+            effective_date: b.effective_date ?? null,
+            created_at: b.created_at ?? null,
           })
         }
         for (const c of commissionsRes.data || []) {
@@ -1024,6 +1037,126 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     })
   }
 
+  // Descarga un Excel con TODO lo registrado en el periodo: resumen por
+  // colaborador, el detalle de comisiones y de bonos, y las notas del periodo
+  // (con su registro de autor/fecha). Toma los renglones tal como se muestran
+  // (respetando el snapshot inmutable en nóminas ya calculadas/pagadas).
+  const handleDownloadXls = async () => {
+    if (!period) return
+    setDownloadingXls(true)
+    try {
+      const fmtDay = (v: string | null | undefined) =>
+        v ? new Date(v).toLocaleDateString("es-MX", { timeZone: "UTC" }) : ""
+      const fmtDateTime = (v: string | null | undefined) =>
+        v ? new Date(v).toLocaleString("es-MX") : ""
+      const staffName = (e: PayrollEntry) =>
+        `${e.staff.first_name} ${e.staff.last_name}`.trim()
+
+      const wb = XLSX.utils.book_new()
+
+      // 1) Resumen por colaborador
+      const resumen = entries.map((e) => ({
+        Colaborador: staffName(e),
+        Puesto: e.staff.position || "",
+        "Salario base": e.base_salary,
+        Bonos: e.bonuses,
+        Comisiones: e.commissions,
+        Finiquito: e.finiquito,
+        Préstamos: e.loanDeductions,
+        Deducciones: e.deductions,
+        Impuestos: e.taxes,
+        "Pago bruto": e.gross_pay,
+        "Pago neto": e.net_pay,
+      }))
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), "Resumen")
+
+      // 2) Comisiones (citas y demás) con el desglose de cómo se calcularon
+      const comisiones: Record<string, unknown>[] = []
+      for (const e of entries) {
+        for (const c of e.commissionItems || []) {
+          comisiones.push({
+            Colaborador: staffName(e),
+            Tipo: commissionTypeLabels[c.commission_type] || c.commission_type,
+            Descripción: c.description || "",
+            Base: c.base_amount ?? "",
+            "Porcentaje (%)": c.commission_percentage ?? "",
+            Monto: c.commission_amount,
+            Estado: c.status === "paid" ? "Pagada" : "Aprobada",
+            Fecha: fmtDay(c.period_date || c.created_at),
+          })
+        }
+      }
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(comisiones.length ? comisiones : [{ Aviso: "Sin comisiones en el periodo" }]),
+        "Comisiones",
+      )
+
+      // 3) Bonos
+      const bonos: Record<string, unknown>[] = []
+      for (const e of entries) {
+        for (const b of e.bonusItems || []) {
+          bonos.push({
+            Colaborador: staffName(e),
+            Tipo: b.bonus_type || "",
+            Descripción: b.description || "",
+            Monto: b.amount,
+            Estado: b.status === "paid" ? "Pagado" : "Aprobado",
+            Fecha: fmtDay(b.effective_date || b.created_at),
+          })
+        }
+      }
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(bonos.length ? bonos : [{ Aviso: "Sin bonos en el periodo" }]),
+        "Bonos",
+      )
+
+      // 4) Notas del periodo (con su registro de autor/fecha de creación,
+      //    edición y eliminación).
+      const { data: notesData } = await supabase
+        .from("payroll_notes")
+        .select(
+          "content, created_at, updated_at, deleted_at, " +
+            "created_by_user:users!created_by(first_name, last_name, email), " +
+            "updated_by_user:users!updated_by(first_name, last_name, email), " +
+            "deleted_by_user:users!deleted_by(first_name, last_name, email)",
+        )
+        .eq("payroll_period_id", period.id)
+        .order("created_at", { ascending: true })
+
+      const userLabel = (u: { first_name?: string | null; last_name?: string | null; email?: string | null } | null) => {
+        if (!u) return ""
+        const name = `${u.first_name || ""} ${u.last_name || ""}`.trim()
+        return name || u.email || ""
+      }
+      const notas = (notesData || []).map((n: Record<string, any>) => ({
+        Nota: n.content,
+        "Creada por": userLabel(n.created_by_user),
+        "Creada el": fmtDateTime(n.created_at),
+        "Editada por": userLabel(n.updated_by_user),
+        "Editada el": fmtDateTime(n.updated_at),
+        "Eliminada por": userLabel(n.deleted_by_user),
+        "Eliminada el": fmtDateTime(n.deleted_at),
+        Estado: n.deleted_at ? "Eliminada" : n.updated_at ? "Editada" : "Activa",
+      }))
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(notas.length ? notas : [{ Aviso: "Sin notas en el periodo" }]),
+        "Notas",
+      )
+
+      const safeName = (period.period_name || "nomina").replace(/[^\w\-]+/g, "_")
+      XLSX.writeFile(wb, `${safeName}.xlsx`)
+      toast.success("Nómina descargada en Excel")
+    } catch (error) {
+      console.error("Error exporting payroll xls:", error)
+      toast.error("Error al descargar la nómina")
+    } finally {
+      setDownloadingXls(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -1117,6 +1250,18 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Descargar la nómina en Excel: disponible en aprobada y pagada.
+              Incluye resumen, comisiones, bonos y notas del periodo. */}
+          {(isApproved || isPaid) && (
+            <Button variant="outline" onClick={handleDownloadXls} disabled={downloadingXls}>
+              {downloadingXls ? (
+                <Spinner className="mr-2 h-4 w-4" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Descargar XLS
+            </Button>
+          )}
           {(period.status === "draft" || (isModifiable && modifyMode)) && (
             <Button variant="outline" onClick={() => setShowConfigDialog(true)}>
               <Settings className="mr-2 h-4 w-4" />
