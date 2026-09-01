@@ -41,6 +41,9 @@ export interface PayrollExportPeriod {
     isrRate: number
     otherDeductions: number
   } | null
+  // Snapshot congelado de los renglones (se guarda al aprobar/pagar). Si existe,
+  // es la fuente de verdad: refleja exactamente lo que se pagó en el periodo.
+  entries_snapshot?: unknown
 }
 
 export interface PayrollExportCommissionItem {
@@ -154,6 +157,70 @@ export function calculateBaseSalary(
   return standardSalary()
 }
 
+// Normaliza el snapshot congelado (JSONB) a la estructura de exportación.
+// Devuelve null si no hay snapshot utilizable, para caer al cálculo en vivo.
+function mapSnapshotToEntries(raw: unknown): PayrollExportEntry[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const num = (v: unknown) => Number(v ?? 0) || 0
+  const str = (v: unknown) => (v == null ? null : String(v))
+
+  return raw.map((e: Record<string, any>) => {
+    const staffRaw = e.staff || {}
+    const commissionItems: PayrollExportCommissionItem[] = Array.isArray(e.commissionItems)
+      ? e.commissionItems.map((c: Record<string, any>) => ({
+          commission_type: c.commission_type || "sale",
+          description: str(c.description),
+          base_amount: c.base_amount != null ? num(c.base_amount) : null,
+          commission_percentage: c.commission_percentage != null ? num(c.commission_percentage) : null,
+          commission_amount: num(c.commission_amount),
+          status: c.status || "",
+          date: str(c.period_date || c.created_at),
+        }))
+      : []
+    const bonusItems: PayrollExportBonusItem[] = Array.isArray(e.bonusItems)
+      ? e.bonusItems.map((b: Record<string, any>) => ({
+          bonus_type: str(b.bonus_type),
+          description: str(b.description),
+          amount: num(b.amount),
+          status: b.status || "",
+          date: str(b.effective_date || b.created_at),
+        }))
+      : []
+
+    return {
+      staff: {
+        id: staffRaw.id || "",
+        first_name: staffRaw.first_name || "",
+        last_name: staffRaw.last_name || "",
+        position: str(staffRaw.position),
+        monthly_salary: staffRaw.monthly_salary ?? null,
+        payment_frequency: staffRaw.payment_frequency ?? null,
+        is_active: staffRaw.is_active ?? true,
+        agency_id: staffRaw.agency_id ?? null,
+        employment_status: staffRaw.employment_status ?? null,
+        hire_date: staffRaw.hire_date ?? null,
+        status_change_date: staffRaw.status_change_date ?? null,
+        finiquito: staffRaw.finiquito ?? null,
+        finiquito_paid_at: staffRaw.finiquito_paid_at ?? null,
+        bank_name: staffRaw.bank_name ?? null,
+        bank_clabe: staffRaw.bank_clabe ?? null,
+        bank_account_number: staffRaw.bank_account_number ?? null,
+      },
+      base_salary: num(e.base_salary),
+      bonuses: num(e.bonuses),
+      commissions: num(e.commissions),
+      finiquito: num(e.finiquito),
+      loanDeductions: num(e.loanDeductions),
+      deductions: num(e.deductions),
+      taxes: num(e.taxes),
+      gross_pay: num(e.gross_pay),
+      net_pay: num(e.net_pay),
+      commissionItems,
+      bonusItems,
+    }
+  })
+}
+
 // Recalcula las entradas de nómina de un periodo desde staff/bonos/comisiones/préstamos.
 // Refleja lo que muestra el detalle al cargar (impuestos estimados al 10%).
 export async function computePayrollEntries(
@@ -161,6 +228,14 @@ export async function computePayrollEntries(
   period: PayrollExportPeriod,
   includeGlobalStaff = false,
 ): Promise<PayrollExportEntry[]> {
+  // Si el periodo tiene un snapshot congelado (guardado al aprobar/pagar), esa
+  // es la fuente de verdad y debe usarse tal cual: es lo que muestra el detalle
+  // y lo que realmente se pagó. Recalcular en vivo daría totales distintos
+  // porque bonos/comisiones pueden haber cambiado o caer fuera del rango de
+  // fechas del periodo (p. ej. bonos con fecha de julio pagados en agosto).
+  const snapshotEntries = mapSnapshotToEntries(period.entries_snapshot)
+  if (snapshotEntries) return snapshotEntries
+
   const isGlobalPeriod = !period.agency_id
 
   let staffQuery = supabase.from("staff").select("*").order("first_name")
