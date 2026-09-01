@@ -43,6 +43,24 @@ export interface PayrollExportPeriod {
   } | null
 }
 
+export interface PayrollExportCommissionItem {
+  commission_type: string
+  description: string | null
+  base_amount: number | null
+  commission_percentage: number | null
+  commission_amount: number
+  status: string
+  date: string | null
+}
+
+export interface PayrollExportBonusItem {
+  bonus_type: string | null
+  description: string | null
+  amount: number
+  status: string
+  date: string | null
+}
+
 export interface PayrollExportEntry {
   staff: PayrollExportStaff
   base_salary: number
@@ -54,6 +72,21 @@ export interface PayrollExportEntry {
   taxes: number
   gross_pay: number
   net_pay: number
+  // Detalle de los conceptos aplicados en el periodo (para las hojas del XLS).
+  commissionItems: PayrollExportCommissionItem[]
+  bonusItems: PayrollExportBonusItem[]
+}
+
+// Nota del periodo (con su registro de autoría) para la hoja "Notas".
+export interface PayrollExportNote {
+  content: string
+  createdBy: string
+  createdAt: string | null
+  updatedBy: string
+  updatedAt: string | null
+  deletedBy: string
+  deletedAt: string | null
+  state: string
 }
 
 // Cálculo del salario base del periodo (idéntico al del detalle de nómina).
@@ -155,6 +188,12 @@ export async function computePayrollEntries(
   const bonusesByStaff: Record<string, number> = {}
   const commissionsByStaff: Record<string, number> = {}
   const loanDeductionsByStaff: Record<string, number> = {}
+  const commissionItemsByStaff: Record<string, PayrollExportCommissionItem[]> = {}
+  const bonusItemsByStaff: Record<string, PayrollExportBonusItem[]> = {}
+
+  // En una nómina ya pagada solo cuentan los conceptos realmente pagados
+  // (igual que en el detalle); los pendientes/aprobados no formaron parte.
+  const isPaidPeriod = period.status === "paid"
 
   const start = period.start_date
   const end = period.end_date
@@ -169,12 +208,14 @@ export async function computePayrollEntries(
     const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
       supabase
         .from("bonuses")
-        .select("staff_id, amount, benefit_type, status, effective_date, created_at")
+        .select("staff_id, amount, bonus_type, description, benefit_type, status, effective_date, created_at")
         .in("staff_id", staffIds)
         .in("status", ["approved", "paid"]),
       supabase
         .from("commissions")
-        .select("staff_id, commission_amount, status, period_date, created_at")
+        .select(
+          "staff_id, commission_type, description, base_amount, commission_percentage, commission_amount, status, period_date, created_at",
+        )
         .in("staff_id", staffIds)
         .in("status", ["approved", "paid"]),
       supabase
@@ -186,13 +227,31 @@ export async function computePayrollEntries(
 
     for (const b of bonusesRes.data || []) {
       if (b.benefit_type === "free_days") continue
+      if (isPaidPeriod && b.status !== "paid") continue
       if (!inPeriod(b.effective_date, b.created_at)) continue
       bonusesByStaff[b.staff_id] = (bonusesByStaff[b.staff_id] || 0) + Number(b.amount || 0)
+      ;(bonusItemsByStaff[b.staff_id] ||= []).push({
+        bonus_type: b.bonus_type ?? null,
+        description: b.description ?? null,
+        amount: Number(b.amount || 0),
+        status: b.status,
+        date: (b.effective_date || b.created_at || null) as string | null,
+      })
     }
     for (const c of commissionsRes.data || []) {
+      if (isPaidPeriod && c.status !== "paid") continue
       if (!inPeriod(c.period_date, c.created_at)) continue
       commissionsByStaff[c.staff_id] =
         (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
+      ;(commissionItemsByStaff[c.staff_id] ||= []).push({
+        commission_type: c.commission_type,
+        description: c.description ?? null,
+        base_amount: c.base_amount ?? null,
+        commission_percentage: c.commission_percentage ?? null,
+        commission_amount: Number(c.commission_amount || 0),
+        status: c.status,
+        date: (c.period_date || c.created_at || null) as string | null,
+      })
     }
     for (const l of loansRes.data || []) {
       const remaining = Number(l.remaining_balance ?? 0)
@@ -239,13 +298,58 @@ export async function computePayrollEntries(
       taxes,
       gross_pay: grossPay,
       net_pay: netPay,
+      commissionItems: commissionItemsByStaff[staff.id] || [],
+      bonusItems: bonusItemsByStaff[staff.id] || [],
     }
   })
 }
 
-// Genera y descarga un archivo .xls con la tabla de nómina del periodo.
-export function exportPayrollToXls(period: PayrollExportPeriod, entries: PayrollExportEntry[]) {
+// Consulta las notas del periodo (con su registro de autoría) para el XLS.
+export async function fetchPayrollNotes(
+  supabase: SupabaseClient,
+  periodId: string,
+): Promise<PayrollExportNote[]> {
+  const { data } = await supabase
+    .from("payroll_notes")
+    .select(
+      "content, created_at, updated_at, deleted_at, " +
+        "created_by_user:users!created_by(first_name, last_name, email), " +
+        "updated_by_user:users!updated_by(first_name, last_name, email), " +
+        "deleted_by_user:users!deleted_by(first_name, last_name, email)",
+    )
+    .eq("payroll_period_id", periodId)
+    .order("created_at", { ascending: true })
+
+  const label = (u: { first_name?: string | null; last_name?: string | null; email?: string | null } | null) => {
+    if (!u) return ""
+    const name = `${u.first_name || ""} ${u.last_name || ""}`.trim()
+    return name || u.email || ""
+  }
+
+  return (data || []).map((n: Record<string, any>) => ({
+    content: n.content,
+    createdBy: label(n.created_by_user),
+    createdAt: n.created_at ?? null,
+    updatedBy: label(n.updated_by_user),
+    updatedAt: n.updated_at ?? null,
+    deletedBy: label(n.deleted_by_user),
+    deletedAt: n.deleted_at ?? null,
+    state: n.deleted_at ? "Eliminada" : n.updated_at ? "Editada" : "Activa",
+  }))
+}
+
+// Genera y descarga un archivo .xls con la tabla de nómina del periodo, incluyendo
+// las hojas de detalle: Comisiones, Bonos y Notas del periodo.
+export function exportPayrollToXls(
+  period: PayrollExportPeriod,
+  entries: PayrollExportEntry[],
+  notes: PayrollExportNote[] = [],
+) {
   const round2 = (n: number) => Math.round(n * 100) / 100
+  const fmtDay = (v: string | null | undefined) =>
+    v ? new Date(String(v).slice(0, 10) + "T00:00:00Z").toLocaleDateString("es-MX", { timeZone: "UTC" }) : ""
+  const fmtDateTime = (v: string | null | undefined) => (v ? new Date(v).toLocaleString("es-MX") : "")
+  const staffName = (e: PayrollExportEntry) => `${e.staff.first_name} ${e.staff.last_name}`.trim()
 
   const rows = entries.map((e) => ({
     Colaborador: `${e.staff.first_name} ${e.staff.last_name}`.trim(),
@@ -287,6 +391,65 @@ export function exportPayrollToXls(period: PayrollExportPeriod, entries: Payroll
   const worksheet = XLSX.utils.json_to_sheet(rows)
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, "Nómina")
+
+  // Hoja de Comisiones (con desglose base × porcentaje).
+  const comisiones: Record<string, unknown>[] = []
+  for (const e of entries) {
+    for (const c of e.commissionItems || []) {
+      comisiones.push({
+        Colaborador: staffName(e),
+        Tipo: c.commission_type,
+        Descripción: c.description || "",
+        Base: c.base_amount ?? "",
+        "Porcentaje (%)": c.commission_percentage ?? "",
+        Monto: round2(c.commission_amount),
+        Estado: c.status === "paid" ? "Pagada" : "Aprobada",
+        Fecha: fmtDay(c.date),
+      })
+    }
+  }
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(comisiones.length ? comisiones : [{ Aviso: "Sin comisiones en el periodo" }]),
+    "Comisiones",
+  )
+
+  // Hoja de Bonos.
+  const bonos: Record<string, unknown>[] = []
+  for (const e of entries) {
+    for (const b of e.bonusItems || []) {
+      bonos.push({
+        Colaborador: staffName(e),
+        Tipo: b.bonus_type || "",
+        Descripción: b.description || "",
+        Monto: round2(b.amount),
+        Estado: b.status === "paid" ? "Pagado" : "Aprobado",
+        Fecha: fmtDay(b.date),
+      })
+    }
+  }
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(bonos.length ? bonos : [{ Aviso: "Sin bonos en el periodo" }]),
+    "Bonos",
+  )
+
+  // Hoja de Notas del periodo.
+  const notas = notes.map((n) => ({
+    Nota: n.content,
+    "Creada por": n.createdBy,
+    "Creada el": fmtDateTime(n.createdAt),
+    "Editada por": n.updatedBy,
+    "Editada el": fmtDateTime(n.updatedAt),
+    "Eliminada por": n.deletedBy,
+    "Eliminada el": fmtDateTime(n.deletedAt),
+    Estado: n.state,
+  }))
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(notas.length ? notas : [{ Aviso: "Sin notas en el periodo" }]),
+    "Notas",
+  )
 
   const safeName = period.period_name.replace(/[^\w\-]+/g, "_")
   XLSX.writeFile(workbook, `Nomina_${safeName}.xls`, { bookType: "xls" })
