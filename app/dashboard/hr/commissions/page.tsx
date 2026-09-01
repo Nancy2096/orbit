@@ -273,6 +273,31 @@ export default function CommissionsPage() {
           toast.error("Debes iniciar sesión para aprobar comisiones")
           return
         }
+
+        // Las comisiones (p. ej. de citas) SOLO pueden ser aprobadas por
+        // gerentes o directores; un asesor no puede aprobarlas. Verificamos el
+        // puesto del usuario autenticado en staff antes de registrar la aprobación.
+        const { data: approverStaff } = await supabase
+          .from("staff")
+          .select("id, position:positions(name)")
+          .eq("user_id", user.id)
+          .maybeSingle()
+        const approverPosition =
+          ((approverStaff?.position as { name?: string } | null)?.name || "").toLowerCase()
+        const isManagerOrDirector =
+          approverPosition.includes("director") ||
+          approverPosition.includes("gerente") ||
+          approverPosition.includes("manager") ||
+          approverPosition.includes("jefe") ||
+          approverPosition.includes("supervisor") ||
+          approverPosition.includes("ceo") ||
+          approverPosition.includes("coo") ||
+          approverPosition.includes("cfo")
+        if (!isManagerOrDirector) {
+          toast.error("Solo un gerente o director puede aprobar comisiones")
+          return
+        }
+
         updates.approved_by = user.id
         updates.approved_at = new Date().toISOString()
       }

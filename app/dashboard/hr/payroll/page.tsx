@@ -43,7 +43,7 @@ import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "sonner"
 import { Plus, Search, Wallet, Calendar, DollarSign, Users, Eye, CheckCircle, MoreHorizontal, Pencil, Trash2, Download } from "lucide-react"
-import { computePayrollEntries, exportPayrollToXls } from "@/lib/payroll-export"
+import { computePayrollEntries, exportPayrollToXls, fetchPayrollNotes } from "@/lib/payroll-export"
 
 interface PayrollPeriod {
   id: string
@@ -108,12 +108,15 @@ export default function PayrollPage() {
       // El registro se consulta con select("*"), por lo que incluye payment_concept
       // y agency_id aunque no estén en el tipo local.
       const p = period as unknown as Parameters<typeof computePayrollEntries>[1]
-      const entries = await computePayrollEntries(supabase, p)
+      const [entries, notes] = await Promise.all([
+        computePayrollEntries(supabase, p),
+        fetchPayrollNotes(supabase, period.id),
+      ])
       if (entries.length === 0) {
         toast.error("No hay colaboradores en este periodo para exportar")
         return
       }
-      exportPayrollToXls(p, entries)
+      exportPayrollToXls(p, entries, notes)
       toast.success("Tabla de nómina descargada")
     } catch (error) {
       console.error("Error exporting payroll:", error)
@@ -400,7 +403,7 @@ export default function PayrollPage() {
                                 Ver Detalle
                               </Link>
                             </DropdownMenuItem>
-                            {period.status === "approved" && (
+                            {(period.status === "approved" || period.status === "paid") && (
                               <DropdownMenuItem
                                 onSelect={(e) => {
                                   e.preventDefault()
@@ -423,7 +426,11 @@ export default function PayrollPage() {
                                 </Link>
                               </DropdownMenuItem>
                             )}
-                            {(period.status === "draft" || period.status === "calculating") && (
+                            {/* Se puede eliminar en borrador, calculada y
+                                aprobada. Solo una nómina pagada queda bloqueada. */}
+                            {(period.status === "draft" ||
+                              period.status === "calculating" ||
+                              period.status === "approved") && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem 

@@ -44,9 +44,11 @@ import {
   Settings,
   Upload,
   Paperclip,
+  Download,
   X
 } from "lucide-react"
 import { toast } from "sonner"
+import * as XLSX from "xlsx"
 
 interface PayrollPeriod {
   id: string
@@ -110,6 +112,9 @@ interface CommissionItem {
   id: string
   commission_type: string
   description: string | null
+  // Desglose de cómo se llegó al monto: base × porcentaje = comisión.
+  base_amount: number | null
+  commission_percentage: number | null
   commission_amount: number
   period_date: string | null
   created_at: string
@@ -134,6 +139,11 @@ interface BonusItem {
   id: string
   amount: number
   status: string
+  // Datos para el registro/exportación del bono.
+  bonus_type: string | null
+  description: string | null
+  effective_date: string | null
+  created_at: string | null
 }
 
 interface PayrollEntry {
@@ -214,6 +224,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const receiptInputRef = useRef<HTMLInputElement>(null)
   // staff_id objetivo del input de archivo (se establece antes de abrir el selector).
   const [receiptTargetStaffId, setReceiptTargetStaffId] = useState<string | null>(null)
+  // Descarga de la tabla del periodo en Excel (comisiones, bonos y notas).
+  const [downloadingXls, setDownloadingXls] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -403,27 +415,23 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const d = String(raw).slice(0, 10) // normaliza date/timestamp a YYYY-MM-DD
         return d >= start && d <= end
       }
-      // El "arrastre" de bonos/comisiones aprobados y pendientes SOLO aplica a la
-      // nómina ACTUAL: la que aún no se aprueba/paga (borrador o en cálculo) Y
-      // cuyo periodo no pertenece al pasado (cierra hoy o en el futuro).
-      // Una nómina de un periodo ya terminado nunca debe incorporar pendientes
-      // nuevos, aunque siga en borrador: cada registro es único, se aplica a una
-      // sola nómina y el pasado no se modifica.
-      const today = new Date().toISOString().slice(0, 10)
-      const periodNotInPast = end >= today
-      const isActivePeriod =
-        (periodData.status === "draft" || periodData.status === "calculating") && periodNotInPast
+      // Bonos y comisiones se atribuyen al periodo en que se GENERARON (su fecha
+      // efectiva/registro), por lo que cada uno cae en un único periodo.
+      // Si la nómina ya está PAGADA (finalizada), solo se muestran los conceptos
+      // que realmente se pagaron (status "paid"); los que siguen pendientes o
+      // aprobados nunca formaron parte de ese pago y no deben aparecer.
+      const isPaidPeriod = periodData.status === "paid"
 
       if (staffIds.length > 0) {
         const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
           supabase
             .from("bonuses")
-            .select("id, staff_id, amount, benefit_type, status, effective_date, created_at, paid_at")
+            .select("id, staff_id, amount, bonus_type, description, benefit_type, status, effective_date, created_at, paid_at")
             .in("staff_id", staffIds)
             .in("status", ["approved", "paid"]),
           supabase
             .from("commissions")
-            .select("id, staff_id, commission_type, description, commission_amount, status, period_date, created_at, paid_at")
+            .select("id, staff_id, commission_type, description, base_amount, commission_percentage, commission_amount, status, period_date, created_at, paid_at")
             .in("staff_id", staffIds)
             .in("status", ["approved", "paid"]),
           // Préstamos vigentes (activos/aprobados) con saldo pendiente.
@@ -439,17 +447,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         for (const b of bonusesRes.data || []) {
           // Los bonos de "días libres" no representan un monto en dinero
           if (b.benefit_type === "free_days") continue
-          // Reglas de inclusión de bonos en el periodo (igual que las comisiones):
-          // - Pagado: se muestra ÚNICAMENTE en el periodo en que se registró el
-          //   pago (paid_at), por lo que queda ligado a una sola nómina.
-          // - Aprobado y pendiente: se arrastra SOLO a la nómina activa (borrador
-          //   o en cálculo), hasta que se pague. Nunca a nóminas pasadas ya
-          //   aprobadas/pagadas, para no modificar el pasado.
-          const createdOnOrBeforeEnd = String(b.effective_date || b.created_at || "").slice(0, 10) <= end
-          const include =
-            b.status === "paid"
-              ? inPeriod(b.paid_at, b.created_at)
-              : isActivePeriod && createdOnOrBeforeEnd
+          // Un bono pertenece al periodo en que se GENERÓ (effective_date, o en
+          // su defecto la fecha de registro). En una nómina ya pagada solo se
+          // incluye si el bono realmente se pagó; los pendientes/aprobados no
+          // formaron parte de ese pago.
+          if (isPaidPeriod && b.status !== "paid") continue
+          const include = inPeriod(b.effective_date, b.created_at)
           if (!include) continue
           bonusesByStaff[b.staff_id] = (bonusesByStaff[b.staff_id] || 0) + Number(b.amount || 0)
           if (!bonusItemsByStaff[b.staff_id]) bonusItemsByStaff[b.staff_id] = []
@@ -457,20 +460,25 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             id: b.id,
             amount: Number(b.amount || 0),
             status: b.status,
+            bonus_type: b.bonus_type ?? null,
+            description: b.description ?? null,
+            effective_date: b.effective_date ?? null,
+            created_at: b.created_at ?? null,
           })
         }
         for (const c of commissionsRes.data || []) {
-          // Reglas de inclusión de comisiones en el periodo:
-          // - Pagada: se muestra ÚNICAMENTE en el periodo en que se registró el
-          //   pago (paid_at), quedando ligada a una sola nómina.
-          // - Aprobada y pendiente: se arrastra SOLO a la nómina activa (borrador
-          //   o en cálculo), hasta que se pague. Nunca a nóminas pasadas ya
-          //   aprobadas/pagadas, para no modificar el pasado.
-          const createdOnOrBeforeEnd = String(c.created_at || "").slice(0, 10) <= end
-          const include =
-            c.status === "paid"
-              ? inPeriod(c.paid_at, c.created_at)
-              : isActivePeriod && createdOnOrBeforeEnd
+          // Una comisión (p. ej. de citas) pertenece al periodo en que se GENERÓ
+          // —su period_date, o en su defecto la fecha de registro— SIN importar
+          // si ya se pagó ni la fecha de pago (paid_at). Así:
+          // - Cada comisión cae en un solo periodo: el de cuando se ganó.
+          // - Las nóminas pasadas muestran exactamente lo que se ganó en ese
+          //   periodo (aparecen como "Pagadas" si esa nómina ya se pagó).
+          // - Un pago registrado en otra fecha no arrastra la comisión a un
+          //   periodo ajeno (evita que comisiones de julio caigan en agosto).
+          // En una nómina ya pagada solo se incluye si la comisión realmente se
+          // pagó; las pendientes/aprobadas no formaron parte de ese pago.
+          if (isPaidPeriod && c.status !== "paid") continue
+          const include = inPeriod(c.period_date, c.created_at)
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
@@ -479,6 +487,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             id: c.id,
             commission_type: c.commission_type,
             description: c.description,
+            base_amount: c.base_amount != null ? Number(c.base_amount) : null,
+            commission_percentage: c.commission_percentage != null ? Number(c.commission_percentage) : null,
             commission_amount: Number(c.commission_amount || 0),
             period_date: c.period_date,
             created_at: c.created_at,
@@ -698,6 +708,10 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // conserva en recálculos posteriores (es un dato de auditoría).
       const calculatedAt = period.calculated_at ?? new Date().toISOString()
 
+      // Al recalcular una nómina ya aprobada se conserva su estado "approved"
+      // (no se degrada a "calculating"); solo un borrador pasa a "calculating".
+      const nextStatus = period.status === "approved" ? "approved" : "calculating"
+
       // Update period totals + snapshot inmutable de los renglones calculados.
       const { error } = await supabase
         .from("payroll_periods")
@@ -705,7 +719,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           total_gross: totalGross,
           total_deductions: totalDeductions,
           total_net: totalNet,
-          status: "calculating",
+          status: nextStatus,
           calculated_at: calculatedAt,
           // Congelar los renglones tal como quedaron en este cálculo.
           entries_snapshot: updatedEntries,
@@ -721,7 +735,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         total_gross: totalGross,
         total_deductions: totalDeductions,
         total_net: totalNet,
-        status: "calculating",
+        status: nextStatus,
         calculated_at: calculatedAt,
         entries_snapshot: updatedEntries,
         tax_config: payrollConfig,
@@ -943,10 +957,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const handleSaveEntry = async () => {
     if (!editingEntry || !period) return
 
-    // Salvaguarda: una nómina aprobada/pagada nunca se modifica, y una
-    // "Calculada" solo si el modo de modificación está activo.
+    // Salvaguarda: una nómina "Pagada" nunca se modifica. Una "Calculada" o
+    // "Aprobada" solo si el modo de modificación está activo.
     const editable =
-      period.status === "draft" || (period.status === "calculating" && modifyMode)
+      period.status === "draft" ||
+      ((period.status === "calculating" || period.status === "approved") && modifyMode)
     if (!editable) {
       toast.error("La nómina está bloqueada. Activa 'Modificar' para editar.")
       setShowEditDialog(false)
@@ -971,9 +986,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     )
     setEntries(newEntries)
 
-    // Si la nómina ya está calculada, la edición manual se persiste en el
-    // snapshot inmutable (y sus totales) para que quede congelada.
-    if (period.status === "calculating") {
+    // Si la nómina ya está calculada o aprobada, la edición manual se persiste
+    // en el snapshot inmutable (y sus totales) para que quede congelada.
+    if (period.status === "calculating" || period.status === "approved") {
       const totalGross = newEntries.reduce((sum, e) => sum + e.gross_pay, 0)
       const totalDeductions = newEntries.reduce((sum, e) => sum + e.deductions + e.loanDeductions + e.taxes, 0)
       const totalNet = newEntries.reduce((sum, e) => sum + e.net_pay, 0)
@@ -1022,6 +1037,157 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     })
   }
 
+  // Descarga un Excel con TODO lo registrado en el periodo: resumen por
+  // colaborador, el detalle de comisiones y de bonos, y las notas del periodo
+  // (con su registro de autor/fecha). Toma los renglones tal como se muestran
+  // (respetando el snapshot inmutable en nóminas ya calculadas/pagadas).
+  const handleDownloadXls = async () => {
+    if (!period) return
+    setDownloadingXls(true)
+    try {
+      const fmtDay = (v: string | null | undefined) =>
+        v ? new Date(v).toLocaleDateString("es-MX", { timeZone: "UTC" }) : ""
+      const fmtDateTime = (v: string | null | undefined) =>
+        v ? new Date(v).toLocaleString("es-MX") : ""
+      const staffName = (e: PayrollEntry) =>
+        `${e.staff.first_name} ${e.staff.last_name}`.trim()
+
+      const wb = XLSX.utils.book_new()
+
+      // 1) Resumen por colaborador
+      const resumen = entries.map((e) => ({
+        Colaborador: staffName(e),
+        Puesto: e.staff.position || "",
+        "Salario base": e.base_salary,
+        Bonos: e.bonuses,
+        Comisiones: e.commissions,
+        Finiquito: e.finiquito,
+        Préstamos: e.loanDeductions,
+        Deducciones: e.deductions,
+        Impuestos: e.taxes,
+        "Pago bruto": e.gross_pay,
+        "Pago neto": e.net_pay,
+      }))
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), "Resumen")
+
+      // 2) Comisiones (citas y demás) con el desglose de cómo se calcularon
+      const comisiones: Record<string, unknown>[] = []
+      for (const e of entries) {
+        const items = e.commissionItems || []
+        if (items.length > 0) {
+          for (const c of items) {
+            comisiones.push({
+              Colaborador: staffName(e),
+              Tipo: commissionTypeLabels[c.commission_type] || c.commission_type,
+              Descripción: c.description || "",
+              Base: c.base_amount ?? "",
+              "Porcentaje (%)": c.commission_percentage ?? "",
+              Monto: c.commission_amount,
+              Estado: c.status === "paid" ? "Pagada" : "Aprobada",
+              Fecha: fmtDay(c.period_date || c.created_at),
+            })
+          }
+        } else if (Number(e.commissions) > 0) {
+          // Respaldo: snapshot congelado sin detalle de comisiones. Emitimos el
+          // total aplicado para no perder el registro en el XLS.
+          comisiones.push({
+            Colaborador: staffName(e),
+            Tipo: "",
+            Descripción: "Comisión aplicada en el periodo",
+            Base: "",
+            "Porcentaje (%)": "",
+            Monto: Number(e.commissions),
+            Estado: "",
+            Fecha: "",
+          })
+        }
+      }
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(comisiones.length ? comisiones : [{ Aviso: "Sin comisiones en el periodo" }]),
+        "Comisiones",
+      )
+
+      // 3) Bonos
+      const bonos: Record<string, unknown>[] = []
+      for (const e of entries) {
+        const items = e.bonusItems || []
+        if (items.length > 0) {
+          for (const b of items) {
+            bonos.push({
+              Colaborador: staffName(e),
+              Tipo: b.bonus_type || "",
+              Descripción: b.description || "",
+              Monto: b.amount,
+              Estado: b.status === "paid" ? "Pagado" : "Aprobado",
+              Fecha: fmtDay(b.effective_date || b.created_at),
+            })
+          }
+        } else if (Number(e.bonuses) > 0) {
+          // Respaldo: la nómina puede venir de un snapshot congelado que guardó
+          // el total de bonos pero no el detalle. Emitimos el monto aplicado
+          // para que el XLS siempre refleje lo que se pagó en el periodo.
+          bonos.push({
+            Colaborador: staffName(e),
+            Tipo: "",
+            Descripción: "Bono aplicado en el periodo",
+            Monto: Number(e.bonuses),
+            Estado: "",
+            Fecha: "",
+          })
+        }
+      }
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(bonos.length ? bonos : [{ Aviso: "Sin bonos en el periodo" }]),
+        "Bonos",
+      )
+
+      // 4) Notas del periodo (con su registro de autor/fecha de creación,
+      //    edición y eliminación).
+      const { data: notesData } = await supabase
+        .from("payroll_notes")
+        .select(
+          "content, created_at, updated_at, deleted_at, " +
+            "created_by_user:users!created_by(first_name, last_name, email), " +
+            "updated_by_user:users!updated_by(first_name, last_name, email), " +
+            "deleted_by_user:users!deleted_by(first_name, last_name, email)",
+        )
+        .eq("payroll_period_id", period.id)
+        .order("created_at", { ascending: true })
+
+      const userLabel = (u: { first_name?: string | null; last_name?: string | null; email?: string | null } | null) => {
+        if (!u) return ""
+        const name = `${u.first_name || ""} ${u.last_name || ""}`.trim()
+        return name || u.email || ""
+      }
+      const notas = (notesData || []).map((n: Record<string, any>) => ({
+        Nota: n.content,
+        "Creada por": userLabel(n.created_by_user),
+        "Creada el": fmtDateTime(n.created_at),
+        "Editada por": userLabel(n.updated_by_user),
+        "Editada el": fmtDateTime(n.updated_at),
+        "Eliminada por": userLabel(n.deleted_by_user),
+        "Eliminada el": fmtDateTime(n.deleted_at),
+        Estado: n.deleted_at ? "Eliminada" : n.updated_at ? "Editada" : "Activa",
+      }))
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(notas.length ? notas : [{ Aviso: "Sin notas en el periodo" }]),
+        "Notas",
+      )
+
+      const safeName = (period.period_name || "nomina").replace(/[^\w\-]+/g, "_")
+      XLSX.writeFile(wb, `${safeName}.xlsx`)
+      toast.success("Nómina descargada en Excel")
+    } catch (error) {
+      console.error("Error exporting payroll xls:", error)
+      toast.error("Error al descargar la nómina")
+    } finally {
+      setDownloadingXls(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -1052,11 +1218,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
   // Estado de la nómina para controlar la edición:
   // - draft: siempre editable.
-  // - calculating ("Calculada"): bloqueada; editable solo en modo modificación.
-  // - approved/paid: solo lectura (excepto comprobantes de pago).
+  // - calculating ("Calculada") y approved ("Aprobada"): bloqueadas por defecto,
+  //   pero se pueden modificar activando el modo de modificación (y eliminar
+  //   desde el listado).
+  // - paid ("Pagada"): totalmente bloqueada; solo lectura (excepto comprobantes).
   const isCalculated = period.status === "calculating"
-  const isApprovedOrPaid = period.status === "approved" || period.status === "paid"
-  const canEdit = period.status === "draft" || (isCalculated && modifyMode)
+  const isApproved = period.status === "approved"
+  const isPaid = period.status === "paid"
+  // Estados en los que la nómina puede modificarse (con modo modificación).
+  const isModifiable = isCalculated || isApproved
+  const canEdit = period.status === "draft" || (isModifiable && modifyMode)
 
   return (
     <div className="space-y-6">
@@ -1110,7 +1281,19 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {(period.status === "draft" || (isCalculated && modifyMode)) && (
+          {/* Descargar la nómina en Excel: disponible en aprobada y pagada.
+              Incluye resumen, comisiones, bonos y notas del periodo. */}
+          {(isApproved || isPaid) && (
+            <Button variant="outline" onClick={handleDownloadXls} disabled={downloadingXls}>
+              {downloadingXls ? (
+                <Spinner className="mr-2 h-4 w-4" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Descargar XLS
+            </Button>
+          )}
+          {(period.status === "draft" || (isModifiable && modifyMode)) && (
             <Button variant="outline" onClick={() => setShowConfigDialog(true)}>
               <Settings className="mr-2 h-4 w-4" />
               Configurar Impuestos
@@ -1126,27 +1309,34 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
               Calcular Nómina
             </Button>
           )}
-          {isCalculated && !modifyMode && (
+          {isModifiable && !modifyMode && (
             <>
-              {/* Nómina Calculada y bloqueada: para cambiar algo hay que activar
-                  explícitamente el modo de modificación. */}
+              {/* Nómina Calculada o Aprobada: bloqueada por defecto. Para cambiar
+                  algo hay que activar explícitamente el modo de modificación. */}
               <Button variant="outline" onClick={() => setModifyMode(true)}>
                 <Pencil className="mr-2 h-4 w-4" />
                 Modificar
               </Button>
-              {canApprovePayroll ? (
-                <Button onClick={handleApprovePayroll}>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Aprobar
+              {isCalculated &&
+                (canApprovePayroll ? (
+                  <Button onClick={handleApprovePayroll}>
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Aprobar
+                  </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
+                    Solo el super administrador o el director general pueden aprobar la nómina.
+                  </p>
+                ))}
+              {isApproved && (
+                <Button onClick={handleMarkAsPaid}>
+                  <Wallet className="mr-2 h-4 w-4" />
+                  Marcar como Pagada
                 </Button>
-              ) : (
-                <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
-                  Solo el super administrador o el director general pueden aprobar la nómina.
-                </p>
               )}
             </>
           )}
-          {isCalculated && modifyMode && (
+          {isModifiable && modifyMode && (
             <>
               <Button variant="ghost" onClick={() => setModifyMode(false)}>
                 Listo
@@ -1159,23 +1349,24 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                 )}
                 Recalcular
               </Button>
-              {canApprovePayroll ? (
-                <Button onClick={handleApprovePayroll}>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Aprobar
+              {isCalculated &&
+                (canApprovePayroll ? (
+                  <Button onClick={handleApprovePayroll}>
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Aprobar
+                  </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
+                    Solo el super administrador o el director general pueden aprobar la nómina.
+                  </p>
+                ))}
+              {isApproved && (
+                <Button onClick={handleMarkAsPaid}>
+                  <Wallet className="mr-2 h-4 w-4" />
+                  Marcar como Pagada
                 </Button>
-              ) : (
-                <p className="text-sm text-muted-foreground max-w-[220px] text-pretty">
-                  Solo el super administrador o el director general pueden aprobar la nómina.
-                </p>
               )}
             </>
-          )}
-          {period.status === "approved" && (
-            <Button onClick={handleMarkAsPaid}>
-              <Wallet className="mr-2 h-4 w-4" />
-              Marcar como Pagada
-            </Button>
           )}
         </div>
       </div>
@@ -1635,6 +1826,19 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                       {item.description && (
                         <p className="mt-1 truncate text-sm text-muted-foreground">{item.description}</p>
                       )}
+                      {/* Registro de cómo se llegó al monto: base × porcentaje. */}
+                      {item.base_amount != null && item.commission_percentage != null ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatCurrency(item.base_amount)} × {item.commission_percentage}% ={" "}
+                          <span className="font-medium text-foreground">
+                            {formatCurrency(item.commission_amount)}
+                          </span>
+                        </p>
+                      ) : item.base_amount != null ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Base: {formatCurrency(item.base_amount)}
+                        </p>
+                      ) : null}
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {formatDate(item.period_date || item.created_at)}
                       </p>
