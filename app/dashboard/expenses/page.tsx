@@ -558,9 +558,6 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     if (selectedStatus !== "all") {
       query = query.eq("status", selectedStatus)
     }
-    if (selectedApprovalStatus !== "all") {
-      query = query.eq("approval_status", selectedApprovalStatus)
-    }
 
     const { data, error } = await query
 
@@ -640,6 +637,9 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
   const allVisibleSelected =
     filteredExpenses.length > 0 && filteredExpenses.every((e) => selectedIds.has(e.id))
 
+  // Seleccionados que además están visibles bajo los filtros/búsqueda actuales.
+  const visibleSelectedCount = filteredExpenses.filter((e) => selectedIds.has(e.id)).length
+
   const toggleSelectAll = () => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -670,7 +670,14 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     if (selectedIds.size === 0) return
     setDownloadingXls(true)
     try {
-      const ids = Array.from(selectedIds)
+      // Respetar los filtros activos: exportar solo los gastos seleccionados
+      // que además estén visibles bajo los filtros/búsqueda actuales.
+      const visibleIds = new Set(filteredExpenses.map((e) => e.id))
+      const ids = Array.from(selectedIds).filter((id) => visibleIds.has(id))
+      if (ids.length === 0) {
+        setDownloadingXls(false)
+        return
+      }
 
       // Traer el detalle completo de los gastos seleccionados (con relaciones).
       const { data: fullExpenses, error } = await supabase
@@ -1446,10 +1453,10 @@ const resetExpenseForm = () => {
           </Card>
 
           {/* Barra de acciones para la selección múltiple */}
-          {selectedIds.size > 0 && (
+          {visibleSelectedCount > 0 && (
             <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-4 py-3">
               <span className="text-sm font-medium">
-                {selectedIds.size} {selectedIds.size === 1 ? "gasto seleccionado" : "gastos seleccionados"}
+                {visibleSelectedCount} {visibleSelectedCount === 1 ? "gasto seleccionado" : "gastos seleccionados"}
               </span>
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
