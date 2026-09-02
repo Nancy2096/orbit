@@ -1427,15 +1427,55 @@ const resetExpenseForm = () => {
               <CardTitle>Filtros</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col gap-4 md:flex-row md:items-center">
-                <div className="relative flex-1">
+              <div className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-center">
+                <div className="relative w-full md:w-[260px]">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Buscar por descripción, proveedor o categoría..."
+                    placeholder="Buscar..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-9"
                   />
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="date-from"
+                      type="date"
+                      aria-label="Fecha desde"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="w-full pl-9 md:w-[160px]"
+                    />
+                  </div>
+                  <span className="text-sm text-muted-foreground">a</span>
+                  <div className="relative">
+                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="date-to"
+                      type="date"
+                      aria-label="Fecha hasta"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="w-full pl-9 md:w-[160px]"
+                    />
+                  </div>
+                  {(dateFrom || dateTo) && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Limpiar fechas"
+                      onClick={() => {
+                        setDateFrom("")
+                        setDateTo("")
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
                 <Select value={selectedAgency} onValueChange={setSelectedAgency}>
                   <SelectTrigger className="w-full md:w-[180px]">
@@ -1470,55 +1510,6 @@ const resetExpenseForm = () => {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-
-              {/* Filtro por rango de fechas (sobre la Fecha de Registro) */}
-              <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-end">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="date-from" className="text-xs text-muted-foreground">
-                    Desde
-                  </Label>
-                  <div className="relative">
-                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="date-from"
-                      type="date"
-                      value={dateFrom}
-                      max={dateTo || undefined}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                      className="w-full pl-9 md:w-[180px]"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="date-to" className="text-xs text-muted-foreground">
-                    Hasta
-                  </Label>
-                  <div className="relative">
-                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="date-to"
-                      type="date"
-                      value={dateTo}
-                      min={dateFrom || undefined}
-                      onChange={(e) => setDateTo(e.target.value)}
-                      className="w-full pl-9 md:w-[180px]"
-                    />
-                  </div>
-                </div>
-                {(dateFrom || dateTo) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setDateFrom("")
-                      setDateTo("")
-                    }}
-                  >
-                    <X className="mr-1 h-4 w-4" />
-                    Limpiar fechas
-                  </Button>
-                )}
               </div>
             </CardContent>
           </Card>
