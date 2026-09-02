@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
@@ -8,6 +8,16 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
+import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   ArrowLeft,
   Clock,
@@ -15,7 +25,13 @@ import {
   XCircle,
   FileText,
   UserCheck,
+  Building2,
+  Banknote,
+  Upload,
+  ChevronDown,
+  Pencil,
 } from "lucide-react"
+import { toast } from "sonner"
 
 interface ApprovalHistory {
   id: string
@@ -23,6 +39,15 @@ interface ApprovalHistory {
   comments: string | null
   created_at: string | null
   performed_by: { first_name: string; last_name: string } | null
+}
+
+interface BankAccount {
+  id: string
+  bank_name: string
+  account_name: string | null
+  account_number: string | null
+  clabe: string | null
+  is_primary: boolean | null
 }
 
 interface ExpenseDetail {
@@ -47,6 +72,9 @@ interface ExpenseDetail {
   approved_at: string | null
   rejection_reason: string | null
   created_at: string | null
+  bank_account_id: string | null
+  payment_receipt_url: string | null
+  payment_receipt_uploaded_at: string | null
   category: { id: string; name: string; expense_type?: string | null } | null
   agency: { id: string; name: string } | null
   currency: { id: string; code: string; symbol: string } | null
@@ -76,11 +104,34 @@ const expenseTypes: Record<string, string> = {
 
 const actionLabels: Record<string, string> = {
   submitted: "Enviado a aprobación",
+  pending: "Enviado a aprobación",
   approved: "Aprobado",
+  paid: "Marcado como pagado",
   rejected: "Rechazado",
   cancelled: "Cancelado",
+  draft: "Regresado a borrador",
   created: "Creado",
 }
+
+// Estados del flujo de un gasto. El campo `status` es la fuente de verdad.
+const statusConfig: Record<
+  string,
+  { label: string; className: string; icon: typeof Clock }
+> = {
+  draft: { label: "Borrador", className: "bg-gray-100 text-gray-700 border-gray-200", icon: Pencil },
+  pending: { label: "Pendiente de aprobación", className: "bg-yellow-50 text-yellow-700 border-yellow-200", icon: Clock },
+  approved: { label: "Aprobado", className: "bg-green-50 text-green-700 border-green-200", icon: CheckCircle },
+  paid: { label: "Pagado", className: "bg-blue-50 text-blue-700 border-blue-200", icon: Banknote },
+  rejected: { label: "Rechazado", className: "bg-red-50 text-red-700 border-red-200", icon: XCircle },
+}
+
+// Estados que el usuario puede seleccionar desde las acciones.
+const selectableStatuses: { value: string; label: string }[] = [
+  { value: "draft", label: "Borrador" },
+  { value: "pending", label: "Pendiente de aprobación" },
+  { value: "approved", label: "Aprobado" },
+  { value: "paid", label: "Pagado" },
+]
 
 export default function ExpenseDetailPage() {
   const params = useParams()
@@ -90,42 +141,90 @@ export default function ExpenseDetailPage() {
   const [expense, setExpense] = useState<ExpenseDetail | null>(null)
   const [history, setHistory] = useState<ApprovalHistory[]>([])
   const [loading, setLoading] = useState(true)
+  const [currentStaffId, setCurrentStaffId] = useState<string | null>(null)
+  const [savingStatus, setSavingStatus] = useState(false)
+
+  // Banco de salida (visible cuando el gasto está aprobado).
+  const [banks, setBanks] = useState<BankAccount[]>([])
+  const [savingBank, setSavingBank] = useState(false)
+
+  // Comprobante de pago (visible cuando el gasto está pagado).
+  const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const receiptInputRef = useRef<HTMLInputElement>(null)
+
+  const loadExpense = async () => {
+    const { data } = await supabase
+      .from("expenses")
+      .select(`
+        *,
+        category:expense_categories(id, name, expense_type),
+        agency:agencies(id, name),
+        currency:currencies(id, code, symbol),
+        project:projects(id, name),
+        account:accounts(id, account_name),
+        vendor:vendors(id, name),
+        requested_by:staff!expenses_requested_by_id_fkey(id, first_name, last_name),
+        approved_by:staff!expenses_approved_by_id_fkey(id, first_name, last_name)
+      `)
+      .eq("id", id)
+      .single()
+
+    setExpense(data as ExpenseDetail | null)
+
+    const { data: hist } = await supabase
+      .from("expense_approval_history")
+      .select(`
+        id, action, comments, created_at,
+        performed_by:staff(first_name, last_name)
+      `)
+      .eq("expense_id", id)
+      .order("created_at", { ascending: false })
+
+    setHistory((hist as ApprovalHistory[]) || [])
+    return data as ExpenseDetail | null
+  }
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      const { data } = await supabase
-        .from("expenses")
-        .select(`
-          *,
-          category:expense_categories(id, name, expense_type),
-          agency:agencies(id, name),
-          currency:currencies(id, code, symbol),
-          project:projects(id, name),
-          account:accounts(id, account_name),
-          vendor:vendors(id, name),
-          requested_by:staff!expenses_requested_by_id_fkey(id, first_name, last_name),
-          approved_by:staff!expenses_approved_by_id_fkey(id, first_name, last_name)
-        `)
-        .eq("id", id)
-        .single()
-
-      setExpense(data as ExpenseDetail | null)
-
-      const { data: hist } = await supabase
-        .from("expense_approval_history")
-        .select(`
-          id, action, comments, created_at,
-          performed_by:staff(first_name, last_name)
-        `)
-        .eq("expense_id", id)
-        .order("created_at", { ascending: false })
-
-      setHistory((hist as ApprovalHistory[]) || [])
+      // Staff del usuario autenticado (para aprobado por / historial).
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        const { data: staffData } = await supabase
+          .from("staff")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("is_active", true)
+          .maybeSingle()
+        setCurrentStaffId(staffData?.id ?? null)
+      }
+      await loadExpense()
       setLoading(false)
     }
     if (id) load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  // Cargar los bancos activos de la agencia cuando el gasto lo necesita
+  // (aprobado -> banco de salida; pagado -> mostrar el banco elegido).
+  useEffect(() => {
+    const agencyId = expense?.agency?.id
+    if (!agencyId || (expense?.status !== "approved" && expense?.status !== "paid")) return
+    const loadBanks = async () => {
+      const { data } = await supabase
+        .from("bank_accounts")
+        .select("id, bank_name, account_name, account_number, clabe, is_primary")
+        .eq("agency_id", agencyId)
+        .eq("is_active", true)
+        .order("is_primary", { ascending: false })
+        .order("bank_name", { ascending: true })
+      setBanks((data as BankAccount[]) || [])
+    }
+    loadBanks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expense?.agency?.id, expense?.status])
 
   const formatCurrency = (amount: number) => {
     const symbol = expense?.currency?.symbol || "$"
@@ -148,19 +247,114 @@ export default function ExpenseDetailPage() {
     })
   }
 
-  const getApprovalStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>
-      case "approved":
-        return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Aprobado</Badge>
-      case "rejected":
-        return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />Rechazado</Badge>
-      case "cancelled":
-        return <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200"><XCircle className="w-3 h-3 mr-1" />Cancelado</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
+  // Cambia el estado del gasto y registra el movimiento en el historial.
+  const handleChangeStatus = async (newStatus: string) => {
+    if (!expense || newStatus === expense.status) return
+    setSavingStatus(true)
+    try {
+      const updates: Record<string, unknown> = {
+        status: newStatus,
+        // approval_status se mantiene coherente con el flujo para los filtros.
+        approval_status: newStatus === "paid" ? "approved" : newStatus,
+        updated_at: new Date().toISOString(),
+      }
+      if (newStatus === "approved") {
+        updates.approved_at = new Date().toISOString()
+        if (currentStaffId) updates.approved_by_id = currentStaffId
+      }
+      if (newStatus === "paid" && !expense.payment_date) {
+        updates.payment_date = new Date().toISOString()
+      }
+      if (newStatus === "draft" || newStatus === "pending") {
+        // Al regresar el gasto, se limpia la aprobación previa.
+        updates.approved_at = null
+        updates.approved_by_id = null
+      }
+
+      const { error } = await supabase.from("expenses").update(updates).eq("id", expense.id)
+      if (error) throw error
+
+      if (currentStaffId) {
+        await supabase.from("expense_approval_history").insert({
+          expense_id: expense.id,
+          action: newStatus,
+          performed_by_id: currentStaffId,
+          comments: `Estado cambiado a "${statusConfig[newStatus]?.label || newStatus}"`,
+        })
+      }
+
+      toast.success(`Estado actualizado a ${statusConfig[newStatus]?.label || newStatus}`)
+      await loadExpense()
+    } catch (err) {
+      console.error("Error changing status:", err)
+      toast.error("No se pudo actualizar el estado")
+    } finally {
+      setSavingStatus(false)
     }
+  }
+
+  // Guarda el banco de salida seleccionado.
+  const handleSelectBank = async (bankId: string) => {
+    if (!expense) return
+    setSavingBank(true)
+    try {
+      const { error } = await supabase
+        .from("expenses")
+        .update({ bank_account_id: bankId, updated_at: new Date().toISOString() })
+        .eq("id", expense.id)
+      if (error) throw error
+      setExpense((prev) => (prev ? { ...prev, bank_account_id: bankId } : prev))
+      toast.success("Banco de salida guardado")
+    } catch (err) {
+      console.error("Error saving bank:", err)
+      toast.error("No se pudo guardar el banco de salida")
+    } finally {
+      setSavingBank(false)
+    }
+  }
+
+  // Sube el comprobante de pago y registra la fecha/hora de subida.
+  const handleUploadReceipt = async (file: File) => {
+    if (!expense) return
+    setUploadingReceipt(true)
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("invoiceId", expense.id)
+      const res = await fetch("/api/upload-payment-receipt", { method: "POST", body: formData })
+      if (!res.ok) throw new Error("upload failed")
+      const { url } = await res.json()
+
+      const uploadedAt = new Date().toISOString()
+      const { error } = await supabase
+        .from("expenses")
+        .update({ payment_receipt_url: url, payment_receipt_uploaded_at: uploadedAt, updated_at: uploadedAt })
+        .eq("id", expense.id)
+      if (error) throw error
+
+      setExpense((prev) =>
+        prev ? { ...prev, payment_receipt_url: url, payment_receipt_uploaded_at: uploadedAt } : prev,
+      )
+      toast.success("Comprobante de pago cargado")
+    } catch (err) {
+      console.error("Error uploading receipt:", err)
+      toast.error("No se pudo subir el comprobante")
+    } finally {
+      setUploadingReceipt(false)
+      if (receiptInputRef.current) receiptInputRef.current.value = ""
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    const cfg = statusConfig[status]
+    if (!cfg) return <Badge variant="outline">{status}</Badge>
+    const Icon = cfg.icon
+    return (
+      <Badge variant="outline" className={cfg.className}>
+        <Icon className="w-3 h-3 mr-1" />
+        {cfg.label}
+      </Badge>
+    )
   }
 
   if (loading) {
@@ -192,6 +386,8 @@ export default function ExpenseDetailPage() {
     </div>
   )
 
+  const selectedBank = banks.find((b) => b.id === expense.bank_account_id) || null
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -202,8 +398,43 @@ export default function ExpenseDetailPage() {
           </Link>
         </Button>
         <h1 className="text-2xl font-bold font-mono">{expense.expense_number}</h1>
-        {getApprovalStatusBadge(expense.approval_status || "pending")}
+        {getStatusBadge(expense.status || "draft")}
         {expense.is_operational && <Badge variant="secondary">Operativo</Badge>}
+
+        <div className="ml-auto">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button disabled={savingStatus}>
+                {savingStatus ? <Spinner className="mr-2 h-4 w-4" /> : null}
+                Acciones
+                <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Cambiar estado</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {selectableStatuses.map((s) => (
+                <DropdownMenuItem
+                  key={s.value}
+                  disabled={s.value === expense.status}
+                  onSelect={(e) => {
+                    e.preventDefault()
+                    handleChangeStatus(s.value)
+                  }}
+                >
+                  {(() => {
+                    const Icon = statusConfig[s.value]?.icon || Clock
+                    return <Icon className="mr-2 h-4 w-4" />
+                  })()}
+                  {s.label}
+                  {s.value === expense.status && (
+                    <CheckCircle className="ml-auto h-4 w-4 text-green-600" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -294,6 +525,114 @@ export default function ExpenseDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Banco de salida: visible cuando el gasto está Aprobado. */}
+          {expense.status === "approved" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-primary" />
+                  Banco de salida
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {banks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay bancos activos registrados para esta agencia.
+                  </p>
+                ) : (
+                  <RadioGroup
+                    value={expense.bank_account_id || ""}
+                    onValueChange={handleSelectBank}
+                    className="space-y-2"
+                  >
+                    {banks.map((bank) => (
+                      <Label
+                        key={bank.id}
+                        htmlFor={`bank-${bank.id}`}
+                        className="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5"
+                      >
+                        <RadioGroupItem id={`bank-${bank.id}`} value={bank.id} className="mt-1" disabled={savingBank} />
+                        <div className="text-sm">
+                          <div className="font-medium flex items-center gap-2">
+                            {bank.bank_name}
+                            {bank.is_primary && <Badge variant="secondary" className="text-xs">Principal</Badge>}
+                          </div>
+                          {bank.account_name && (
+                            <div className="text-muted-foreground">{bank.account_name}</div>
+                          )}
+                          {bank.account_number && (
+                            <div className="text-muted-foreground font-mono text-xs">
+                              N° {bank.account_number}
+                            </div>
+                          )}
+                        </div>
+                      </Label>
+                    ))}
+                  </RadioGroup>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Comprobante de pago: visible cuando el gasto está Pagado. */}
+          {expense.status === "paid" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  Comprobante de pago
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {selectedBank && (
+                  <div className="rounded-md bg-muted/50 p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Banco de salida</div>
+                    <div className="font-medium">{selectedBank.bank_name}</div>
+                    {selectedBank.account_number && (
+                      <div className="text-muted-foreground font-mono text-xs">N° {selectedBank.account_number}</div>
+                    )}
+                  </div>
+                )}
+
+                {expense.payment_receipt_url ? (
+                  <div className="space-y-2">
+                    <Button variant="outline" asChild className="w-full">
+                      <a href={expense.payment_receipt_url} target="_blank" rel="noopener noreferrer">
+                        <FileText className="mr-2 h-4 w-4" />
+                        Ver comprobante
+                      </a>
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Subido el {formatDateTime(expense.payment_receipt_uploaded_at)}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aún no se ha subido un comprobante de pago.</p>
+                )}
+
+                <input
+                  ref={receiptInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) handleUploadReceipt(f)
+                  }}
+                />
+                <Button
+                  variant={expense.payment_receipt_url ? "outline" : "default"}
+                  className="w-full"
+                  disabled={uploadingReceipt}
+                  onClick={() => receiptInputRef.current?.click()}
+                >
+                  {uploadingReceipt ? <Spinner className="mr-2 h-4 w-4" /> : <Upload className="mr-2 h-4 w-4" />}
+                  {expense.payment_receipt_url ? "Reemplazar comprobante" : "Subir comprobante"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
