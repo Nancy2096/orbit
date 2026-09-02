@@ -63,6 +63,7 @@ import {
   History,
   Upload,
   FileText,
+  Wallet,
   X
 } from "lucide-react"
 
@@ -100,6 +101,9 @@ interface Expense {
   approved_at: string | null
   rejection_reason: string | null
   created_at: string | null
+  bank_account_id: string | null
+  payment_receipt_url: string | null
+  payment_receipt_uploaded_at: string | null
   category: { id: string; name: string; expense_type?: string | null } | null
   agency: { id: string; name: string } | null
   currency: { id: string; code: string; symbol: string } | null
@@ -146,6 +150,16 @@ interface Currency {
   symbol: string
 }
 
+interface BankAccount {
+  id: string
+  agency_id: string
+  bank_name: string
+  account_name: string
+  account_number: string | null
+  current_balance: number | null
+  is_active: boolean
+}
+
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   draft: { label: "Borrador", variant: "secondary" },
   pending: { label: "Pendiente", variant: "outline" },
@@ -190,6 +204,12 @@ export default function ExpensesPage() {
   const [selectedExpenseForApproval, setSelectedExpenseForApproval] = useState<Expense | null>(null)
   const [approvalAction, setApprovalAction] = useState<"approve" | "reject">("approve")
   const [rejectionReason, setRejectionReason] = useState("")
+
+  // Diálogo de pago (aprobado -> pagado): elige el banco de salida.
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false)
+  const [selectedExpenseForPayment, setSelectedExpenseForPayment] = useState<Expense | null>(null)
+  const [paymentBankAccounts, setPaymentBankAccounts] = useState<BankAccount[]>([])
+  const [selectedPaymentBankId, setSelectedPaymentBankId] = useState<string>("")
   const supabase = createClient()
 
   // Dialogs
@@ -869,6 +889,103 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     }
   }
 
+  // Abre el diálogo para marcar un gasto aprobado como pagado. Carga los bancos
+  // activos de la agencia del gasto para elegir el banco de salida.
+  const openPaymentDialog = async (expense: Expense) => {
+    setSelectedExpenseForPayment(expense)
+    // Preseleccionar el banco ya asignado en el detalle (si existe).
+    setSelectedPaymentBankId(expense.bank_account_id || "")
+    setShowPaymentDialog(true)
+
+    if (expense.agency?.id) {
+      const { data } = await supabase
+        .from("bank_accounts")
+        .select("id, agency_id, bank_name, account_name, account_number, current_balance, is_active")
+        .eq("agency_id", expense.agency.id)
+        .eq("is_active", true)
+        .order("is_primary", { ascending: false })
+        .order("bank_name")
+      setPaymentBankAccounts((data as BankAccount[]) || [])
+    } else {
+      setPaymentBankAccounts([])
+    }
+  }
+
+  // Marca el gasto como pagado, resta el monto total del banco seleccionado y
+  // registra el movimiento en el historial de aprobación.
+  const handleMarkAsPaid = async () => {
+    if (!selectedExpenseForPayment || !selectedPaymentBankId) return
+    setSaving(true)
+
+    const expense = selectedExpenseForPayment
+    const bank = paymentBankAccounts.find((b) => b.id === selectedPaymentBankId)
+    if (!bank) {
+      setSaving(false)
+      return
+    }
+
+    const amount = Number(expense.total_amount || 0)
+    const previousBalance = Number(bank.current_balance || 0)
+    const newBalance = previousBalance - amount
+
+    // Quién realiza la acción: el staff del usuario autenticado.
+    const performedById = currentUserStaff?.id || expense.approved_by_id || null
+
+    // 1) Descontar el monto del saldo del banco de salida.
+    const { error: bankError } = await supabase
+      .from("bank_accounts")
+      .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
+      .eq("id", bank.id)
+
+    if (bankError) {
+      console.error("Error updating bank balance:", bankError)
+      setSaving(false)
+      return
+    }
+
+    // 2) Marcar el gasto como pagado y guardar el banco de salida y la fecha.
+    const { error } = await supabase
+      .from("expenses")
+      .update({
+        status: "paid",
+        approval_status: "paid",
+        bank_account_id: bank.id,
+        payment_date: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", expense.id)
+
+    if (error) {
+      console.error("Error marking expense as paid:", error)
+      // Revertir el descuento del banco si falla la actualización del gasto.
+      await supabase
+        .from("bank_accounts")
+        .update({ current_balance: previousBalance })
+        .eq("id", bank.id)
+      setSaving(false)
+      return
+    }
+
+    // 3) Registrar el movimiento en el historial de aprobación.
+    const currencySymbol = expense.currency?.symbol || "$"
+    await supabase.from("expense_approval_history").insert({
+      expense_id: expense.id,
+      action: "paid",
+      performed_by_id: performedById,
+      comments:
+        `Gasto marcado como pagado. Banco de salida: ${bank.bank_name} - ${bank.account_name}. ` +
+        `Se descontaron ${currencySymbol}${amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })} ` +
+        `del saldo (nuevo saldo: ${currencySymbol}${newBalance.toLocaleString("es-MX", { minimumFractionDigits: 2 })}).`,
+    })
+
+    setShowPaymentDialog(false)
+    setSelectedExpenseForPayment(null)
+    setSelectedPaymentBankId("")
+    setPaymentBankAccounts([])
+    fetchExpenses()
+    setSaving(false)
+  }
+
   const getApprovalStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
@@ -1313,6 +1430,17 @@ const resetExpenseForm = () => {
                                     <XCircle className="h-4 w-4" />
                                   </Button>
                                 </>
+                              )}
+                              {expense.status === "approved" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                  onClick={() => openPaymentDialog(expense)}
+                                  title="Marcar como pagado"
+                                >
+                                  <Wallet className="h-4 w-4" />
+                                </Button>
                               )}
                               <Button
                                 variant="ghost"
@@ -2016,6 +2144,114 @@ const resetExpenseForm = () => {
                 Rechazar
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo: marcar gasto como pagado eligiendo el banco de salida */}
+      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Marcar como pagado</DialogTitle>
+            <DialogDescription>
+              Selecciona el banco de salida. El monto del gasto se descontará del saldo de ese banco.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedExpenseForPayment && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">{selectedExpenseForPayment.expense_number}</p>
+                  <p className="font-medium">{selectedExpenseForPayment.description}</p>
+                </div>
+                <p className="text-lg font-semibold">
+                  {selectedExpenseForPayment.currency?.symbol || "$"}
+                  {Number(selectedExpenseForPayment.total_amount || 0).toLocaleString("es-MX", {
+                    minimumFractionDigits: 2,
+                  })}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Banco de salida</Label>
+                {paymentBankAccounts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay bancos activos para esta agencia.
+                  </p>
+                ) : (
+                  <Select value={selectedPaymentBankId} onValueChange={setSelectedPaymentBankId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona un banco" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {paymentBankAccounts.map((bank) => (
+                        <SelectItem key={bank.id} value={bank.id}>
+                          {bank.bank_name} - {bank.account_name}
+                          {bank.current_balance != null && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              (Saldo: {selectedExpenseForPayment.currency?.symbol || "$"}
+                              {Number(bank.current_balance).toLocaleString("es-MX", {
+                                minimumFractionDigits: 2,
+                              })}
+                              )
+                            </span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {selectedPaymentBankId && (() => {
+                const bank = paymentBankAccounts.find((b) => b.id === selectedPaymentBankId)
+                if (!bank) return null
+                const amount = Number(selectedExpenseForPayment.total_amount || 0)
+                const newBalance = Number(bank.current_balance || 0) - amount
+                const symbol = selectedExpenseForPayment.currency?.symbol || "$"
+                return (
+                  <div className="rounded-lg bg-muted p-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Saldo actual</span>
+                      <span>
+                        {symbol}
+                        {Number(bank.current_balance || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Monto a pagar</span>
+                      <span className="text-destructive">
+                        -{symbol}
+                        {amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex justify-between border-t pt-1 font-medium">
+                      <span>Saldo resultante</span>
+                      <span className={newBalance < 0 ? "text-destructive" : ""}>
+                        {symbol}
+                        {newBalance.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleMarkAsPaid}
+              disabled={saving || !selectedPaymentBankId}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Wallet className="mr-2 h-4 w-4" />}
+              Marcar como pagado
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
