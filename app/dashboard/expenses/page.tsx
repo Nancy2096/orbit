@@ -199,6 +199,8 @@ export default function ExpensesPage() {
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
+  const [dateFrom, setDateFrom] = useState<string>("")
+  const [dateTo, setDateTo] = useState<string>("")
   const [activeTab, setActiveTab] = useTabParam("expenses")
 
   // Selección múltiple de gastos para exportar a XLS.
@@ -595,12 +597,32 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
 
   const filteredExpenses = expenses.filter((expense) => {
     const searchLower = searchTerm.toLowerCase()
-    return (
+    const matchesSearch =
       expense.expense_number?.toLowerCase().includes(searchLower) ||
       expense.description?.toLowerCase().includes(searchLower) ||
       expense.vendor_name?.toLowerCase().includes(searchLower) ||
       expense.category?.name?.toLowerCase().includes(searchLower)
-    )
+
+    // Filtro por rango de fechas sobre la Fecha de Registro (created_at).
+    let matchesDate = true
+    if ((dateFrom || dateTo) && expense.created_at) {
+      const created = new Date(expense.created_at)
+      if (dateFrom) {
+        const from = new Date(dateFrom)
+        from.setHours(0, 0, 0, 0)
+        if (created < from) matchesDate = false
+      }
+      if (dateTo) {
+        const to = new Date(dateTo)
+        to.setHours(23, 59, 59, 999)
+        if (created > to) matchesDate = false
+      }
+    } else if (dateFrom || dateTo) {
+      // Si hay filtro de fecha pero el gasto no tiene created_at, se excluye.
+      matchesDate = false
+    }
+
+    return matchesSearch && matchesDate
   })
 
   const filteredCategories = categories.filter((category) => {
@@ -1448,6 +1470,55 @@ const resetExpenseForm = () => {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Filtro por rango de fechas (sobre la Fecha de Registro) */}
+              <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-end">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="date-from" className="text-xs text-muted-foreground">
+                    Desde
+                  </Label>
+                  <div className="relative">
+                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="date-from"
+                      type="date"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="w-full pl-9 md:w-[180px]"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="date-to" className="text-xs text-muted-foreground">
+                    Hasta
+                  </Label>
+                  <div className="relative">
+                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="date-to"
+                      type="date"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="w-full pl-9 md:w-[180px]"
+                    />
+                  </div>
+                </div>
+                {(dateFrom || dateTo) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setDateFrom("")
+                      setDateTo("")
+                    }}
+                  >
+                    <X className="mr-1 h-4 w-4" />
+                    Limpiar fechas
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
