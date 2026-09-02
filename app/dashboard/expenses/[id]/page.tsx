@@ -111,6 +111,9 @@ const actionLabels: Record<string, string> = {
   cancelled: "Cancelado",
   draft: "Regresado a borrador",
   created: "Creado",
+  receipt_uploaded: "Comprobante de pago subido",
+  receipt_replaced: "Comprobante de pago reemplazado",
+  bank_selected: "Banco de salida asignado",
 }
 
 // Estados del flujo de un gasto. El campo `status` es la fuente de verdad.
@@ -275,11 +278,15 @@ export default function ExpenseDetailPage() {
       if (error) throw error
 
       if (currentStaffId) {
+        const comments =
+          newStatus === "paid"
+            ? `Gasto marcado como pagado el ${new Date().toLocaleString("es-MX")}.`
+            : `Estado cambiado a "${statusConfig[newStatus]?.label || newStatus}"`
         await supabase.from("expense_approval_history").insert({
           expense_id: expense.id,
           action: newStatus,
           performed_by_id: currentStaffId,
-          comments: `Estado cambiado a "${statusConfig[newStatus]?.label || newStatus}"`,
+          comments,
         })
       }
 
@@ -303,7 +310,21 @@ export default function ExpenseDetailPage() {
         .update({ bank_account_id: bankId, updated_at: new Date().toISOString() })
         .eq("id", expense.id)
       if (error) throw error
+
+      if (currentStaffId) {
+        const bank = banks.find((b) => b.id === bankId)
+        await supabase.from("expense_approval_history").insert({
+          expense_id: expense.id,
+          action: "bank_selected",
+          performed_by_id: currentStaffId,
+          comments: bank
+            ? `Banco de salida asignado: ${bank.bank_name} - ${bank.account_name}.`
+            : "Banco de salida asignado.",
+        })
+      }
+
       setExpense((prev) => (prev ? { ...prev, bank_account_id: bankId } : prev))
+      await loadExpense()
       toast.success("Banco de salida guardado")
     } catch (err) {
       console.error("Error saving bank:", err)
@@ -326,15 +347,26 @@ export default function ExpenseDetailPage() {
       const { url } = await res.json()
 
       const uploadedAt = new Date().toISOString()
+      const wasReplaced = Boolean(expense.payment_receipt_url)
       const { error } = await supabase
         .from("expenses")
         .update({ payment_receipt_url: url, payment_receipt_uploaded_at: uploadedAt, updated_at: uploadedAt })
         .eq("id", expense.id)
       if (error) throw error
 
+      if (currentStaffId) {
+        await supabase.from("expense_approval_history").insert({
+          expense_id: expense.id,
+          action: wasReplaced ? "receipt_replaced" : "receipt_uploaded",
+          performed_by_id: currentStaffId,
+          comments: `Comprobante de pago ${wasReplaced ? "reemplazado" : "subido"} el ${new Date().toLocaleString("es-MX")}.`,
+        })
+      }
+
       setExpense((prev) =>
         prev ? { ...prev, payment_receipt_url: url, payment_receipt_uploaded_at: uploadedAt } : prev,
       )
+      await loadExpense()
       toast.success("Comprobante de pago cargado")
     } catch (err) {
       console.error("Error uploading receipt:", err)
@@ -484,7 +516,7 @@ export default function ExpenseDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Historial de Aprobación</CardTitle>
+              <CardTitle>Historial</CardTitle>
             </CardHeader>
             <CardContent>
               {history.length === 0 ? (
