@@ -41,7 +41,9 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
+import * as XLSX from "xlsx"
 import { 
   Plus, 
   Search, 
@@ -63,6 +65,8 @@ import {
   History,
   Upload,
   FileText,
+  Wallet,
+  Download,
   X
 } from "lucide-react"
 
@@ -100,6 +104,9 @@ interface Expense {
   approved_at: string | null
   rejection_reason: string | null
   created_at: string | null
+  bank_account_id: string | null
+  payment_receipt_url: string | null
+  payment_receipt_uploaded_at: string | null
   category: { id: string; name: string; expense_type?: string | null } | null
   agency: { id: string; name: string } | null
   currency: { id: string; code: string; symbol: string } | null
@@ -146,6 +153,16 @@ interface Currency {
   symbol: string
 }
 
+interface BankAccount {
+  id: string
+  agency_id: string
+  bank_name: string
+  account_name: string
+  account_number: string | null
+  current_balance: number | null
+  is_active: boolean
+}
+
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   draft: { label: "Borrador", variant: "secondary" },
   pending: { label: "Pendiente", variant: "outline" },
@@ -182,14 +199,25 @@ export default function ExpensesPage() {
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
-  const [selectedApprovalStatus, setSelectedApprovalStatus] = useState<string>("all")
+  const [dateFrom, setDateFrom] = useState<string>("")
+  const [dateTo, setDateTo] = useState<string>("")
   const [activeTab, setActiveTab] = useTabParam("expenses")
+
+  // Selección múltiple de gastos para exportar a XLS.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [downloadingXls, setDownloadingXls] = useState(false)
   
   // Approval dialog
   const [showApprovalDialog, setShowApprovalDialog] = useState(false)
   const [selectedExpenseForApproval, setSelectedExpenseForApproval] = useState<Expense | null>(null)
   const [approvalAction, setApprovalAction] = useState<"approve" | "reject">("approve")
   const [rejectionReason, setRejectionReason] = useState("")
+
+  // Diálogo de pago (aprobado -> pagado): elige el banco de salida.
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false)
+  const [selectedExpenseForPayment, setSelectedExpenseForPayment] = useState<Expense | null>(null)
+  const [paymentBankAccounts, setPaymentBankAccounts] = useState<BankAccount[]>([])
+  const [selectedPaymentBankId, setSelectedPaymentBankId] = useState<string>("")
   const supabase = createClient()
 
   // Dialogs
@@ -532,9 +560,6 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     if (selectedStatus !== "all") {
       query = query.eq("status", selectedStatus)
     }
-    if (selectedApprovalStatus !== "all") {
-      query = query.eq("approval_status", selectedApprovalStatus)
-    }
 
     const { data, error } = await query
 
@@ -572,12 +597,32 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
 
   const filteredExpenses = expenses.filter((expense) => {
     const searchLower = searchTerm.toLowerCase()
-    return (
+    const matchesSearch =
       expense.expense_number?.toLowerCase().includes(searchLower) ||
       expense.description?.toLowerCase().includes(searchLower) ||
       expense.vendor_name?.toLowerCase().includes(searchLower) ||
       expense.category?.name?.toLowerCase().includes(searchLower)
-    )
+
+    // Filtro por rango de fechas sobre la Fecha de Registro (created_at).
+    let matchesDate = true
+    if ((dateFrom || dateTo) && expense.created_at) {
+      const created = new Date(expense.created_at)
+      if (dateFrom) {
+        const from = new Date(dateFrom)
+        from.setHours(0, 0, 0, 0)
+        if (created < from) matchesDate = false
+      }
+      if (dateTo) {
+        const to = new Date(dateTo)
+        to.setHours(23, 59, 59, 999)
+        if (created > to) matchesDate = false
+      }
+    } else if (dateFrom || dateTo) {
+      // Si hay filtro de fecha pero el gasto no tiene created_at, se excluye.
+      matchesDate = false
+    }
+
+    return matchesSearch && matchesDate
   })
 
   const filteredCategories = categories.filter((category) => {
@@ -608,6 +653,155 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
       hour: "2-digit",
       minute: "2-digit",
     })
+  }
+
+  // --- Selección múltiple + exportación a XLS ---
+  const allVisibleSelected =
+    filteredExpenses.length > 0 && filteredExpenses.every((e) => selectedIds.has(e.id))
+
+  // Seleccionados que además están visibles bajo los filtros/búsqueda actuales.
+  const visibleSelectedCount = filteredExpenses.filter((e) => selectedIds.has(e.id)).length
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allVisibleSelected) {
+        filteredExpenses.forEach((e) => next.delete(e.id))
+      } else {
+        filteredExpenses.forEach((e) => next.add(e.id))
+      }
+      return next
+    })
+  }
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const xlsDateTime = (v: string | null) => (v ? new Date(v).toLocaleString("es-MX") : "")
+
+  // Exporta toda la información detallada de los gastos seleccionados a un XLS:
+  // una hoja "Gastos" con todos los campos y una hoja "Historial" con los
+  // movimientos registrados de cada gasto (pagos, comprobantes, cambios, etc.).
+  const handleDownloadXls = async () => {
+    if (selectedIds.size === 0) return
+    setDownloadingXls(true)
+    try {
+      // Respetar los filtros activos: exportar solo los gastos seleccionados
+      // que además estén visibles bajo los filtros/búsqueda actuales.
+      const visibleIds = new Set(filteredExpenses.map((e) => e.id))
+      const ids = Array.from(selectedIds).filter((id) => visibleIds.has(id))
+      if (ids.length === 0) {
+        setDownloadingXls(false)
+        return
+      }
+
+      // Traer el detalle completo de los gastos seleccionados (con relaciones).
+      const { data: fullExpenses, error } = await supabase
+        .from("expenses")
+        .select(`
+          *,
+          category:expense_categories(id, name, expense_type),
+          agency:agencies(id, name),
+          currency:currencies(id, code, symbol),
+          project:projects(id, name),
+          account:accounts(id, account_name),
+          vendor:vendors(id, name),
+          bank_account:bank_accounts(id, bank_name, account_name),
+          requested_by:staff!expenses_requested_by_id_fkey(id, first_name, last_name),
+          approved_by:staff!expenses_approved_by_id_fkey(id, first_name, last_name)
+        `)
+        .in("id", ids)
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+      const rows = (fullExpenses as any[]) || []
+
+      const typeLabel = (t?: string | null) =>
+        expenseTypes.find((x) => x.value === t)?.label || t || ""
+
+      // Hoja 1: Gastos (una fila por gasto con toda su información).
+      const gastos = rows.map((e) => ({
+        Número: e.expense_number || "",
+        "Fecha de registro": xlsDateTime(e.created_at),
+        "Fecha del gasto": e.expense_date ? new Date(e.expense_date).toLocaleDateString("es-MX") : "",
+        Descripción: e.description || "",
+        Categoría: e.category?.name || "",
+        "Tipo de gasto": typeLabel(e.category?.expense_type),
+        Agencia: e.agency?.name || "",
+        Proyecto: e.project?.name || "",
+        Cuenta: e.account?.account_name || "",
+        Proveedor: e.vendor?.name || e.vendor_name || "",
+        Solicitante: e.requested_by ? `${e.requested_by.first_name} ${e.requested_by.last_name}` : "",
+        Estado: statusConfig[e.status]?.label || e.status || "",
+        Aprobación:
+          e.status === "paid"
+            ? "Pagado"
+            : statusConfig[e.approval_status]?.label || e.approval_status || "",
+        Operativo: e.is_operational ? "Sí" : "No",
+        Subtotal: Number(e.amount || 0),
+        Impuesto: Number(e.tax_amount || 0),
+        Total: Number(e.total_amount || 0),
+        Moneda: e.currency?.code || "",
+        "Método de pago": e.payment_method ? paymentMethods[e.payment_method] || e.payment_method : "",
+        "Fecha de pago": xlsDateTime(e.payment_date),
+        "Banco de salida": e.bank_account
+          ? `${e.bank_account.bank_name} - ${e.bank_account.account_name}`
+          : "",
+        "No. factura": e.invoice_number || "",
+        "Aprobado por": e.approved_by ? `${e.approved_by.first_name} ${e.approved_by.last_name}` : "",
+        "Fecha de aprobación": xlsDateTime(e.approved_at),
+        "Motivo de rechazo": e.rejection_reason || "",
+        Comprobante: e.payment_receipt_url ? "Sí" : "No",
+        "Fecha comprobante": xlsDateTime(e.payment_receipt_uploaded_at),
+        Notas: e.notes || "",
+      }))
+
+      // Hoja 2: Historial de movimientos de todos los gastos seleccionados.
+      const { data: history } = await supabase
+        .from("expense_approval_history")
+        .select(`
+          expense_id, action, comments, created_at,
+          performed_by:staff(first_name, last_name)
+        `)
+        .in("expense_id", ids)
+        .order("created_at", { ascending: true })
+
+      const numberById = new Map(rows.map((e) => [e.id, e.expense_number]))
+      const historial = ((history as any[]) || []).map((h) => ({
+        Gasto: numberById.get(h.expense_id) || "",
+        Acción: h.action || "",
+        Detalle: h.comments || "",
+        "Realizado por": h.performed_by
+          ? `${h.performed_by.first_name} ${h.performed_by.last_name}`
+          : "",
+        Fecha: xlsDateTime(h.created_at),
+      }))
+
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(gastos.length ? gastos : [{ Aviso: "Sin gastos" }]),
+        "Gastos",
+      )
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(historial.length ? historial : [{ Aviso: "Sin movimientos" }]),
+        "Historial",
+      )
+
+      const stamp = new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(workbook, `Gastos_${stamp}.xls`, { bookType: "xls" })
+    } catch (err) {
+      console.error("Error exporting expenses to XLS:", err)
+    } finally {
+      setDownloadingXls(false)
+    }
   }
 
   const formatExpenseFolio = (folio: number) => {
@@ -869,12 +1063,111 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     }
   }
 
+  // Abre el diálogo para marcar un gasto aprobado como pagado. Carga los bancos
+  // activos de la agencia del gasto para elegir el banco de salida.
+  const openPaymentDialog = async (expense: Expense) => {
+    setSelectedExpenseForPayment(expense)
+    // Preseleccionar el banco ya asignado en el detalle (si existe).
+    setSelectedPaymentBankId(expense.bank_account_id || "")
+    setShowPaymentDialog(true)
+
+    if (expense.agency?.id) {
+      const { data } = await supabase
+        .from("bank_accounts")
+        .select("id, agency_id, bank_name, account_name, account_number, current_balance, is_active")
+        .eq("agency_id", expense.agency.id)
+        .eq("is_active", true)
+        .order("is_primary", { ascending: false })
+        .order("bank_name")
+      setPaymentBankAccounts((data as BankAccount[]) || [])
+    } else {
+      setPaymentBankAccounts([])
+    }
+  }
+
+  // Marca el gasto como pagado, resta el monto total del banco seleccionado y
+  // registra el movimiento en el historial de aprobación.
+  const handleMarkAsPaid = async () => {
+    if (!selectedExpenseForPayment || !selectedPaymentBankId) return
+    setSaving(true)
+
+    const expense = selectedExpenseForPayment
+    const bank = paymentBankAccounts.find((b) => b.id === selectedPaymentBankId)
+    if (!bank) {
+      setSaving(false)
+      return
+    }
+
+    const amount = Number(expense.total_amount || 0)
+    const previousBalance = Number(bank.current_balance || 0)
+    const newBalance = previousBalance - amount
+
+    // Quién realiza la acción: el staff del usuario autenticado.
+    const performedById = currentUserStaff?.id || expense.approved_by_id || null
+
+    // 1) Descontar el monto del saldo del banco de salida.
+    const { error: bankError } = await supabase
+      .from("bank_accounts")
+      .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
+      .eq("id", bank.id)
+
+    if (bankError) {
+      console.error("Error updating bank balance:", bankError)
+      setSaving(false)
+      return
+    }
+
+    // 2) Marcar el gasto como pagado y guardar el banco de salida y la fecha.
+    const { error } = await supabase
+      .from("expenses")
+      .update({
+        status: "paid",
+        approval_status: "paid",
+        bank_account_id: bank.id,
+        payment_date: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", expense.id)
+
+    if (error) {
+      console.error("Error marking expense as paid:", error)
+      // Revertir el descuento del banco si falla la actualización del gasto.
+      await supabase
+        .from("bank_accounts")
+        .update({ current_balance: previousBalance })
+        .eq("id", bank.id)
+      setSaving(false)
+      return
+    }
+
+    // 3) Registrar el movimiento en el historial de aprobación.
+    const currencySymbol = expense.currency?.symbol || "$"
+    await supabase.from("expense_approval_history").insert({
+      expense_id: expense.id,
+      action: "paid",
+      performed_by_id: performedById,
+      comments:
+        `Gasto marcado como pagado. Banco de salida: ${bank.bank_name} - ${bank.account_name}. ` +
+        `Se descontaron ${currencySymbol}${amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })} ` +
+        `del saldo (nuevo saldo: ${currencySymbol}${newBalance.toLocaleString("es-MX", { minimumFractionDigits: 2 })}).`,
+    })
+
+    setShowPaymentDialog(false)
+    setSelectedExpenseForPayment(null)
+    setSelectedPaymentBankId("")
+    setPaymentBankAccounts([])
+    fetchExpenses()
+    setSaving(false)
+  }
+
   const getApprovalStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
         return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>
       case "approved":
         return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Aprobado</Badge>
+      case "paid":
+        return <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200"><Wallet className="w-3 h-3 mr-1" />Pagado</Badge>
       case "rejected":
         return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />Rechazado</Badge>
       case "cancelled":
@@ -1134,15 +1427,55 @@ const resetExpenseForm = () => {
               <CardTitle>Filtros</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col gap-4 md:flex-row md:items-center">
-                <div className="relative flex-1">
+              <div className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-center">
+                <div className="relative w-full md:w-[260px]">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Buscar por descripción, proveedor o categoría..."
+                    placeholder="Buscar..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-9"
                   />
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="date-from"
+                      type="date"
+                      aria-label="Fecha desde"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="w-full pl-9 md:w-[160px]"
+                    />
+                  </div>
+                  <span className="text-sm text-muted-foreground">a</span>
+                  <div className="relative">
+                    <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="date-to"
+                      type="date"
+                      aria-label="Fecha hasta"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="w-full pl-9 md:w-[160px]"
+                    />
+                  </div>
+                  {(dateFrom || dateTo) && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Limpiar fechas"
+                      onClick={() => {
+                        setDateFrom("")
+                        setDateTo("")
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
                 <Select value={selectedAgency} onValueChange={setSelectedAgency}>
                   <SelectTrigger className="w-full md:w-[180px]">
@@ -1177,20 +1510,31 @@ const resetExpenseForm = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={selectedApprovalStatus} onValueChange={setSelectedApprovalStatus}>
-                  <SelectTrigger className="w-full md:w-[180px]">
-                    <SelectValue placeholder="Aprobación" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas</SelectItem>
-                    <SelectItem value="pending">Pendiente</SelectItem>
-                    <SelectItem value="approved">Aprobado</SelectItem>
-                    <SelectItem value="rejected">Rechazado</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
             </CardContent>
           </Card>
+
+          {/* Barra de acciones para la selección múltiple */}
+          {visibleSelectedCount > 0 && (
+            <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-4 py-3">
+              <span className="text-sm font-medium">
+                {visibleSelectedCount} {visibleSelectedCount === 1 ? "gasto seleccionado" : "gastos seleccionados"}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                  Limpiar selección
+                </Button>
+                <Button size="sm" onClick={handleDownloadXls} disabled={downloadingXls}>
+                  {downloadingXls ? (
+                    <Spinner className="mr-2 h-4 w-4" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Descargar XLS
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Table */}
           <Card>
@@ -1213,20 +1557,34 @@ const resetExpenseForm = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]">
+                        <Checkbox
+                          checked={allVisibleSelected}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Seleccionar todos"
+                        />
+                      </TableHead>
                       <TableHead>Número</TableHead>
                       <TableHead>Fecha de Registro</TableHead>
                       <TableHead>Descripción</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Tipo de Gasto</TableHead>
                       <TableHead>Solicitante</TableHead>
-                      <TableHead className="text-right">Monto</TableHead>
+                      <TableHead className="text-left">Monto</TableHead>
                       <TableHead>Aprobación</TableHead>
-                      <TableHead className="w-[150px] text-right">Acciones</TableHead>
+                      <TableHead className="w-[150px] text-left">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredExpenses.map((expense) => (
-                        <TableRow key={expense.id}>
+                        <TableRow key={expense.id} data-state={selectedIds.has(expense.id) ? "selected" : undefined}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedIds.has(expense.id)}
+                              onCheckedChange={() => toggleSelectOne(expense.id)}
+                              aria-label={`Seleccionar ${expense.expense_number}`}
+                            />
+                          </TableCell>
                           <TableCell className="font-medium">
                             <Link
                               href={`/dashboard/expenses/${expense.id}`}
@@ -1288,7 +1646,9 @@ const resetExpenseForm = () => {
                             {formatCurrency(expense.total_amount, expense.currency)}
                           </TableCell>
                           <TableCell>
-                            {getApprovalStatusBadge(expense.approval_status || "pending")}
+                            {getApprovalStatusBadge(
+                              expense.status === "paid" ? "paid" : expense.approval_status || "pending",
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex justify-end gap-1">
@@ -1313,6 +1673,17 @@ const resetExpenseForm = () => {
                                     <XCircle className="h-4 w-4" />
                                   </Button>
                                 </>
+                              )}
+                              {expense.status === "approved" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                  onClick={() => openPaymentDialog(expense)}
+                                  title="Marcar como pagado"
+                                >
+                                  <Wallet className="h-4 w-4" />
+                                </Button>
                               )}
                               <Button
                                 variant="ghost"
@@ -2016,6 +2387,114 @@ const resetExpenseForm = () => {
                 Rechazar
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo: marcar gasto como pagado eligiendo el banco de salida */}
+      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Marcar como pagado</DialogTitle>
+            <DialogDescription>
+              Selecciona el banco de salida. El monto del gasto se descontará del saldo de ese banco.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedExpenseForPayment && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">{selectedExpenseForPayment.expense_number}</p>
+                  <p className="font-medium">{selectedExpenseForPayment.description}</p>
+                </div>
+                <p className="text-lg font-semibold">
+                  {selectedExpenseForPayment.currency?.symbol || "$"}
+                  {Number(selectedExpenseForPayment.total_amount || 0).toLocaleString("es-MX", {
+                    minimumFractionDigits: 2,
+                  })}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Banco de salida</Label>
+                {paymentBankAccounts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay bancos activos para esta agencia.
+                  </p>
+                ) : (
+                  <Select value={selectedPaymentBankId} onValueChange={setSelectedPaymentBankId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona un banco" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {paymentBankAccounts.map((bank) => (
+                        <SelectItem key={bank.id} value={bank.id}>
+                          {bank.bank_name} - {bank.account_name}
+                          {bank.current_balance != null && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              (Saldo: {selectedExpenseForPayment.currency?.symbol || "$"}
+                              {Number(bank.current_balance).toLocaleString("es-MX", {
+                                minimumFractionDigits: 2,
+                              })}
+                              )
+                            </span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {selectedPaymentBankId && (() => {
+                const bank = paymentBankAccounts.find((b) => b.id === selectedPaymentBankId)
+                if (!bank) return null
+                const amount = Number(selectedExpenseForPayment.total_amount || 0)
+                const newBalance = Number(bank.current_balance || 0) - amount
+                const symbol = selectedExpenseForPayment.currency?.symbol || "$"
+                return (
+                  <div className="rounded-lg bg-muted p-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Saldo actual</span>
+                      <span>
+                        {symbol}
+                        {Number(bank.current_balance || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Monto a pagar</span>
+                      <span className="text-destructive">
+                        -{symbol}
+                        {amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex justify-between border-t pt-1 font-medium">
+                      <span>Saldo resultante</span>
+                      <span className={newBalance < 0 ? "text-destructive" : ""}>
+                        {symbol}
+                        {newBalance.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleMarkAsPaid}
+              disabled={saving || !selectedPaymentBankId}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Wallet className="mr-2 h-4 w-4" />}
+              Marcar como pagado
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
