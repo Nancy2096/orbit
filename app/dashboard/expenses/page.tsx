@@ -992,6 +992,8 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>
       case "approved":
         return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Aprobado</Badge>
+      case "paid":
+        return <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200"><Wallet className="w-3 h-3 mr-1" />Pagado</Badge>
       case "rejected":
         return <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />Rechazado</Badge>
       case "cancelled":
@@ -1336,9 +1338,9 @@ const resetExpenseForm = () => {
                       <TableHead>Categoría</TableHead>
                       <TableHead>Tipo de Gasto</TableHead>
                       <TableHead>Solicitante</TableHead>
-                      <TableHead className="text-right">Monto</TableHead>
+                      <TableHead className="text-left">Monto</TableHead>
                       <TableHead>Aprobación</TableHead>
-                      <TableHead className="w-[150px] text-right">Acciones</TableHead>
+                      <TableHead className="w-[150px] text-left">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
