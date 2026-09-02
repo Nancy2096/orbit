@@ -41,7 +41,9 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
+import * as XLSX from "xlsx"
 import { 
   Plus, 
   Search, 
@@ -64,6 +66,7 @@ import {
   Upload,
   FileText,
   Wallet,
+  Download,
   X
 } from "lucide-react"
 
@@ -196,8 +199,11 @@ export default function ExpensesPage() {
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
-  const [selectedApprovalStatus, setSelectedApprovalStatus] = useState<string>("all")
   const [activeTab, setActiveTab] = useTabParam("expenses")
+
+  // Selección múltiple de gastos para exportar a XLS.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [downloadingXls, setDownloadingXls] = useState(false)
   
   // Approval dialog
   const [showApprovalDialog, setShowApprovalDialog] = useState(false)
@@ -628,6 +634,145 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
       hour: "2-digit",
       minute: "2-digit",
     })
+  }
+
+  // --- Selección múltiple + exportación a XLS ---
+  const allVisibleSelected =
+    filteredExpenses.length > 0 && filteredExpenses.every((e) => selectedIds.has(e.id))
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allVisibleSelected) {
+        filteredExpenses.forEach((e) => next.delete(e.id))
+      } else {
+        filteredExpenses.forEach((e) => next.add(e.id))
+      }
+      return next
+    })
+  }
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const xlsDateTime = (v: string | null) => (v ? new Date(v).toLocaleString("es-MX") : "")
+
+  // Exporta toda la información detallada de los gastos seleccionados a un XLS:
+  // una hoja "Gastos" con todos los campos y una hoja "Historial" con los
+  // movimientos registrados de cada gasto (pagos, comprobantes, cambios, etc.).
+  const handleDownloadXls = async () => {
+    if (selectedIds.size === 0) return
+    setDownloadingXls(true)
+    try {
+      const ids = Array.from(selectedIds)
+
+      // Traer el detalle completo de los gastos seleccionados (con relaciones).
+      const { data: fullExpenses, error } = await supabase
+        .from("expenses")
+        .select(`
+          *,
+          category:expense_categories(id, name, expense_type),
+          agency:agencies(id, name),
+          currency:currencies(id, code, symbol),
+          project:projects(id, name),
+          account:accounts(id, account_name),
+          vendor:vendors(id, name),
+          bank_account:bank_accounts(id, bank_name, account_name),
+          requested_by:staff!expenses_requested_by_id_fkey(id, first_name, last_name),
+          approved_by:staff!expenses_approved_by_id_fkey(id, first_name, last_name)
+        `)
+        .in("id", ids)
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+      const rows = (fullExpenses as any[]) || []
+
+      const typeLabel = (t?: string | null) =>
+        expenseTypes.find((x) => x.value === t)?.label || t || ""
+
+      // Hoja 1: Gastos (una fila por gasto con toda su información).
+      const gastos = rows.map((e) => ({
+        Número: e.expense_number || "",
+        "Fecha de registro": xlsDateTime(e.created_at),
+        "Fecha del gasto": e.expense_date ? new Date(e.expense_date).toLocaleDateString("es-MX") : "",
+        Descripción: e.description || "",
+        Categoría: e.category?.name || "",
+        "Tipo de gasto": typeLabel(e.category?.expense_type),
+        Agencia: e.agency?.name || "",
+        Proyecto: e.project?.name || "",
+        Cuenta: e.account?.account_name || "",
+        Proveedor: e.vendor?.name || e.vendor_name || "",
+        Solicitante: e.requested_by ? `${e.requested_by.first_name} ${e.requested_by.last_name}` : "",
+        Estado: statusConfig[e.status]?.label || e.status || "",
+        Aprobación:
+          e.status === "paid"
+            ? "Pagado"
+            : statusConfig[e.approval_status]?.label || e.approval_status || "",
+        Operativo: e.is_operational ? "Sí" : "No",
+        Subtotal: Number(e.amount || 0),
+        Impuesto: Number(e.tax_amount || 0),
+        Total: Number(e.total_amount || 0),
+        Moneda: e.currency?.code || "",
+        "Método de pago": e.payment_method ? paymentMethods[e.payment_method] || e.payment_method : "",
+        "Fecha de pago": xlsDateTime(e.payment_date),
+        "Banco de salida": e.bank_account
+          ? `${e.bank_account.bank_name} - ${e.bank_account.account_name}`
+          : "",
+        "No. factura": e.invoice_number || "",
+        "Aprobado por": e.approved_by ? `${e.approved_by.first_name} ${e.approved_by.last_name}` : "",
+        "Fecha de aprobación": xlsDateTime(e.approved_at),
+        "Motivo de rechazo": e.rejection_reason || "",
+        Comprobante: e.payment_receipt_url ? "Sí" : "No",
+        "Fecha comprobante": xlsDateTime(e.payment_receipt_uploaded_at),
+        Notas: e.notes || "",
+      }))
+
+      // Hoja 2: Historial de movimientos de todos los gastos seleccionados.
+      const { data: history } = await supabase
+        .from("expense_approval_history")
+        .select(`
+          expense_id, action, comments, created_at,
+          performed_by:staff(first_name, last_name)
+        `)
+        .in("expense_id", ids)
+        .order("created_at", { ascending: true })
+
+      const numberById = new Map(rows.map((e) => [e.id, e.expense_number]))
+      const historial = ((history as any[]) || []).map((h) => ({
+        Gasto: numberById.get(h.expense_id) || "",
+        Acción: h.action || "",
+        Detalle: h.comments || "",
+        "Realizado por": h.performed_by
+          ? `${h.performed_by.first_name} ${h.performed_by.last_name}`
+          : "",
+        Fecha: xlsDateTime(h.created_at),
+      }))
+
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(gastos.length ? gastos : [{ Aviso: "Sin gastos" }]),
+        "Gastos",
+      )
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(historial.length ? historial : [{ Aviso: "Sin movimientos" }]),
+        "Historial",
+      )
+
+      const stamp = new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(workbook, `Gastos_${stamp}.xls`, { bookType: "xls" })
+    } catch (err) {
+      console.error("Error exporting expenses to XLS:", err)
+    } finally {
+      setDownloadingXls(false)
+    }
   }
 
   const formatExpenseFolio = (folio: number) => {
@@ -1296,20 +1441,31 @@ const resetExpenseForm = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={selectedApprovalStatus} onValueChange={setSelectedApprovalStatus}>
-                  <SelectTrigger className="w-full md:w-[180px]">
-                    <SelectValue placeholder="Aprobación" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas</SelectItem>
-                    <SelectItem value="pending">Pendiente</SelectItem>
-                    <SelectItem value="approved">Aprobado</SelectItem>
-                    <SelectItem value="rejected">Rechazado</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
             </CardContent>
           </Card>
+
+          {/* Barra de acciones para la selección múltiple */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-4 py-3">
+              <span className="text-sm font-medium">
+                {selectedIds.size} {selectedIds.size === 1 ? "gasto seleccionado" : "gastos seleccionados"}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                  Limpiar selección
+                </Button>
+                <Button size="sm" onClick={handleDownloadXls} disabled={downloadingXls}>
+                  {downloadingXls ? (
+                    <Spinner className="mr-2 h-4 w-4" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Descargar XLS
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Table */}
           <Card>
@@ -1332,6 +1488,13 @@ const resetExpenseForm = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]">
+                        <Checkbox
+                          checked={allVisibleSelected}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Seleccionar todos"
+                        />
+                      </TableHead>
                       <TableHead>Número</TableHead>
                       <TableHead>Fecha de Registro</TableHead>
                       <TableHead>Descripción</TableHead>
@@ -1345,7 +1508,14 @@ const resetExpenseForm = () => {
                   </TableHeader>
                   <TableBody>
                     {filteredExpenses.map((expense) => (
-                        <TableRow key={expense.id}>
+                        <TableRow key={expense.id} data-state={selectedIds.has(expense.id) ? "selected" : undefined}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedIds.has(expense.id)}
+                              onCheckedChange={() => toggleSelectOne(expense.id)}
+                              aria-label={`Seleccionar ${expense.expense_number}`}
+                            />
+                          </TableCell>
                           <TableCell className="font-medium">
                             <Link
                               href={`/dashboard/expenses/${expense.id}`}
