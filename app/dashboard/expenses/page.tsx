@@ -1407,7 +1407,9 @@ const resetExpenseForm = () => {
                             {formatCurrency(expense.total_amount, expense.currency)}
                           </TableCell>
                           <TableCell>
-                            {getApprovalStatusBadge(expense.approval_status || "pending")}
+                            {getApprovalStatusBadge(
+                              expense.status === "paid" ? "paid" : expense.approval_status || "pending",
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex justify-end gap-1">
