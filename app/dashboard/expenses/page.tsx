@@ -1122,7 +1122,9 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
       .from("expenses")
       .update({
         status: "paid",
-        approval_status: "paid",
+        // approval_status se mantiene en "approved" (el CHECK no admite "paid");
+        // la columna de Aprobación muestra "Pagado" según status === "paid".
+        approval_status: "approved",
         bank_account_id: bank.id,
         payment_date: new Date().toISOString(),
         updated_at: new Date().toISOString(),
