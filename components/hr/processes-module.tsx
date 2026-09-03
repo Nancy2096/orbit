@@ -102,9 +102,19 @@ interface Process {
   start_point: string | null
   end_point: string | null
   status: string
+  frequency: string | null
   process_steps: ProcessStep[]
   process_departments: { department_id: string }[]
   process_positions: { position_id: string }[]
+}
+
+// Frecuencia con la que se ejecuta el proceso.
+const FREQUENCY_LABELS: Record<string, string> = {
+  daily: "Diario",
+  weekly: "Semanal",
+  biweekly: "Quincenal",
+  monthly: "Mensual",
+  quarterly: "Trimestral",
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -297,6 +307,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
   const [startPoint, setStartPoint] = useState("")
   const [endPoint, setEndPoint] = useState("")
   const [status, setStatus] = useState("draft")
+  const [frequency, setFrequency] = useState<string>(NONE)
   const [ownerDepartmentId, setOwnerDepartmentId] = useState<string>(NONE)
   const [involvedDepartments, setInvolvedDepartments] = useState<string[]>([])
   const [involvedPositions, setInvolvedPositions] = useState<string[]>([])
@@ -325,7 +336,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
       supabase
         .from("processes")
         .select(
-          "id, department_id, name, description, objective, start_point, end_point, status, process_steps(id, step_order, title, description, responsible_position_id, responsible_department_id, estimated_duration, resource_url, resource_url_added_at), process_departments(department_id), process_positions(position_id)",
+          "id, department_id, name, description, objective, start_point, end_point, status, frequency, process_steps(id, step_order, title, description, responsible_position_id, responsible_department_id, estimated_duration, resource_url, resource_url_added_at), process_departments(department_id), process_positions(position_id)",
         )
         .eq("agency_id", agencyId)
         .order("created_at", { ascending: false }),
@@ -353,6 +364,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
     setStartPoint("")
     setEndPoint("")
     setStatus("draft")
+    setFrequency(NONE)
     setOwnerDepartmentId(NONE)
     setInvolvedDepartments([])
     setInvolvedPositions([])
@@ -373,6 +385,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
     setStartPoint(p.start_point || "")
     setEndPoint(p.end_point || "")
     setStatus(p.status)
+    setFrequency(p.frequency || NONE)
     setOwnerDepartmentId(p.department_id || NONE)
     setInvolvedDepartments(p.process_departments.map((d) => d.department_id))
     setInvolvedPositions(p.process_positions.map((p2) => p2.position_id))
@@ -441,6 +454,7 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
       start_point: startPoint.trim() || null,
       end_point: endPoint.trim() || null,
       status,
+      frequency: frequency === NONE ? null : frequency,
       updated_at: new Date().toISOString(),
     }
 
@@ -658,6 +672,15 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                           <span className="text-muted-foreground">{p.objective}</span>
                         </div>
                       )}
+                      {p.frequency && FREQUENCY_LABELS[p.frequency] && (
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="text-xs font-medium text-foreground">Frecuencia:</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {FREQUENCY_LABELS[p.frequency]}
+                          </Badge>
+                        </div>
+                      )}
                       {(p.start_point || p.end_point) && (
                         <div className="space-y-2 rounded-md border bg-muted/30 p-2.5">
                           {p.start_point && (
@@ -820,6 +843,22 @@ export function ProcessesModule({ agencyId }: { agencyId: string }) {
                     <SelectItem value="draft">Borrador</SelectItem>
                     <SelectItem value="active">Activo</SelectItem>
                     <SelectItem value="archived">Archivado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Frecuencia del proceso</Label>
+                <Select value={frequency} onValueChange={setFrequency}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona la frecuencia" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sin definir</SelectItem>
+                    {Object.entries(FREQUENCY_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

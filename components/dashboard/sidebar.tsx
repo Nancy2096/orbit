@@ -67,7 +67,6 @@ import {
   FileDown,
   ClipboardCheck,
   MessagesSquare,
-  Brain,
   PanelLeftClose,
   PanelLeft,
   Plug,
@@ -701,12 +700,6 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
                       <Link href="/orbit-tasksflow" className="cursor-pointer">
                         <ListTodo className="mr-2 h-4 w-4" />
                         Orbit TasksFlow
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/orbit-marketing-intelligence" className="cursor-pointer">
-                        <Brain className="mr-2 h-4 w-4" />
-                        Orbit Marketing Intelligence
                       </Link>
                     </DropdownMenuItem>
                   </>
