@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
@@ -59,6 +60,9 @@ interface Service {
 
 interface ContractedService {
   id?: string
+  // Identificador estable del lado del cliente para enlazar comisiones antes
+  // de que el servicio tenga id en la base de datos.
+  uid: string
   service_id: string
   service_name: string
   category: string | null
@@ -71,10 +75,22 @@ interface ContractedService {
   notes: string
   // Fecha a partir de la cual se cobra el servicio (algunos van desfasados).
   billing_date?: string | null
+  // Si el servicio participa en el cálculo de comisiones.
+  is_commissionable: boolean
   is_new?: boolean
   is_deleted?: boolean
   currency_code?: string
   currency_symbol?: string
+}
+
+// Comisión de una persona sobre un servicio contratado específico.
+interface ServiceCommission {
+  id?: string
+  service_uid: string
+  staff_id: string
+  staff_name: string
+  commission_percentage: number
+  is_deleted?: boolean
 }
 
 interface Department {
@@ -124,6 +140,7 @@ export default function EditAccountPage({ params }: { params: Promise<{ id: stri
   const [departments, setDepartments] = useState<Department[]>([])
   const [teamMembers, setTeamMembers] = useState<AccountTeamMember[]>([])
   const [commissions, setCommissions] = useState<Commission[]>([])
+  const [serviceCommissions, setServiceCommissions] = useState<ServiceCommission[]>([])
   const [selectedServiceCurrency, setSelectedServiceCurrency] = useState<"MXN" | "USD">("MXN")
   const [formData, setFormData] = useState({
     client_id: "",
@@ -474,6 +491,7 @@ async function fetchAgencyDepartments(agencyId: string) {
         notes,
         billing_date,
         currency_code,
+        is_commissionable,
         services (
           name,
           category
@@ -485,6 +503,7 @@ async function fetchAgencyDepartments(agencyId: string) {
     if (data) {
       const mapped = data.map((item: any) => ({
         id: item.id,
+        uid: item.id,
         service_id: item.service_id,
         service_name: item.services?.name || "Servicio desconocido",
         category: item.services?.category || null,
@@ -498,10 +517,29 @@ async function fetchAgencyDepartments(agencyId: string) {
         billing_date: item.billing_date || null,
         // Moneda persistida del servicio (MXN por defecto para datos antiguos).
         currency_code: item.currency_code === "USD" ? "USD" : "MXN",
+        is_commissionable: item.is_commissionable !== false,
         is_new: false,
         is_deleted: false,
       }))
       setContractedServices(mapped)
+
+      // Cargar las comisiones por servicio de esta cuenta.
+      const { data: scData } = await supabase
+        .from("account_service_commissions")
+        .select("id, account_service_id, staff_id, commission_percentage, staff (first_name, last_name)")
+        .eq("account_id", id)
+      if (scData) {
+        setServiceCommissions(
+          scData.map((sc: any) => ({
+            id: sc.id,
+            service_uid: sc.account_service_id,
+            staff_id: sc.staff_id,
+            staff_name: `${sc.staff?.first_name || ""} ${sc.staff?.last_name || ""}`.trim() || "Sin nombre",
+            commission_percentage: Number(sc.commission_percentage) || 0,
+            is_deleted: false,
+          }))
+        )
+      }
       // Solo como respaldo para cuentas sin moneda guardada: deducir el selector
       // a partir de los servicios. Si la cuenta ya tiene moneda, esa manda.
       if (syncCurrencyFromServices) {
@@ -524,6 +562,7 @@ async function fetchAgencyDepartments(agencyId: string) {
       : service.base_price
 
     setContractedServices([...contractedServices, {
+      uid: crypto.randomUUID(),
       service_id: serviceId,
       service_name: service.name,
       category: service.category,
@@ -537,6 +576,7 @@ async function fetchAgencyDepartments(agencyId: string) {
       frequency: "one_time",
       notes: "",
       billing_date: null,
+      is_commissionable: true,
       is_new: true,
     }])
   }
@@ -674,6 +714,75 @@ async function fetchAgencyDepartments(agencyId: string) {
     }
   }
 
+  // --- Comisiones por servicio ---
+  // Marca/desmarca si un servicio participa en comisiones.
+  function toggleServiceCommissionable(uid: string, value: boolean) {
+    setContractedServices(prev => prev.map(s => (s.uid === uid ? { ...s, is_commissionable: value } : s)))
+  }
+
+  // Comisiones activas (no eliminadas) de un servicio.
+  function commissionsForService(uid: string) {
+    return serviceCommissions.filter(sc => sc.service_uid === uid && !sc.is_deleted)
+  }
+
+  // Personal disponible para agregar a un servicio (que no esté ya asignado).
+  function availableStaffForService(uid: string) {
+    return staffList.filter(s => !serviceCommissions.some(sc => sc.service_uid === uid && sc.staff_id === s.id && !sc.is_deleted))
+  }
+
+  function addServiceCommission(uid: string, staffId: string) {
+    const staff = staffList.find(s => s.id === staffId)
+    if (!staff) return
+    // Reactivar si existía y estaba marcada como eliminada.
+    const existing = serviceCommissions.find(sc => sc.service_uid === uid && sc.staff_id === staffId)
+    if (existing) {
+      setServiceCommissions(prev => prev.map(sc =>
+        sc.service_uid === uid && sc.staff_id === staffId ? { ...sc, is_deleted: false } : sc
+      ))
+      return
+    }
+    setServiceCommissions(prev => [...prev, {
+      service_uid: uid,
+      staff_id: staffId,
+      staff_name: `${staff.first_name} ${staff.last_name}`,
+      commission_percentage: 0,
+      is_deleted: false,
+    }])
+  }
+
+  function updateServiceCommissionPercentage(uid: string, staffId: string, percentage: number) {
+    setServiceCommissions(prev => prev.map(sc =>
+      sc.service_uid === uid && sc.staff_id === staffId ? { ...sc, commission_percentage: percentage } : sc
+    ))
+  }
+
+  function removeServiceCommission(uid: string, staffId: string) {
+    setServiceCommissions(prev => prev.map(sc =>
+      sc.service_uid === uid && sc.staff_id === staffId ? { ...sc, is_deleted: true } : sc
+    ))
+  }
+
+  // Total estimado a comisionar de un servicio: precio final × suma de %.
+  function serviceEstimatedCommission(service: ContractedService) {
+    const totalPct = commissionsForService(service.uid).reduce((sum, sc) => sum + (sc.commission_percentage || 0), 0)
+    return (service.final_price * totalPct) / 100
+  }
+
+  // Total general estimado a comisionar (solo servicios comisionables activos),
+  // desglosado por moneda.
+  function getTotalEstimatedCommission() {
+    let mxn = 0
+    let usd = 0
+    contractedServices
+      .filter(s => !s.is_deleted && s.is_commissionable)
+      .forEach(s => {
+        const amount = serviceEstimatedCommission(s)
+        if (s.currency_code === "USD") usd += amount
+        else mxn += amount
+      })
+    return { mxn, usd }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -723,33 +832,40 @@ async function fetchAgencyDepartments(agencyId: string) {
     const deletedServices = contractedServices.filter(s => s.id && s.is_deleted)
     const updatedServices = contractedServices.filter(s => s.id && !s.is_new && !s.is_deleted)
 
-    // Insert new services
-    if (newServices.length > 0) {
-      const servicesToInsert = newServices.map(s => ({
-        account_id: id,
-        service_id: s.service_id,
-        custom_name: null,
-        quantity: s.quantity,
-        unit_price: s.unit_price,
-        discount_percentage: s.discount_percentage,
-        discount_amount: s.discount_amount,
-        final_price: s.final_price,
-        frequency: s.frequency,
-        notes: s.notes || null,
-        billing_date: s.billing_date || null,
-        currency_code: s.currency_code === "USD" ? "USD" : "MXN",
-        is_active: true,
-      }))
+    // Mapa uid (cliente) -> id real del servicio en la base de datos, para
+    // poder enlazar las comisiones por servicio tras insertarlos.
+    const serviceUidToId = new Map<string, string>()
+    contractedServices.filter(s => s.id).forEach(s => serviceUidToId.set(s.uid, s.id as string))
 
-      const { error: insertError } = await supabase
+    // Insert new services (uno por uno para recuperar el id generado).
+    for (const s of newServices) {
+      const { data: inserted, error: insertError } = await supabase
         .from("account_services")
-        .insert(servicesToInsert)
+        .insert({
+          account_id: id,
+          service_id: s.service_id,
+          custom_name: null,
+          quantity: s.quantity,
+          unit_price: s.unit_price,
+          discount_percentage: s.discount_percentage,
+          discount_amount: s.discount_amount,
+          final_price: s.final_price,
+          frequency: s.frequency,
+          notes: s.notes || null,
+          billing_date: s.billing_date || null,
+          currency_code: s.currency_code === "USD" ? "USD" : "MXN",
+          is_commissionable: s.is_commissionable,
+          is_active: true,
+        })
+        .select("id")
+        .single()
 
       if (insertError) {
         setError(insertError.message)
         setLoading(false)
         return
       }
+      if (inserted) serviceUidToId.set(s.uid, inserted.id)
     }
 
     // Delete services (soft delete)
@@ -774,6 +890,7 @@ async function fetchAgencyDepartments(agencyId: string) {
           notes: service.notes || null,
           billing_date: service.billing_date || null,
           currency_code: service.currency_code === "USD" ? "USD" : "MXN",
+          is_commissionable: service.is_commissionable,
           updated_at: new Date().toISOString(),
         })
         .eq("id", service.id)
@@ -821,6 +938,39 @@ async function fetchAgencyDepartments(agencyId: string) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", commission.id)
+    }
+
+    // Comisiones por servicio: sincronización completa (borrar e insertar).
+    // Resolvemos el uid de cada servicio a su id real (ya insertado arriba) y
+    // omitimos comisiones de servicios eliminados o no comisionables.
+    await supabase.from("account_service_commissions").delete().eq("account_id", id)
+
+    const activeServiceUids = new Set(
+      contractedServices.filter(s => !s.is_deleted && s.is_commissionable).map(s => s.uid)
+    )
+    const serviceCommissionsToInsert = serviceCommissions
+      .filter(sc => !sc.is_deleted && activeServiceUids.has(sc.service_uid))
+      .map(sc => {
+        const realServiceId = serviceUidToId.get(sc.service_uid)
+        if (!realServiceId) return null
+        return {
+          account_id: id,
+          account_service_id: realServiceId,
+          staff_id: sc.staff_id,
+          commission_percentage: sc.commission_percentage,
+        }
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+
+    if (serviceCommissionsToInsert.length > 0) {
+      const { error: scError } = await supabase
+        .from("account_service_commissions")
+        .insert(serviceCommissionsToInsert)
+      if (scError) {
+        setError(scError.message)
+        setLoading(false)
+        return
+      }
     }
 
     router.push("/dashboard/accounts")
@@ -1631,6 +1781,169 @@ setClients([])
                         {commissions.filter(c => !c.is_deleted).reduce((sum, c) => sum + c.commission_percentage, 0).toFixed(2)}%
                       </p>
                     </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Comisiones por Servicio */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Comisiones por Servicio
+              </CardTitle>
+              <CardDescription>
+                {canEditCommissions
+                  ? "Selecciona qué servicios comisionan y asigna una o más personas con su porcentaje a cada uno"
+                  : "Solo el Super Administrador o el Director General pueden editar las comisiones"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {contractedServices.filter(s => !s.is_deleted).length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>No hay servicios contratados</p>
+                  <p className="text-sm">Agrega servicios en la sección de arriba para configurar sus comisiones</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {contractedServices.filter(s => !s.is_deleted).map((service) => {
+                    const symbol = service.currency_code === "USD" ? "US$" : "$"
+                    const serviceComs = commissionsForService(service.uid)
+                    const estimated = serviceEstimatedCommission(service)
+                    return (
+                      <div key={service.uid} className="rounded-lg border p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={service.is_commissionable}
+                              disabled={!canEditCommissions}
+                              onCheckedChange={(v) => toggleServiceCommissionable(service.uid, v === true)}
+                              aria-label={`Comisiona ${service.service_name}`}
+                              className="mt-1"
+                            />
+                            <div>
+                              <p className="font-medium">{service.service_name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {frequencyLabels[service.frequency] || service.frequency} · Precio: {symbol}
+                                {service.final_price.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                              </p>
+                            </div>
+                          </div>
+                          {!service.is_commissionable && (
+                            <Badge variant="outline">No comisiona</Badge>
+                          )}
+                        </div>
+
+                        {service.is_commissionable && (
+                          <div className="mt-4 space-y-3 pl-7">
+                            {serviceComs.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">Sin personas asignadas a este servicio</p>
+                            ) : (
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Persona</TableHead>
+                                    <TableHead className="w-[130px]">Comisión (%)</TableHead>
+                                    <TableHead className="w-[160px]">Estimado</TableHead>
+                                    <TableHead className="w-[50px]"></TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {serviceComs.map((sc) => (
+                                    <TableRow key={`${service.uid}-${sc.staff_id}`}>
+                                      <TableCell className="font-medium">{sc.staff_name}</TableCell>
+                                      <TableCell>
+                                        {canEditCommissions ? (
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            max="100"
+                                            value={sc.commission_percentage}
+                                            onChange={(e) => updateServiceCommissionPercentage(service.uid, sc.staff_id, parseFloat(e.target.value) || 0)}
+                                            className="w-24"
+                                          />
+                                        ) : (
+                                          <span className="font-medium">{sc.commission_percentage}%</span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-sm">
+                                        {symbol}
+                                        {((service.final_price * sc.commission_percentage) / 100).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                                      </TableCell>
+                                      <TableCell>
+                                        {canEditCommissions && (
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => removeServiceCommission(service.uid, sc.staff_id)}
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            )}
+
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              {canEditCommissions && availableStaffForService(service.uid).length > 0 && (
+                                <Select onValueChange={(staffId) => addServiceCommission(service.uid, staffId)}>
+                                  <SelectTrigger className="w-[220px]">
+                                    <SelectValue placeholder="Agregar persona" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableStaffForService(service.uid).map((staff) => (
+                                      <SelectItem key={staff.id} value={staff.id}>
+                                        {staff.first_name} {staff.last_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
+                              <div className="ml-auto text-right">
+                                <p className="text-xs text-muted-foreground">Estimado del servicio</p>
+                                <p className="font-semibold">
+                                  {symbol}
+                                  {estimated.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  {/* Total estimado a comisionar */}
+                  <div className="flex flex-wrap justify-end gap-6 border-t pt-4">
+                    {(() => {
+                      const { mxn, usd } = getTotalEstimatedCommission()
+                      return (
+                        <>
+                          <div className="text-right">
+                            <p className="text-sm text-muted-foreground">Total estimado a comisionar (MXN)</p>
+                            <p className="text-lg font-semibold">
+                              ${mxn.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                            </p>
+                          </div>
+                          {usd > 0 && (
+                            <div className="text-right">
+                              <p className="text-sm text-muted-foreground">Total estimado a comisionar (USD)</p>
+                              <p className="text-lg font-semibold">
+                                US${usd.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                              </p>
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
                   </div>
                 </div>
               )}
