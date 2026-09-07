@@ -366,9 +366,9 @@ export default function DepartmentsPositionsPage() {
                     <TableHead>Departamento</TableHead>
                     <TableHead>Líder / Responsable</TableHead>
                     <TableHead>Puestos / Headcount</TableHead>
-                    <TableHead>Centro de Costos</TableHead>
+                    <TableHead>Descripción</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead className="w-[50px]" />
+                    <TableHead className="w-[90px] text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -420,9 +420,9 @@ export default function DepartmentsPositionsPage() {
                               {headcountByDept.get(d.id) ?? 0} empleados
                             </span>
                           </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-muted-foreground">
-                              {d.cost_center ?? "—"}
+                          <TableCell className="max-w-[280px]">
+                            <span className="block truncate text-sm text-muted-foreground" title={d.description ?? undefined}>
+                              {d.description || "—"}
                             </span>
                           </TableCell>
                           <TableCell>
@@ -430,7 +430,7 @@ export default function DepartmentsPositionsPage() {
                               {d.is_active ? "Activo" : "Inactivo"}
                             </Badge>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-8 w-8">
