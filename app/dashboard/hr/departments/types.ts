@@ -74,6 +74,7 @@ export interface Position {
   salary_range: string | null
   profile_status: string | null
   profile: PositionProfile | null
+  sort_order: number | null
 }
 
 export const POSITION_LEVELS = [

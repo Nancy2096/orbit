@@ -56,6 +56,8 @@ import {
   Eye,
   Copy,
   FileDown,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react"
 import { DepartmentDialog } from "./department-dialog"
 import { PositionProfileDialog } from "./position-profile-dialog"
@@ -124,10 +126,11 @@ export default function DepartmentsPositionsPage() {
         .order("name"),
       supabase
         .from("positions")
-        .select(
-          "id, agency_id, department_id, name, description, level, is_active, reports_to_position_id, headcount_target, job_type, work_schedule, salary_range, profile_status, profile",
-        )
-        .order("name"),
+          .select(
+            "id, agency_id, department_id, name, description, level, is_active, reports_to_position_id, headcount_target, job_type, work_schedule, salary_range, profile_status, profile, sort_order",
+          )
+          .order("sort_order", { nullsFirst: false })
+          .order("name"),
     ])
 
     if (agenciesRes.data) setAgencies(agenciesRes.data as Agency[])
@@ -207,17 +210,52 @@ export default function DepartmentsPositionsPage() {
   // Filtrado puestos
   const filteredPositions = useMemo(() => {
     const term = posSearch.trim().toLowerCase()
-    return positions.filter((p) => {
-      if (agencyFilter !== "all" && p.agency_id !== agencyFilter) return false
-      if (posDept !== "all" && p.department_id !== posDept) return false
-      if (posLevel !== "all" && p.level !== posLevel) return false
-      if (term) {
-        const deptName = p.department_id ? departmentsById.get(p.department_id)?.name ?? "" : ""
-        if (!`${p.name} ${deptName}`.toLowerCase().includes(term)) return false
-      }
-      return true
-    })
+    return positions
+      .filter((p) => {
+        if (agencyFilter !== "all" && p.agency_id !== agencyFilter) return false
+        if (posDept !== "all" && p.department_id !== posDept) return false
+        if (posLevel !== "all" && p.level !== posLevel) return false
+        if (term) {
+          const deptName = p.department_id ? departmentsById.get(p.department_id)?.name ?? "" : ""
+          if (!`${p.name} ${deptName}`.toLowerCase().includes(term)) return false
+        }
+        return true
+      })
+      .sort((a, b) => {
+        const ao = a.sort_order ?? Number.MAX_SAFE_INTEGER
+        const bo = b.sort_order ?? Number.MAX_SAFE_INTEGER
+        if (ao !== bo) return ao - bo
+        return a.name.localeCompare(b.name)
+      })
   }, [positions, posSearch, posDept, posLevel, departmentsById, agencyFilter])
+
+  // Reordenamiento manual: mueve un cargo hacia arriba/abajo dentro de la lista
+  // visible y persiste el nuevo orden en la columna sort_order.
+  async function movePosition(index: number, direction: "up" | "down") {
+    const target = direction === "up" ? index - 1 : index + 1
+    if (target < 0 || target >= filteredPositions.length) return
+
+    const reordered = [...filteredPositions]
+    const [moved] = reordered.splice(index, 1)
+    reordered.splice(target, 0, moved)
+
+    const updates = reordered.map((p, i) => ({ id: p.id, sort_order: i }))
+    const orderMap = new Map(updates.map((u) => [u.id, u.sort_order]))
+
+    // Actualización optimista del estado local.
+    setPositions((prev) =>
+      prev.map((p) => (orderMap.has(p.id) ? { ...p, sort_order: orderMap.get(p.id) ?? null } : p)),
+    )
+
+    const results = await Promise.all(
+      updates.map((u) => supabase.from("positions").update({ sort_order: u.sort_order }).eq("id", u.id)),
+    )
+    const failed = results.find((r) => r.error)
+    if (failed?.error) {
+      toast.error("No se pudo guardar el orden", { description: failed.error.message })
+      fetchAll()
+    }
+  }
 
   function staffName(id: string | null) {
     if (!id) return null
@@ -532,6 +570,7 @@ export default function DepartmentsPositionsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[70px]">Orden</TableHead>
                     <TableHead>Cargo</TableHead>
                     <TableHead>Área</TableHead>
                     <TableHead>Reporta a</TableHead>
@@ -539,18 +578,18 @@ export default function DepartmentsPositionsPage() {
                     <TableHead>A cargo</TableHead>
                     <TableHead>Jornada</TableHead>
                     <TableHead>Perfil</TableHead>
-                    <TableHead className="w-[50px]" />
+                    <TableHead className="w-[90px] text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredPositions.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                      <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
                         No hay puestos que coincidan.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredPositions.map((p) => {
+                    filteredPositions.map((p, index) => {
                       const dept = p.department_id ? departmentsById.get(p.department_id) : null
                       const reportsTo = p.reports_to_position_id
                         ? positionsById.get(p.reports_to_position_id)?.name
@@ -558,6 +597,30 @@ export default function DepartmentsPositionsPage() {
                       const status = profileStatusMeta(p.profile_status)
                       return (
                         <TableRow key={p.id}>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                disabled={index === 0}
+                                onClick={() => movePosition(index, "up")}
+                                aria-label="Subir cargo"
+                              >
+                                <ChevronUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                disabled={index === filteredPositions.length - 1}
+                                onClick={() => movePosition(index, "down")}
+                                aria-label="Bajar cargo"
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
                           <TableCell>
                             <div>
                               <p className="font-medium">{p.name}</p>
@@ -589,7 +652,7 @@ export default function DepartmentsPositionsPage() {
                           <TableCell>
                             <Badge variant={status.badge}>{status.label}</Badge>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-8 w-8">
