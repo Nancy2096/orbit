@@ -82,6 +82,9 @@ export default function DepartmentsPositionsPage() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [positions, setPositions] = useState<Position[]>([])
 
+  // Filtro por agencia (compartido entre ambas pestañas)
+  const [agencyFilter, setAgencyFilter] = useState("all")
+
   // Departamentos: filtros
   const [deptSearch, setDeptSearch] = useState("")
   const [deptStatus, setDeptStatus] = useState("all")
@@ -192,18 +195,20 @@ export default function DepartmentsPositionsPage() {
   const filteredDepartments = useMemo(() => {
     const term = deptSearch.trim().toLowerCase()
     return departments.filter((d) => {
+      if (agencyFilter !== "all" && d.agency_id !== agencyFilter) return false
       if (deptStatus === "active" && !d.is_active) return false
       if (deptStatus === "inactive" && d.is_active) return false
       if (term && !`${d.name} ${d.code ?? ""} ${d.cost_center ?? ""}`.toLowerCase().includes(term))
         return false
       return true
     })
-  }, [departments, deptSearch, deptStatus])
+  }, [departments, deptSearch, deptStatus, agencyFilter])
 
   // Filtrado puestos
   const filteredPositions = useMemo(() => {
     const term = posSearch.trim().toLowerCase()
     return positions.filter((p) => {
+      if (agencyFilter !== "all" && p.agency_id !== agencyFilter) return false
       if (posDept !== "all" && p.department_id !== posDept) return false
       if (posLevel !== "all" && p.level !== posLevel) return false
       if (term) {
@@ -212,7 +217,7 @@ export default function DepartmentsPositionsPage() {
       }
       return true
     })
-  }, [positions, posSearch, posDept, posLevel, departmentsById])
+  }, [positions, posSearch, posDept, posLevel, departmentsById, agencyFilter])
 
   function staffName(id: string | null) {
     if (!id) return null
@@ -318,6 +323,19 @@ export default function DepartmentsPositionsPage() {
                   className="pl-8"
                 />
               </div>
+              <Select value={agencyFilter} onValueChange={setAgencyFilter}>
+                <SelectTrigger className="sm:w-[180px]">
+                  <SelectValue placeholder="Agencia" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las agencias</SelectItem>
+                  {agencies.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select value={deptStatus} onValueChange={setDeptStatus}>
                 <SelectTrigger className="sm:w-[160px]">
                   <SelectValue />
@@ -463,6 +481,19 @@ export default function DepartmentsPositionsPage() {
                   className="pl-8"
                 />
               </div>
+              <Select value={agencyFilter} onValueChange={setAgencyFilter}>
+                <SelectTrigger className="sm:w-[180px]">
+                  <SelectValue placeholder="Agencia" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las agencias</SelectItem>
+                  {agencies.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select value={posDept} onValueChange={setPosDept}>
                 <SelectTrigger className="sm:w-[180px]">
                   <SelectValue placeholder="Departamento" />

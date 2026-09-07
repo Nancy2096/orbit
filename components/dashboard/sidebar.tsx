@@ -135,7 +135,7 @@ const hrNavItems = [
     icon: LayoutDashboard,
   },
   {
-    title: "Departamentos y Puestos",
+    title: "Dptos. y Puestos",
     url: "/dashboard/hr/departments",
     icon: Building2,
   },
