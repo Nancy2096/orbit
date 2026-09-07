@@ -135,6 +135,11 @@ const hrNavItems = [
     icon: LayoutDashboard,
   },
   {
+    title: "Departamentos y Puestos",
+    url: "/dashboard/hr/departments",
+    icon: Building2,
+  },
+  {
     title: "Sueldos y Salarios",
     url: "/dashboard/hr/salaries",
     icon: Banknote,
