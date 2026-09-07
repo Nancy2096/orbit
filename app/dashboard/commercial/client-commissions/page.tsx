@@ -108,23 +108,138 @@ export default function ClientCommissionsPage() {
         else if (inv.account_id) accountIds.add(inv.account_id)
       })
 
-      // Config de comisiones registrada en cada cuenta / proyecto (quién comisiona).
-      const [acctCommRes, projCommRes] = await Promise.all([
-        accountIds.size > 0
-          ? supabase
-              .from("account_commissions")
-              .select("account_id, staff_id, role, commission_percentage, staff (first_name, last_name)")
-              .in("account_id", Array.from(accountIds))
-          : Promise.resolve({ data: [] as any[] }),
-        projectIds.size > 0
-          ? supabase
-              .from("project_commissions")
-              .select("project_id, staff_id, role, commission_percentage, staff (first_name, last_name)")
-              .in("project_id", Array.from(projectIds))
-          : Promise.resolve({ data: [] as any[] }),
-      ])
+      // Config de comisiones (legado, a nivel de cuenta / proyecto) y por servicio.
+      const [acctCommRes, projCommRes, acctSvcCommRes, projSvcCommRes, acctSvcRes, projSvcRes] =
+        await Promise.all([
+          accountIds.size > 0
+            ? supabase
+                .from("account_commissions")
+                .select("account_id, staff_id, role, commission_percentage, staff (first_name, last_name)")
+                .in("account_id", Array.from(accountIds))
+            : Promise.resolve({ data: [] as any[] }),
+          projectIds.size > 0
+            ? supabase
+                .from("project_commissions")
+                .select("project_id, staff_id, role, commission_percentage, staff (first_name, last_name)")
+                .in("project_id", Array.from(projectIds))
+            : Promise.resolve({ data: [] as any[] }),
+          accountIds.size > 0
+            ? supabase
+                .from("account_service_commissions")
+                .select(
+                  "account_id, account_service_id, staff_id, commission_percentage, staff (first_name, last_name)",
+                )
+                .in("account_id", Array.from(accountIds))
+            : Promise.resolve({ data: [] as any[] }),
+          projectIds.size > 0
+            ? supabase
+                .from("project_service_commissions")
+                .select(
+                  "project_id, project_service_id, staff_id, commission_percentage, staff (first_name, last_name)",
+                )
+                .in("project_id", Array.from(projectIds))
+            : Promise.resolve({ data: [] as any[] }),
+          accountIds.size > 0
+            ? supabase
+                .from("account_services")
+                .select("id, account_id, final_price, is_commissionable, is_active")
+                .in("account_id", Array.from(accountIds))
+            : Promise.resolve({ data: [] as any[] }),
+          projectIds.size > 0
+            ? supabase
+                .from("project_services")
+                .select("id, project_id, final_price, is_commissionable")
+                .in("project_id", Array.from(projectIds))
+            : Promise.resolve({ data: [] as any[] }),
+        ])
 
-      // Agrupar comisionistas por cuenta / proyecto.
+      // Precio por servicio (para calcular el estimado a comisionar por servicio).
+      const acctServicePrice = new Map<string, number>()
+      ;(acctSvcRes.data || []).forEach((s: any) => {
+        if (s.is_active === false) return
+        acctServicePrice.set(s.id, Number(s.final_price) || 0)
+      })
+      const projServicePrice = new Map<string, number>()
+      ;(projSvcRes.data || []).forEach((s: any) => {
+        projServicePrice.set(s.id, Number(s.final_price) || 0)
+      })
+
+      // Valor total contratado (comisionable) por cuenta / proyecto: sirve como
+      // denominador para convertir el estimado por servicio en un porcentaje
+      // efectivo aplicable a la base pagada de la factura.
+      const acctCommissionableTotal = new Map<string, number>()
+      ;(acctSvcRes.data || []).forEach((s: any) => {
+        if (s.is_active === false || s.is_commissionable === false) return
+        acctCommissionableTotal.set(
+          s.account_id,
+          (acctCommissionableTotal.get(s.account_id) || 0) + (Number(s.final_price) || 0),
+        )
+      })
+      const projCommissionableTotal = new Map<string, number>()
+      ;(projSvcRes.data || []).forEach((s: any) => {
+        if (s.is_commissionable === false) return
+        projCommissionableTotal.set(
+          s.project_id,
+          (projCommissionableTotal.get(s.project_id) || 0) + (Number(s.final_price) || 0),
+        )
+      })
+
+      // Agrupar comisiones por servicio -> por persona en cada cuenta / proyecto,
+      // sumando el estimado (precio del servicio × %) de cada persona.
+      type EffectiveComm = { staff_id: string; staff_name: string; role: string; estimated: number }
+      const svcCommByAccount = new Map<string, Map<string, EffectiveComm>>()
+      ;(acctSvcCommRes.data || []).forEach((c: any) => {
+        const price = acctServicePrice.get(c.account_service_id)
+        if (price === undefined) return // servicio inactivo o inexistente
+        const perAccount = svcCommByAccount.get(c.account_id) || new Map<string, EffectiveComm>()
+        const existing =
+          perAccount.get(c.staff_id) || {
+            staff_id: c.staff_id,
+            staff_name: `${c.staff?.first_name || ""} ${c.staff?.last_name || ""}`.trim() || "Sin nombre",
+            role: "additional",
+            estimated: 0,
+          }
+        existing.estimated += price * ((Number(c.commission_percentage) || 0) / 100)
+        perAccount.set(c.staff_id, existing)
+        svcCommByAccount.set(c.account_id, perAccount)
+      })
+      const svcCommByProject = new Map<string, Map<string, EffectiveComm>>()
+      ;(projSvcCommRes.data || []).forEach((c: any) => {
+        const price = projServicePrice.get(c.project_service_id)
+        if (price === undefined) return
+        const perProject = svcCommByProject.get(c.project_id) || new Map<string, EffectiveComm>()
+        const existing =
+          perProject.get(c.staff_id) || {
+            staff_id: c.staff_id,
+            staff_name: `${c.staff?.first_name || ""} ${c.staff?.last_name || ""}`.trim() || "Sin nombre",
+            role: "additional",
+            estimated: 0,
+          }
+        existing.estimated += price * ((Number(c.commission_percentage) || 0) / 100)
+        perProject.set(c.staff_id, existing)
+        svcCommByProject.set(c.project_id, perProject)
+      })
+
+      // Convierte el estimado por servicio de cada persona en un porcentaje
+      // efectivo respecto al total comisionable de la cuenta / proyecto.
+      function effectiveCommissioners(
+        sourceId: string,
+        svcMap: Map<string, Map<string, EffectiveComm>>,
+        totalMap: Map<string, number>,
+      ): { staff_id: string; staff_name: string; role: string; commission_percentage: number }[] {
+        const perStaff = svcMap.get(sourceId)
+        if (!perStaff || perStaff.size === 0) return []
+        const total = totalMap.get(sourceId) || 0
+        if (total <= 0) return []
+        return Array.from(perStaff.values()).map((e) => ({
+          staff_id: e.staff_id,
+          staff_name: e.staff_name,
+          role: e.role,
+          commission_percentage: (e.estimated / total) * 100,
+        }))
+      }
+
+      // Agrupar comisionistas legado por cuenta / proyecto (respaldo).
       const commByAccount = new Map<string, any[]>()
       ;(acctCommRes.data || []).forEach((c: any) => {
         const list = commByAccount.get(c.account_id) || []
@@ -155,7 +270,9 @@ export default function ClientCommissionsPage() {
           sourceType = "project"
           const project = projects.get(inv.project_id)
           sourceName = project?.name || "Proyecto"
-          commissioners = commByProject.get(inv.project_id) || []
+          // Preferir comisiones por servicio; si no hay, usar el legado.
+          const svc = effectiveCommissioners(inv.project_id, svcCommByProject, projCommissionableTotal)
+          commissioners = svc.length > 0 ? svc : commByProject.get(inv.project_id) || []
           // El cliente del proyecto viene de su cuenta.
           if (!clientId && project?.account_id) {
             clientId = accounts.get(project.account_id)?.client_id ?? null
@@ -164,7 +281,8 @@ export default function ClientCommissionsPage() {
           sourceType = "account"
           const account = accounts.get(inv.account_id)
           sourceName = account?.account_name || "Cuenta"
-          commissioners = commByAccount.get(inv.account_id) || []
+          const svc = effectiveCommissioners(inv.account_id, svcCommByAccount, acctCommissionableTotal)
+          commissioners = svc.length > 0 ? svc : commByAccount.get(inv.account_id) || []
           if (!clientId) clientId = account?.client_id ?? null
         }
 
@@ -173,8 +291,12 @@ export default function ClientCommissionsPage() {
         // Solo cuentas / proyectos que tengan comisiones registradas.
         commissioners.forEach((c, idx) => {
           const percentage = Number(c.commission_percentage) || 0
+          // Los comisionistas efectivos (por servicio) ya traen staff_name; los
+          // legado traen el objeto staff anidado.
           const staffName =
-            `${c.staff?.first_name || ""} ${c.staff?.last_name || ""}`.trim() || "Sin nombre"
+            c.staff_name ||
+            `${c.staff?.first_name || ""} ${c.staff?.last_name || ""}`.trim() ||
+            "Sin nombre"
           result.push({
             key: `${inv.id}-${c.staff_id}-${c.role}-${idx}`,
             invoiceId: inv.id,
@@ -390,7 +512,7 @@ export default function ClientCommissionsPage() {
                             <Badge variant="secondary">{getRoleLabel(r.role)}</Badge>
                           </TableCell>
                           <TableCell className="text-right">{formatCurrency(r.base, r.currencySymbol)}</TableCell>
-                          <TableCell className="text-right">{r.percentage}%</TableCell>
+                          <TableCell className="text-right">{r.percentage.toFixed(2)}%</TableCell>
                           <TableCell className="text-right font-semibold">
                             {formatCurrency(r.commission, r.currencySymbol)}
                           </TableCell>

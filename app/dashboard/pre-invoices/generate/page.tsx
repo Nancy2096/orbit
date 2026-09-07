@@ -339,14 +339,20 @@ export default function GeneratePreInvoicesPage() {
       data: { user },
     } = await supabase.auth.getUser()
 
-    // Numeración correlativa por año.
+    // Numeración correlativa por año. Nos basamos en el número MÁS ALTO ya
+    // existente (no en el conteo de filas), para que los huecos por prefacturas
+    // eliminadas no provoquen números duplicados.
     const year = new Date(periodStart).getFullYear()
-    const { count } = await supabase
+    const { data: lastRows } = await supabase
       .from("pre_invoices")
-      .select("*", { count: "exact", head: true })
-      .gte("period_start", `${year}-01-01`)
-      .lte("period_start", `${year}-12-31`)
-    let seq = (count || 0) + 1
+      .select("pre_invoice_number")
+      .like("pre_invoice_number", `PRE-${year}-%`)
+      .order("pre_invoice_number", { ascending: false })
+      .limit(1)
+    const lastNumber = lastRows?.[0]?.pre_invoice_number as string | undefined
+    // Extrae el consecutivo (los últimos dígitos) del número más alto.
+    const lastSeq = lastNumber ? parseInt(lastNumber.split("-").pop() || "0", 10) || 0 : 0
+    let seq = lastSeq + 1
 
     let created = 0
     try {
@@ -354,33 +360,51 @@ export default function GeneratePreInvoicesPage() {
         // El IVA (encendido/apagado y porcentaje) se define por grupo en la UI.
         const taxEnabled = group.tax_enabled
         const totals = computeTotals(group.lines, taxEnabled, group.tax_rate)
-        const number = `PRE-${year}-${String(seq).padStart(5, "0")}`
-        seq++
 
-        const { data: preInvoice, error: preErr } = await supabase
-          .from("pre_invoices")
-          .insert({
-            pre_invoice_number: number,
-            source_type: group.source_type,
-            account_id: group.source_type === "account" ? group.source_id : null,
-            project_id: group.source_type === "project" ? group.source_id : null,
-            client_id: group.client_id,
-            agency_id: group.agency_id,
-            period_start: periodStart,
-            period_label: label,
-            status: "draft",
-            currency: group.currency,
-            tax_enabled: taxEnabled,
-            tax_rate: group.tax_rate,
-            subtotal: totals.subtotal,
-            tax: totals.tax,
-            total: totals.total,
-            created_by: user?.id ?? null,
-          })
-          .select()
-          .single()
+        // Insertar reintentando ante colisión de número (código 23505), por si
+        // otro usuario generó prefacturas del mismo año en paralelo.
+        let preInvoice: any = null
+        let attempts = 0
+        while (!preInvoice) {
+          const number = `PRE-${year}-${String(seq).padStart(5, "0")}`
+          const { data, error: preErr } = await supabase
+            .from("pre_invoices")
+            .insert({
+              pre_invoice_number: number,
+              source_type: group.source_type,
+              account_id: group.source_type === "account" ? group.source_id : null,
+              project_id: group.source_type === "project" ? group.source_id : null,
+              client_id: group.client_id,
+              agency_id: group.agency_id,
+              period_start: periodStart,
+              period_label: label,
+              status: "draft",
+              currency: group.currency,
+              tax_enabled: taxEnabled,
+              tax_rate: group.tax_rate,
+              subtotal: totals.subtotal,
+              tax: totals.tax,
+              total: totals.total,
+              created_by: user?.id ?? null,
+            })
+            .select()
+            .single()
 
-        if (preErr || !preInvoice) throw new Error(preErr?.message || "Error al crear prefactura")
+          if (data) {
+            preInvoice = data
+            seq++
+            break
+          }
+
+          // Si el número ya existe, avanzamos el consecutivo y reintentamos.
+          const isDuplicate = (preErr as any)?.code === "23505"
+          attempts++
+          if (isDuplicate && attempts < 50) {
+            seq++
+            continue
+          }
+          throw new Error(preErr?.message || "Error al crear prefactura")
+        }
 
         const items = group.lines.map((l, index) => ({
           pre_invoice_id: preInvoice.id,
