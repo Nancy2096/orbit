@@ -1077,7 +1077,7 @@ export default function ImportExportPage() {
       project_services: "*, project:projects(name), service:services(name)",
       
       // RRHH
-      staff: "*, agency:agencies(name), payroll_agency:agencies!staff_payroll_agency_id_fkey(name), currency:currencies(code), reports_to:staff!staff_reports_to_id_fkey(first_name, last_name, email), department:departments(name), position:positions(name), role:roles(name, display_name)",
+      staff: "*, agency:agencies(name), payroll_agency:agencies!staff_payroll_agency_id_fkey(name), currency:currencies(code), reports_to:staff!staff_reports_to_id_fkey(first_name, last_name, email), department:departments!staff_department_id_fkey(name), position:positions(name), role:roles(name, display_name)",
       staff_documents: "*, staff:staff(first_name, last_name, email, agency_id)",
       departments: "*, agency:agencies(name)",
       positions: "*, agency:agencies(name), department:departments(name)",

@@ -390,7 +390,7 @@ export default function TrainingPage() {
       .from("staff")
       .select(`
         id, first_name, last_name, email, position, department_id,
-        department:departments(name)
+        department:departments!staff_department_id_fkey(name)
       `)
       .eq("is_active", true)
       .order("first_name")

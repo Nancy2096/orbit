@@ -278,7 +278,7 @@ export default function WorkloadPage() {
           max_subordinates,
           level
         ),
-        departments (
+        departments!staff_department_id_fkey (
           id,
           name
         )

@@ -146,7 +146,7 @@ export default function BonusesPage() {
           .from("bonuses")
           .select(`
             *,
-            staff:staff(id, first_name, last_name, is_active, department:departments(name)),
+            staff:staff(id, first_name, last_name, is_active, department:departments!staff_department_id_fkey(name)),
             agency:agencies(id, name)
           `)
           .eq("agency_id", selectedAgencyId)
