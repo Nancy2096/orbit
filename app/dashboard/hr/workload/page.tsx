@@ -332,6 +332,7 @@ export default function WorkloadPage() {
         services ( name, department_id )
       `)
       .eq("is_active", true)
+      .limit(10000)
 
     const projectServicesQuery = supabase
       .from("project_services")
@@ -339,6 +340,7 @@ export default function WorkloadPage() {
         project_id,
         services ( name, department_id )
       `)
+      .limit(10000)
 
     // Apply agency filter if not "all"
     if (!isAllAgencies) {
@@ -368,28 +370,26 @@ export default function WorkloadPage() {
       ...staffPromises,
     ])
 
-    // Mapa: accountId -> departmentId -> nombres de servicio.
-    const accountServicesByDept = new Map<string, Map<string, string[]>>()
+    // Mapas planos con TODOS los servicios contratados por cuenta y por
+    // proyecto (sin filtrar por departamento). El detalle de cada cuenta o
+    // proyecto asignado debe listar todos los servicios contratados, no solo
+    // los del departamento de la asignación de la persona.
+    const accountAllServices = new Map<string, string[]>()
     accountServicesRes.data?.forEach((row: any) => {
-      const deptId = row.services?.department_id
       const name = row.custom_name || row.services?.name
-      if (!row.account_id || !deptId || !name) return
-      if (!accountServicesByDept.has(row.account_id)) accountServicesByDept.set(row.account_id, new Map())
-      const byDept = accountServicesByDept.get(row.account_id)!
-      if (!byDept.has(deptId)) byDept.set(deptId, [])
-      if (!byDept.get(deptId)!.includes(name)) byDept.get(deptId)!.push(name)
+      if (!row.account_id || !name) return
+      if (!accountAllServices.has(row.account_id)) accountAllServices.set(row.account_id, [])
+      const arr = accountAllServices.get(row.account_id)!
+      if (!arr.includes(name)) arr.push(name)
     })
 
-    // Mapa: projectId -> departmentId -> nombres de servicio.
-    const projectServicesByDept = new Map<string, Map<string, string[]>>()
+    const projectAllServices = new Map<string, string[]>()
     projectServicesRes.data?.forEach((row: any) => {
-      const deptId = row.services?.department_id
       const name = row.services?.name
-      if (!row.project_id || !deptId || !name) return
-      if (!projectServicesByDept.has(row.project_id)) projectServicesByDept.set(row.project_id, new Map())
-      const byDept = projectServicesByDept.get(row.project_id)!
-      if (!byDept.has(deptId)) byDept.set(deptId, [])
-      if (!byDept.get(deptId)!.includes(name)) byDept.get(deptId)!.push(name)
+      if (!row.project_id || !name) return
+      if (!projectAllServices.has(row.project_id)) projectAllServices.set(row.project_id, [])
+      const arr = projectAllServices.get(row.project_id)!
+      if (!arr.includes(name)) arr.push(name)
     })
 
     // Mapa de nombres de departamento para usar como respaldo cuando la
@@ -449,7 +449,10 @@ export default function WorkloadPage() {
           if (a.sales_advisor_id === staff.id || a.account_manager_id === staff.id) {
             commercialAccountIds.add(a.id)
             allAccountIds.add(a.id)
-            addAccountServices(a.id, a.account_name, ["Comercial"])
+            // Mostrar todos los servicios contratados de la cuenta; si no tiene
+            // servicios registrados, se muestra la etiqueta "Comercial".
+            const allSvc = accountAllServices.get(a.id) || []
+            addAccountServices(a.id, a.account_name, allSvc.length ? allSvc : ["Comercial"])
           }
         })
 
@@ -470,10 +473,13 @@ export default function WorkloadPage() {
             coordinatorAccountIds.add(acctId)
             allAccountIds.add(acctId)
           }
+          // Mostrar TODOS los servicios contratados de la cuenta, no solo los
+          // del departamento de esta asignación. Respaldo: nombre del
+          // departamento cuando la cuenta no tiene servicios registrados.
           const deptId = row.department_id
-          const svc = (deptId && accountServicesByDept.get(acctId)?.get(deptId)) || []
-          const labels = svc.length
-            ? svc
+          const allSvc = accountAllServices.get(acctId) || []
+          const labels = allSvc.length
+            ? allSvc
             : deptId && departmentNames.get(deptId)
               ? [departmentNames.get(deptId)!]
               : []
@@ -503,10 +509,12 @@ export default function WorkloadPage() {
           const projId = p.projects?.id
           if (!projId) return
           if (p.manager_id !== staff.id && p.coordinator_id !== staff.id) return
+          // Mostrar TODOS los servicios contratados del proyecto, no solo los
+          // del departamento de esta asignación.
           const deptId = p.department_id
-          const svc = (deptId && projectServicesByDept.get(projId)?.get(deptId)) || []
-          const labels = svc.length
-            ? svc
+          const allSvc = projectAllServices.get(projId) || []
+          const labels = allSvc.length
+            ? allSvc
             : deptId && departmentNames.get(deptId)
               ? [departmentNames.get(deptId)!]
               : []
