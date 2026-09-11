@@ -65,8 +65,10 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
       const name = role?.name ?? null
       setRoleName(name)
 
-      // Acceso total: superadministrador o usuario con acceso global explícito.
-      const isFull = name === "superadmin" || userData?.is_global_access === true
+      // Acceso total SOLO para el superadministrador. El flag is_global_access
+      // define el alcance por agencia (ver datos de todas las agencias), NO
+      // otorga acceso a módulos: cada rol se sigue rigiendo por sus permisos.
+      const isFull = name === "superadmin"
       if (isFull) {
         setFullAccess(true)
         setLoading(false)
