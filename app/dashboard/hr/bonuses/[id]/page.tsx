@@ -123,7 +123,7 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
         .from("bonuses")
         .select(`
           *,
-          staff:staff(id, first_name, last_name, department:departments(name)),
+          staff:staff(id, first_name, last_name, department:departments!staff_department_id_fkey(name)),
           agency:agencies(id, name),
           bonus_type_ref:bonus_types(id, name)
         `)

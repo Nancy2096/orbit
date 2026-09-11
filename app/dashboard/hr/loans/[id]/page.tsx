@@ -139,7 +139,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
       .from("loans")
       .select(`
         *,
-        staff:staff(id, first_name, last_name, department:departments(name)),
+        staff:staff(id, first_name, last_name, department:departments!staff_department_id_fkey(name)),
         agency:agencies(id, name)
       `)
       .eq("id", id)

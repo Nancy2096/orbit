@@ -212,7 +212,7 @@ export default function StaffEvaluationPage() {
                   last_name,
                   position,
                   agency_rel:agencies(name),
-                  department_rel:departments(name)
+                  department_rel:departments!staff_department_id_fkey(name)
                 )
               )
             )

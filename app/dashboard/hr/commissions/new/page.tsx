@@ -173,7 +173,7 @@ const fetchInitialData = async () => {
             last_name, 
             agency_id,
             position:positions(name),
-            department:departments(name)
+            department:departments!staff_department_id_fkey(name)
           `)
           .or(`agency_id.eq.${selectedAgencyId},agency_id.is.null`)
           .eq("is_active", true)

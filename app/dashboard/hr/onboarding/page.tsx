@@ -100,7 +100,7 @@ export default function OnboardingPage() {
     const [{ data: procs }, { data: agenciesData }, { data: departmentsData }] = await Promise.all([
       supabase
         .from("onboarding_processes")
-        .select("id, staff_id, agency_id, start_date, status, staff:staff_id(first_name, last_name, photo_url, position, department:departments(name)), agency:agency_id(name)")
+        .select("id, staff_id, agency_id, start_date, status, staff:staff_id(first_name, last_name, photo_url, position, department:departments!staff_department_id_fkey(name)), agency:agency_id(name)")
         .order("created_at", { ascending: false }),
       supabase.from("agencies").select("id, name").eq("is_active", true).order("name"),
       supabase.from("departments").select("id, name, agency_id").order("name"),
