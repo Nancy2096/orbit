@@ -122,6 +122,10 @@ export default function NewStaffPage() {
   const [error, setError] = useState<string | null>(null)
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null)
   const [canEditBilling, setCanEditBilling] = useState(false)
+  // Permiso estricto SOLO para las dos preguntas de nómina (agencia que paga y
+  // banco de pago): únicamente Finanzas/Administración, Dirección General y
+  // Super Administrador pueden modificarlas.
+  const [canEditPayroll, setCanEditPayroll] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -195,14 +199,24 @@ export default function NewStaffPage() {
           positionName.includes("coo")
         
         setCanEditBilling(canEdit)
+
+        // Solo Finanzas/Administración, Dirección General y Super Administrador
+        // pueden modificar las preguntas de nómina.
+        const canEditPay =
+          roleName === "superadmin" ||
+          roleName === "direccion_general" ||
+          roleName === "finanzas"
+        setCanEditPayroll(canEditPay)
         setCurrentUserRole(positionName)
       } else {
         // Si no hay registro de staff para este usuario, permitir edición (probablemente es super admin)
         setCanEditBilling(true)
+        setCanEditPayroll(true)
       }
     } else {
       // Si no hay usuario autenticado, no permitir edición
       setCanEditBilling(false)
+      setCanEditPayroll(false)
     }
 
     const [agenciesRes, currenciesRes, codesRes] = await Promise.all([
@@ -1014,13 +1028,21 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
               <FieldGroup>
                 {/* Agencia que paga la nómina */}
                 <Field>
-                  <FieldLabel htmlFor="payroll_agency_id">Agencia que Paga la Nómina</FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <FieldLabel htmlFor="payroll_agency_id">Agencia que Paga la Nómina</FieldLabel>
+                    {!canEditPayroll && (
+                      <span className="flex items-center gap-1 text-amber-600 bg-amber-100 px-2 py-0.5 rounded-md text-xs font-medium">
+                        <AlertCircle className="h-3 w-3" />
+                        Solo lectura
+                      </span>
+                    )}
+                  </div>
                   <Select
                     value={formData.payroll_agency_id}
                     onValueChange={(value) => setFormData({ ...formData, payroll_agency_id: value })}
-                    disabled={!canEditBilling}
+                    disabled={!canEditPayroll}
                   >
-                    <SelectTrigger className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}>
+                    <SelectTrigger className={!canEditPayroll ? "bg-amber-50 border-amber-200 cursor-not-allowed" : ""}>
                       <SelectValue placeholder="Selecciona la agencia responsable de la nómina" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1038,15 +1060,23 @@ const { data: insertedStaff, error: insertError } = await supabase.from("staff")
 
                 {/* Banco desde el que se paga el sueldo */}
                 <Field>
-                  <FieldLabel htmlFor="payroll_bank_name">¿De qué banco se paga el sueldo?</FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <FieldLabel htmlFor="payroll_bank_name">¿De qué banco se paga el sueldo?</FieldLabel>
+                    {!canEditPayroll && (
+                      <span className="flex items-center gap-1 text-amber-600 bg-amber-100 px-2 py-0.5 rounded-md text-xs font-medium">
+                        <AlertCircle className="h-3 w-3" />
+                        Solo lectura
+                      </span>
+                    )}
+                  </div>
                   <Select
                     value={formData.payroll_bank_name}
                     onValueChange={(value) => setFormData({ ...formData, payroll_bank_name: value })}
-                    disabled={!canEditBilling}
+                    disabled={!canEditPayroll}
                   >
                     <SelectTrigger
                       id="payroll_bank_name"
-                      className={!canEditBilling ? "bg-muted cursor-not-allowed" : ""}
+                      className={!canEditPayroll ? "bg-amber-50 border-amber-200 cursor-not-allowed" : ""}
                     >
                       <SelectValue placeholder="Selecciona el banco desde el que se paga" />
                     </SelectTrigger>
