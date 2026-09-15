@@ -25,7 +25,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Spinner } from "@/components/ui/spinner"
-import { Search, DollarSign, TrendingUp, Calendar, Building2, Landmark, ArrowUpRight, ArrowDownRight, Eye, Plus, PiggyBank, Pencil } from "lucide-react"
+import { Search, DollarSign, TrendingUp, Calendar, Building2, Landmark, ArrowUpRight, ArrowDownRight, Eye, Plus, PiggyBank, Pencil, ArrowLeftRight } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 
@@ -41,6 +41,7 @@ interface BankAccount {
   initial_balance: number
   invoices_total: number
   capital_total: number
+  movements_total: number
   currency: { code: string; symbol: string } | null
   agency: { id: string; name: string } | null
 }
@@ -316,11 +317,28 @@ export default function IncomesPage() {
         })
       }
 
+      // Movimientos bancarios (ingresos/salidas), incluyendo las salidas
+      // automáticas por pago de nómina y los movimientos manuales.
+      const { data: movements } = await supabase
+        .from("bank_movements")
+        .select("bank_account_id, movement_type, amount")
+        .in("bank_account_id", bankIds)
+
+      const movementsByBank: Record<string, number> = {}
+      if (movements) {
+        movements.forEach((m: { bank_account_id: string | null; movement_type: string; amount: number }) => {
+          if (!m.bank_account_id) return
+          const sign = m.movement_type === "ingreso" ? 1 : -1
+          movementsByBank[m.bank_account_id] = (movementsByBank[m.bank_account_id] || 0) + sign * (m.amount || 0)
+        })
+      }
+
       const mapped = data.map((bank: Record<string, unknown>) => {
         const id = bank.id as string
         const initial = Number(bank.initial_balance) || 0
         const invoicesTotal = invoicesByBank[id] || 0
         const capitalTotal = capitalByBank[id] || 0
+        const movementsTotal = movementsByBank[id] || 0
         return {
           ...bank,
           currency: Array.isArray(bank.currency) ? bank.currency[0] : bank.currency,
@@ -328,8 +346,9 @@ export default function IncomesPage() {
           initial_balance: initial,
           invoices_total: invoicesTotal,
           capital_total: capitalTotal,
-          // Saldo actual = saldo inicial + facturas pagadas + aportaciones de capital
-          current_balance: initial + invoicesTotal + capitalTotal,
+          movements_total: movementsTotal,
+          // Saldo = saldo inicial + facturas pagadas + capital + movimientos (ingresos - salidas)
+          current_balance: initial + invoicesTotal + capitalTotal + movementsTotal,
         }
       }) as BankAccount[]
       setBankAccounts(mapped)
@@ -486,6 +505,7 @@ export default function IncomesPage() {
         existing.initial_balance += acc.initial_balance || 0
         existing.invoices_total += acc.invoices_total || 0
         existing.capital_total += acc.capital_total || 0
+        existing.movements_total += acc.movements_total || 0
         existing.current_balance += acc.current_balance || 0
         if (acc.agency?.name && !existing.agencyNames.includes(acc.agency.name)) {
           existing.agencyNames.push(acc.agency.name)
@@ -769,6 +789,12 @@ export default function IncomesPage() {
                         {bank.capital_total >= 0 ? "+" : "-"}{bank.currency?.symbol || "$"}{Math.abs(bank.capital_total || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
                       </span>
                     </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Movimientos (nómina/manual)</span>
+                      <span className="font-medium">
+                        {bank.movements_total >= 0 ? "+" : "-"}{bank.currency?.symbol || "$"}{Math.abs(bank.movements_total || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="text-sm text-muted-foreground space-y-1">
@@ -795,6 +821,12 @@ export default function IncomesPage() {
                       )}
                     </div>
                   )}
+                  <Button asChild variant="outline" size="sm" className="w-full mt-2">
+                    <Link href={`/dashboard/payments/movements?bank=${encodeURIComponent(bank.bank_name)}`}>
+                      <ArrowLeftRight className="mr-2 h-4 w-4" />
+                      Movimientos
+                    </Link>
+                  </Button>
                 </CardContent>
               </Card>
             ))}

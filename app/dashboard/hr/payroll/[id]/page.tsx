@@ -754,6 +754,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       if (error) throw error
 
+      // Si el periodo estaba "pagado" y al recalcular se degrada, se revierten
+      // los movimientos bancarios generados para devolver el dinero a los bancos.
+      if (period.status === "paid" && nextStatus !== "paid") {
+        await revertPayrollBankMovements(period.id)
+      }
+
       setPeriod({
         ...period,
         total_gross: totalGross,
@@ -813,6 +819,90 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       console.error("Error approving payroll:", error)
       toast.error("Error al aprobar la nómina")
     }
+  }
+
+  // Registra la salida de dinero de cada banco de origen al pagar la nómina.
+  // Agrupa el neto por nombre de banco del empleado (payroll_bank_name) y lo
+  // descuenta de la cuenta primaria/activa de ese banco. Es idempotente:
+  // elimina los movimientos previos de este periodo antes de insertar.
+  const registerPayrollBankMovements = async (periodId: string) => {
+    const netByBankName = new Map<string, number>()
+    for (const e of entries) {
+      const bankName = (e.staff.payroll_bank_name || "").trim()
+      if (!bankName || e.net_pay <= 0) continue
+      netByBankName.set(bankName, (netByBankName.get(bankName) || 0) + e.net_pay)
+    }
+
+    // Limpiar movimientos previos de nómina de este periodo (idempotencia).
+    await supabase
+      .from("bank_movements")
+      .delete()
+      .eq("source_type", "payroll_period")
+      .eq("source_id", periodId)
+
+    if (netByBankName.size === 0) return { registered: 0, unmatched: [] as string[] }
+
+    const { data: accounts } = await supabase
+      .from("bank_accounts")
+      .select("id, bank_name, agency_id, is_primary, is_active")
+      .eq("is_active", true)
+
+    // Elige la cuenta de un banco por nombre: prioriza la primaria, si no la
+    // primera cuenta activa con ese nombre.
+    const pickAccount = (bankName: string) => {
+      const matches = (accounts || []).filter(
+        (a: Record<string, unknown>) =>
+          String(a.bank_name || "").trim().toLowerCase() === bankName.toLowerCase(),
+      )
+      if (matches.length === 0) return null
+      return matches.find((a: Record<string, unknown>) => a.is_primary) || matches[0]
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const rows: Record<string, unknown>[] = []
+    const unmatched: string[] = []
+    for (const [bankName, amount] of netByBankName.entries()) {
+      const acct = pickAccount(bankName) as Record<string, unknown> | null
+      if (!acct) {
+        unmatched.push(bankName)
+        continue
+      }
+      rows.push({
+        bank_account_id: acct.id,
+        agency_id: acct.agency_id ?? null,
+        movement_type: "salida",
+        category: "nomina",
+        amount,
+        description: `Pago de nómina ${period?.period_name ?? ""} · ${bankName}`.trim(),
+        reference: period?.period_name ?? null,
+        movement_date: new Date().toISOString().split("T")[0],
+        source_type: "payroll_period",
+        source_id: periodId,
+        created_by: user?.id ?? null,
+      })
+    }
+
+    if (rows.length > 0) {
+      const { error } = await supabase.from("bank_movements").insert(rows)
+      if (error) {
+        console.error("Error registrando movimientos de nómina:", error)
+        throw error
+      }
+    }
+    return { registered: rows.length, unmatched }
+  }
+
+  // Revierte (elimina) los movimientos bancarios generados por el pago de un
+  // periodo, devolviendo el dinero al saldo de cada banco.
+  const revertPayrollBankMovements = async (periodId: string) => {
+    await supabase
+      .from("bank_movements")
+      .delete()
+      .eq("source_type", "payroll_period")
+      .eq("source_id", periodId)
   }
 
   const handleMarkAsPaid = async () => {
@@ -938,6 +1028,14 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         }
       }
 
+      // Registrar la salida de dinero de cada banco de origen por el pago.
+      let bankMovementsResult = { registered: 0, unmatched: [] as string[] }
+      try {
+        bankMovementsResult = await registerPayrollBankMovements(period.id)
+      } catch {
+        toast.error("La nómina se marcó como pagada, pero no se pudieron registrar los movimientos bancarios")
+      }
+
       setPeriod({ ...period, status: "paid" })
       // Reflejar el nuevo estado de las comisiones y finiquitos en la vista.
       const paidAt = new Date().toISOString()
@@ -961,12 +1059,21 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         paidBonusesCount > 0 ? `${paidBonusesCount} bono(s)` : null,
         paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
         paidLoansCount > 0 ? `${paidLoansCount} pago(s) de préstamo` : null,
+        bankMovementsResult.registered > 0
+          ? `${bankMovementsResult.registered} salida(s) bancaria(s)`
+          : null,
       ].filter(Boolean)
       toast.success(
         extras.length > 0
-          ? `Nómina marcada como pagada · ${extras.join(" y ")} liquidada(s)`
+          ? `Nómina marcada como pagada · ${extras.join(" y ")} registrada(s)`
           : "Nómina marcada como pagada",
       )
+      // Avisar de bancos de empleados que no tienen cuenta bancaria registrada.
+      if (bankMovementsResult.unmatched.length > 0) {
+        toast.warning(
+          `Sin cuenta bancaria para: ${bankMovementsResult.unmatched.join(", ")}. Registra esas cuentas en Finanzas → Bancos.`,
+        )
+      }
     } catch (error) {
       console.error("Error marking as paid:", error)
       toast.error("Error al marcar como pagada")
