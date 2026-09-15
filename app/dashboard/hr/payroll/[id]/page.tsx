@@ -348,7 +348,29 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // el pasado no refleje altas de personal ni comisiones nuevas.
       const snapshot = periodData.entries_snapshot as PayrollEntry[] | null
       if (periodData.status !== "draft" && Array.isArray(snapshot) && snapshot.length > 0) {
-        setEntries(snapshot)
+        // Los snapshots antiguos pueden no incluir payroll_bank_name (Banco
+        // Origen). Es un dato informativo, así que lo completamos con el valor
+        // actual del staff sin alterar los montos del snapshot.
+        const snapshotStaffIds = Array.from(
+          new Set(snapshot.map((e) => e.staff_id).filter(Boolean)),
+        )
+        if (snapshotStaffIds.length > 0) {
+          const { data: bankRows } = await supabase
+            .from("staff")
+            .select("id, payroll_bank_name")
+            .in("id", snapshotStaffIds)
+          const bankById = new Map((bankRows || []).map((r: any) => [r.id, r.payroll_bank_name]))
+          const enriched = snapshot.map((e) => ({
+            ...e,
+            staff: {
+              ...e.staff,
+              payroll_bank_name: e.staff?.payroll_bank_name ?? bankById.get(e.staff_id) ?? null,
+            },
+          }))
+          setEntries(enriched)
+        } else {
+          setEntries(snapshot)
+        }
         setPeriod(periodData)
         return
       }
