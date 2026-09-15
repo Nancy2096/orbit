@@ -106,6 +106,8 @@ interface Staff {
   bank_name: string | null
   bank_clabe: string | null
   bank_account_number: string | null
+  // Banco que paga el sueldo (RRHH > Personal > Información Laboral)
+  payroll_bank_name: string | null
 }
 
 interface CommissionItem {
@@ -1508,8 +1510,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   <TableHead className="text-right">Impuestos</TableHead>
                   <TableHead className="text-right">Bruto</TableHead>
                   <TableHead className="text-right">Neto</TableHead>
-                  <TableHead>Banco</TableHead>
-                  <TableHead>CLABE Interbancaria</TableHead>
+                    <TableHead>Banco</TableHead>
+                    <TableHead>Banco Origen</TableHead>
+                    <TableHead>CLABE Interbancaria</TableHead>
                   <TableHead>Concepto</TableHead>
                   {(period.status === "approved" || period.status === "paid") && (
                     <TableHead>Comprobante</TableHead>
@@ -1590,6 +1593,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     <TableCell className="text-right font-bold text-green-600">{formatCurrency(entry.net_pay)}</TableCell>
                     <TableCell>
                       {entry.staff.bank_name || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell>
+                      {entry.staff.payroll_bank_name || <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {entry.staff.bank_clabe || <span className="text-muted-foreground">—</span>}
