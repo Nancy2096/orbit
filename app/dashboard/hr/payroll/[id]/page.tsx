@@ -439,6 +439,34 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const d = String(raw).slice(0, 10) // normaliza date/timestamp a YYYY-MM-DD
         return d >= start && d <= end
       }
+
+      // Periodicidad de las comisiones de citas para colaboradores MENSUALES:
+      // no se muestran en cada quincena; se acumulan y se pagan una sola vez,
+      // cuando le toca el pago mensual (misma regla que el sueldo base).
+      const freqByStaff: Record<string, string> = {}
+      for (const s of staffData || []) freqByStaff[s.id] = s.payment_frequency || "biweekly"
+
+      // ¿Este periodo es el de pago de un colaborador mensual?
+      //  - mensual: siempre.
+      //  - quincenal: solo la segunda quincena (día de inicio > 15).
+      //  - semanal u otro: se conserva el comportamiento por periodo.
+      const monthlyPayingPeriod =
+        periodData.period_type === "mensual" ||
+        (periodData.period_type === "quincenal" ? Number(start.slice(8, 10)) > 15 : true)
+
+      // Rango del MES del periodo, para acumular las comisiones de todo el mes
+      // (primera y segunda quincena juntas) en el pago del colaborador mensual.
+      const monthStartStr = `${start.slice(0, 7)}-01`
+      const lastDayOfMonth = new Date(
+        Date.UTC(Number(start.slice(0, 4)), Number(start.slice(5, 7)), 0),
+      ).getUTCDate()
+      const monthEndStr = `${start.slice(0, 7)}-${String(lastDayOfMonth).padStart(2, "0")}`
+      const inMonth = (dateStr: string | null | undefined, fallback: string | null | undefined) => {
+        const raw = dateStr || fallback
+        if (!raw) return false
+        const d = String(raw).slice(0, 10)
+        return d >= monthStartStr && d <= monthEndStr
+      }
       // Bonos y comisiones se atribuyen al periodo en que se GENERARON (su fecha
       // efectiva/registro), por lo que cada uno cae en un único periodo.
       // Si la nómina ya está PAGADA (finalizada), solo se muestran los conceptos
@@ -502,7 +530,13 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           // En una nómina ya pagada solo se incluye si la comisión realmente se
           // pagó; las pendientes/aprobadas no formaron parte de ese pago.
           if (isPaidPeriod && c.status !== "paid") continue
-          const include = inPeriod(c.period_date, c.created_at)
+          // Colaborador mensual: la comisión de citas se acumula al pago mensual
+          // (todo el mes) y no aparece en cada quincena. Los demás (quincenal/
+          // semanal) mantienen la atribución por periodo.
+          const isMonthly = (freqByStaff[c.staff_id] || "biweekly") === "monthly"
+          const include = isMonthly
+            ? monthlyPayingPeriod && inMonth(c.period_date, c.created_at)
+            : inPeriod(c.period_date, c.created_at)
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
