@@ -1232,6 +1232,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         Impuestos: e.taxes,
         "Pago bruto": e.gross_pay,
         "Pago neto": e.net_pay,
+        "Banco Origen": e.staff.payroll_bank_name || "",
       }))
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), "Resumen")
 
@@ -1674,8 +1675,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   <TableHead className="text-right">Bruto</TableHead>
                   <TableHead className="text-right">Neto</TableHead>
                     <TableHead>Banco</TableHead>
-                    <TableHead>Banco Origen</TableHead>
                     <TableHead>CLABE Interbancaria</TableHead>
+                    <TableHead>Banco Origen</TableHead>
                   <TableHead>Concepto</TableHead>
                   {(period.status === "approved" || period.status === "paid") && (
                     <TableHead>Comprobante</TableHead>
@@ -1757,11 +1758,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     <TableCell>
                       {entry.staff.bank_name || <span className="text-muted-foreground">—</span>}
                     </TableCell>
-                    <TableCell>
-                      {entry.staff.payroll_bank_name || <span className="text-muted-foreground">—</span>}
-                    </TableCell>
                     <TableCell className="font-mono text-xs">
                       {entry.staff.bank_clabe || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell>
+                      {entry.staff.payroll_bank_name || <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {period.payment_concept || <span className="text-muted-foreground">—</span>}
