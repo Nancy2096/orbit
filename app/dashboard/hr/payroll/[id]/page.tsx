@@ -348,7 +348,29 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       // el pasado no refleje altas de personal ni comisiones nuevas.
       const snapshot = periodData.entries_snapshot as PayrollEntry[] | null
       if (periodData.status !== "draft" && Array.isArray(snapshot) && snapshot.length > 0) {
-        setEntries(snapshot)
+        // Los snapshots antiguos pueden no incluir payroll_bank_name (Banco
+        // Origen). Es un dato informativo, así que lo completamos con el valor
+        // actual del staff sin alterar los montos del snapshot.
+        const snapshotStaffIds = Array.from(
+          new Set(snapshot.map((e) => e.staff_id).filter(Boolean)),
+        )
+        if (snapshotStaffIds.length > 0) {
+          const { data: bankRows } = await supabase
+            .from("staff")
+            .select("id, payroll_bank_name")
+            .in("id", snapshotStaffIds)
+          const bankById = new Map((bankRows || []).map((r: any) => [r.id, r.payroll_bank_name]))
+          const enriched = snapshot.map((e) => ({
+            ...e,
+            staff: {
+              ...e.staff,
+              payroll_bank_name: e.staff?.payroll_bank_name ?? bankById.get(e.staff_id) ?? null,
+            },
+          }))
+          setEntries(enriched)
+        } else {
+          setEntries(snapshot)
+        }
         setPeriod(periodData)
         return
       }
@@ -417,6 +439,34 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         const d = String(raw).slice(0, 10) // normaliza date/timestamp a YYYY-MM-DD
         return d >= start && d <= end
       }
+
+      // Periodicidad de las comisiones de citas para colaboradores MENSUALES:
+      // no se muestran en cada quincena; se acumulan y se pagan una sola vez,
+      // cuando le toca el pago mensual (misma regla que el sueldo base).
+      const freqByStaff: Record<string, string> = {}
+      for (const s of staffData || []) freqByStaff[s.id] = s.payment_frequency || "biweekly"
+
+      // ¿Este periodo es el de pago de un colaborador mensual?
+      //  - mensual: siempre.
+      //  - quincenal: solo la segunda quincena (día de inicio > 15).
+      //  - semanal u otro: se conserva el comportamiento por periodo.
+      const monthlyPayingPeriod =
+        periodData.period_type === "mensual" ||
+        (periodData.period_type === "quincenal" ? Number(start.slice(8, 10)) > 15 : true)
+
+      // Rango del MES del periodo, para acumular las comisiones de todo el mes
+      // (primera y segunda quincena juntas) en el pago del colaborador mensual.
+      const monthStartStr = `${start.slice(0, 7)}-01`
+      const lastDayOfMonth = new Date(
+        Date.UTC(Number(start.slice(0, 4)), Number(start.slice(5, 7)), 0),
+      ).getUTCDate()
+      const monthEndStr = `${start.slice(0, 7)}-${String(lastDayOfMonth).padStart(2, "0")}`
+      const inMonth = (dateStr: string | null | undefined, fallback: string | null | undefined) => {
+        const raw = dateStr || fallback
+        if (!raw) return false
+        const d = String(raw).slice(0, 10)
+        return d >= monthStartStr && d <= monthEndStr
+      }
       // Bonos y comisiones se atribuyen al periodo en que se GENERARON (su fecha
       // efectiva/registro), por lo que cada uno cae en un único periodo.
       // Si la nómina ya está PAGADA (finalizada), solo se muestran los conceptos
@@ -480,7 +530,13 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           // En una nómina ya pagada solo se incluye si la comisión realmente se
           // pagó; las pendientes/aprobadas no formaron parte de ese pago.
           if (isPaidPeriod && c.status !== "paid") continue
-          const include = inPeriod(c.period_date, c.created_at)
+          // Colaborador mensual: la comisión de citas se acumula al pago mensual
+          // (todo el mes) y no aparece en cada quincena. Los demás (quincenal/
+          // semanal) mantienen la atribución por periodo.
+          const isMonthly = (freqByStaff[c.staff_id] || "biweekly") === "monthly"
+          const include = isMonthly
+            ? monthlyPayingPeriod && inMonth(c.period_date, c.created_at)
+            : inPeriod(c.period_date, c.created_at)
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
@@ -732,6 +788,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       if (error) throw error
 
+      // Si el periodo estaba "pagado" y al recalcular se degrada, se revierten
+      // los movimientos bancarios generados para devolver el dinero a los bancos.
+      if (period.status === "paid" && nextStatus !== "paid") {
+        await revertPayrollBankMovements(period.id)
+      }
+
       setPeriod({
         ...period,
         total_gross: totalGross,
@@ -791,6 +853,90 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       console.error("Error approving payroll:", error)
       toast.error("Error al aprobar la nómina")
     }
+  }
+
+  // Registra la salida de dinero de cada banco de origen al pagar la nómina.
+  // Agrupa el neto por nombre de banco del empleado (payroll_bank_name) y lo
+  // descuenta de la cuenta primaria/activa de ese banco. Es idempotente:
+  // elimina los movimientos previos de este periodo antes de insertar.
+  const registerPayrollBankMovements = async (periodId: string) => {
+    const netByBankName = new Map<string, number>()
+    for (const e of entries) {
+      const bankName = (e.staff.payroll_bank_name || "").trim()
+      if (!bankName || e.net_pay <= 0) continue
+      netByBankName.set(bankName, (netByBankName.get(bankName) || 0) + e.net_pay)
+    }
+
+    // Limpiar movimientos previos de nómina de este periodo (idempotencia).
+    await supabase
+      .from("bank_movements")
+      .delete()
+      .eq("source_type", "payroll_period")
+      .eq("source_id", periodId)
+
+    if (netByBankName.size === 0) return { registered: 0, unmatched: [] as string[] }
+
+    const { data: accounts } = await supabase
+      .from("bank_accounts")
+      .select("id, bank_name, agency_id, is_primary, is_active")
+      .eq("is_active", true)
+
+    // Elige la cuenta de un banco por nombre: prioriza la primaria, si no la
+    // primera cuenta activa con ese nombre.
+    const pickAccount = (bankName: string) => {
+      const matches = (accounts || []).filter(
+        (a: Record<string, unknown>) =>
+          String(a.bank_name || "").trim().toLowerCase() === bankName.toLowerCase(),
+      )
+      if (matches.length === 0) return null
+      return matches.find((a: Record<string, unknown>) => a.is_primary) || matches[0]
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const rows: Record<string, unknown>[] = []
+    const unmatched: string[] = []
+    for (const [bankName, amount] of netByBankName.entries()) {
+      const acct = pickAccount(bankName) as Record<string, unknown> | null
+      if (!acct) {
+        unmatched.push(bankName)
+        continue
+      }
+      rows.push({
+        bank_account_id: acct.id,
+        agency_id: acct.agency_id ?? null,
+        movement_type: "salida",
+        category: "nomina",
+        amount,
+        description: `Pago de nómina ${period?.period_name ?? ""} · ${bankName}`.trim(),
+        reference: period?.period_name ?? null,
+        movement_date: new Date().toISOString().split("T")[0],
+        source_type: "payroll_period",
+        source_id: periodId,
+        created_by: user?.id ?? null,
+      })
+    }
+
+    if (rows.length > 0) {
+      const { error } = await supabase.from("bank_movements").insert(rows)
+      if (error) {
+        console.error("Error registrando movimientos de nómina:", error)
+        throw error
+      }
+    }
+    return { registered: rows.length, unmatched }
+  }
+
+  // Revierte (elimina) los movimientos bancarios generados por el pago de un
+  // periodo, devolviendo el dinero al saldo de cada banco.
+  const revertPayrollBankMovements = async (periodId: string) => {
+    await supabase
+      .from("bank_movements")
+      .delete()
+      .eq("source_type", "payroll_period")
+      .eq("source_id", periodId)
   }
 
   const handleMarkAsPaid = async () => {
@@ -916,6 +1062,14 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         }
       }
 
+      // Registrar la salida de dinero de cada banco de origen por el pago.
+      let bankMovementsResult = { registered: 0, unmatched: [] as string[] }
+      try {
+        bankMovementsResult = await registerPayrollBankMovements(period.id)
+      } catch {
+        toast.error("La nómina se marcó como pagada, pero no se pudieron registrar los movimientos bancarios")
+      }
+
       setPeriod({ ...period, status: "paid" })
       // Reflejar el nuevo estado de las comisiones y finiquitos en la vista.
       const paidAt = new Date().toISOString()
@@ -939,12 +1093,21 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         paidBonusesCount > 0 ? `${paidBonusesCount} bono(s)` : null,
         paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
         paidLoansCount > 0 ? `${paidLoansCount} pago(s) de préstamo` : null,
+        bankMovementsResult.registered > 0
+          ? `${bankMovementsResult.registered} salida(s) bancaria(s)`
+          : null,
       ].filter(Boolean)
       toast.success(
         extras.length > 0
-          ? `Nómina marcada como pagada · ${extras.join(" y ")} liquidada(s)`
+          ? `Nómina marcada como pagada · ${extras.join(" y ")} registrada(s)`
           : "Nómina marcada como pagada",
       )
+      // Avisar de bancos de empleados que no tienen cuenta bancaria registrada.
+      if (bankMovementsResult.unmatched.length > 0) {
+        toast.warning(
+          `Sin cuenta bancaria para: ${bankMovementsResult.unmatched.join(", ")}. Registra esas cuentas en Finanzas → Bancos.`,
+        )
+      }
     } catch (error) {
       console.error("Error marking as paid:", error)
       toast.error("Error al marcar como pagada")
