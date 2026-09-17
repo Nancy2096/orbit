@@ -113,6 +113,9 @@ interface StaffSalary {
   payment_frequency: string | null
   finiquito: number | null
   finiquito_paid_at: string | null
+  payroll_bank_name: string | null
+  payroll_payment_currency_id: string | null
+  payroll_exchange_rate: number | null
 }
 
 // Registro de bitácora de cambios de sueldo/comisión
@@ -136,6 +139,8 @@ interface EditableRow {
   currency_id: string
   payment_frequency: string
   finiquito: string
+  payroll_payment_currency_id: string
+  payroll_exchange_rate: string
 }
 
 const paymentFrequencyLabels: Record<string, string> = {
@@ -255,7 +260,7 @@ export default function SalariesPage() {
       supabase
         .from("staff")
         .select(
-          "id, employee_code, first_name, last_name, position, department, agency_id, payroll_agency_id, is_global, is_active, employment_status, contract_type, hourly_cost, monthly_salary, currency_id, commission_percentage, commission_type, payment_frequency, finiquito, finiquito_paid_at",
+          "id, employee_code, first_name, last_name, position, department, agency_id, payroll_agency_id, is_global, is_active, employment_status, contract_type, hourly_cost, monthly_salary, currency_id, commission_percentage, commission_type, payment_frequency, finiquito, finiquito_paid_at, payroll_bank_name, payroll_payment_currency_id, payroll_exchange_rate",
         )
         // Incluye al personal activo y también a quienes están en baja
         // (employment_status = 'terminated'), para poder gestionar su finiquito.
@@ -423,6 +428,8 @@ export default function SalariesPage() {
         currency_id: s.currency_id || "",
         payment_frequency: s.payment_frequency || "biweekly",
         finiquito: s.finiquito != null ? String(s.finiquito) : "",
+        payroll_payment_currency_id: s.payroll_payment_currency_id || "",
+        payroll_exchange_rate: s.payroll_exchange_rate != null ? String(s.payroll_exchange_rate) : "",
       },
     [edits],
   )
@@ -436,6 +443,8 @@ export default function SalariesPage() {
         currency_id: s.currency_id || "",
         payment_frequency: s.payment_frequency || "biweekly",
         finiquito: s.finiquito != null ? String(s.finiquito) : "",
+        payroll_payment_currency_id: s.payroll_payment_currency_id || "",
+        payroll_exchange_rate: s.payroll_exchange_rate != null ? String(s.payroll_exchange_rate) : "",
       }
       return { ...prev, [s.id]: { ...base, [field]: value } }
     })
@@ -472,6 +481,15 @@ export default function SalariesPage() {
   const renderSalaryRow = (s: StaffSalary, rowNumber: number) => {
     const eff = effective(s)
     const isDirty = !!edits[s.id]
+    // Egreso = salario mensual ÷ tipo de cambio (si se capturó uno > 0).
+    // El egreso y los pagos quincena/fin de mes se muestran en la moneda de pago.
+    const salaryVal = Number.parseFloat(eff.monthly_salary) || 0
+    const exchangeRateVal = Number.parseFloat(eff.payroll_exchange_rate) || 0
+    const egresoVal = exchangeRateVal > 0 ? salaryVal / exchangeRateVal : salaryVal
+    const payCurrencyCode = currencyCode(
+      eff.payroll_payment_currency_id || eff.currency_id || s.currency_id,
+    )
+    const isBiweeklyRow = eff.payment_frequency !== "monthly"
     return (
       <TableRow key={s.id} className={isDirty ? "bg-primary/5" : undefined}>
         <TableCell className="text-right text-sm tabular-nums text-muted-foreground">{rowNumber}</TableCell>
@@ -544,30 +562,65 @@ export default function SalariesPage() {
             placeholder="0.00"
           />
         </TableCell>
-        <TableCell className="text-right">
-          {(() => {
-            const salary = Number.parseFloat(eff.monthly_salary) || 0
-            const code = currencyCode(eff.currency_id || s.currency_id)
-            const isBiweekly = eff.payment_frequency !== "monthly"
-            return isBiweekly && salary > 0 ? (
-              <span className="text-sm tabular-nums">{formatMoney(salary / 2, code)}</span>
-            ) : (
-              <span className="text-sm text-muted-foreground">—</span>
-            )
-          })()}
+        <TableCell>
+          <Select
+            value={eff.payroll_payment_currency_id || "none"}
+            onValueChange={(v) => updateField(s, "payroll_payment_currency_id", v === "none" ? "" : v)}
+            disabled={!canEdit}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder="—" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">—</SelectItem>
+              {currencies.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </TableCell>
         <TableCell className="text-right">
-          {(() => {
-            const salary = Number.parseFloat(eff.monthly_salary) || 0
-            const code = currencyCode(eff.currency_id || s.currency_id)
-            const isBiweekly = eff.payment_frequency !== "monthly"
-            const amount = salary > 0 ? (isBiweekly ? salary / 2 : salary) : 0
-            return salary > 0 ? (
-              <span className="text-sm font-medium tabular-nums">{formatMoney(amount, code)}</span>
-            ) : (
-              <span className="text-sm text-muted-foreground">—</span>
-            )
-          })()}
+          <Input
+            type="text"
+            inputMode="decimal"
+            value={eff.payroll_exchange_rate}
+            onChange={(e) => updateField(s, "payroll_exchange_rate", sanitizeDecimal(e.target.value))}
+            disabled={!canEdit}
+            className="h-8 text-right"
+            placeholder="0.0000"
+          />
+        </TableCell>
+        <TableCell className="text-right">
+          {salaryVal > 0 ? (
+            <span className="text-sm font-medium tabular-nums">{formatMoney(egresoVal, payCurrencyCode)}</span>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          )}
+        </TableCell>
+        <TableCell>
+          {s.payroll_bank_name ? (
+            <span className="text-sm">{s.payroll_bank_name}</span>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          )}
+        </TableCell>
+        <TableCell className="text-right">
+          {isBiweeklyRow && egresoVal > 0 ? (
+            <span className="text-sm tabular-nums">{formatMoney(egresoVal / 2, payCurrencyCode)}</span>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          )}
+        </TableCell>
+        <TableCell className="text-right">
+          {egresoVal > 0 ? (
+            <span className="text-sm font-medium tabular-nums">
+              {formatMoney(isBiweeklyRow ? egresoVal / 2 : egresoVal, payCurrencyCode)}
+            </span>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          )}
         </TableCell>
         <TableCell className="text-right">
           <Input
@@ -941,6 +994,8 @@ export default function SalariesPage() {
             currency_id: row.currency_id || null,
             payment_frequency: row.payment_frequency || "biweekly",
             finiquito: isTerminated ? parseNum(row.finiquito) : null,
+            payroll_payment_currency_id: row.payroll_payment_currency_id || null,
+            payroll_exchange_rate: parseNum(row.payroll_exchange_rate),
           })
           .eq("id", id)
       })
@@ -1242,6 +1297,10 @@ export default function SalariesPage() {
                   <TableHead className="w-36">Frecuencia</TableHead>
                   <TableHead className="w-28">Moneda</TableHead>
                   <TableHead className="text-right">Salario mensual</TableHead>
+                  <TableHead className="w-28">Pago en moneda</TableHead>
+                  <TableHead className="text-right w-28">Tipo de cambio</TableHead>
+                  <TableHead className="text-right">Egreso</TableHead>
+                  <TableHead>Banca de Egreso</TableHead>
                   <TableHead className="text-right">1ª quincena (día 15)</TableHead>
                   <TableHead className="text-right">Fin de mes</TableHead>
                   <TableHead className="text-right">Comisión %</TableHead>
@@ -1251,7 +1310,7 @@ export default function SalariesPage() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={16} className="py-8 text-center text-muted-foreground">
                       No hay colaboradores que coincidan con los filtros
                     </TableCell>
                   </TableRow>
@@ -1259,7 +1318,7 @@ export default function SalariesPage() {
                   <>
                     {activeRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={12} className="py-6 text-center text-sm text-muted-foreground">
+                        <TableCell colSpan={16} className="py-6 text-center text-sm text-muted-foreground">
                           No hay colaboradores activos con estos filtros
                         </TableCell>
                       </TableRow>
@@ -1270,7 +1329,7 @@ export default function SalariesPage() {
                     {otherRows.length > 0 && (
                       <>
                         <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={12} className="p-0">
+                          <TableCell colSpan={16} className="p-0">
                             <button
                               type="button"
                               onClick={() => setShowOthers((v) => !v)}
