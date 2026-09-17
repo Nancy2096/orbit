@@ -137,12 +137,6 @@ export default function InvoicesPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
 
   // Stats
-  const [stats, setStats] = useState({
-    total: 0,
-    pending: 0,
-    overdue: 0,
-    paid: 0,
-  })
 
   useEffect(() => {
     fetchAgencies()
@@ -545,23 +539,8 @@ if (agencyId) {
         currency: Array.isArray(inv.currency) ? inv.currency[0] : inv.currency,
       })) as Invoice[]
       setInvoices(mapped)
-      
-      // Calculate stats. Los estados reales son: pending, paid, draft, cancelled.
-      // "Por Cobrar" = saldo pendiente de las facturas pendientes de pago.
-      // "Vencido" = saldo de las facturas pendientes cuya fecha de vencimiento ya pasó.
-      const allInvoices = data || []
-      const todayStr = new Date().toISOString().slice(0, 10)
-      const isPending = (inv: { status: string }) => inv.status === "pending"
-      setStats({
-        total: allInvoices.reduce((sum, inv) => sum + Number(inv.total_amount), 0),
-        pending: allInvoices
-          .filter(isPending)
-          .reduce((sum, inv) => sum + Number(inv.balance_due), 0),
-        overdue: allInvoices
-          .filter((inv) => isPending(inv) && inv.due_date && String(inv.due_date).slice(0, 10) < todayStr)
-          .reduce((sum, inv) => sum + Number(inv.balance_due), 0),
-        paid: allInvoices.filter((inv) => inv.status === "paid").reduce((sum, inv) => sum + Number(inv.total_amount), 0),
-      })
+      // Los montos de los indicadores superiores se calculan al renderizar,
+      // desglosados por moneda a partir de las facturas filtradas en pantalla.
     }
     setLoading(false)
   }
@@ -616,14 +595,29 @@ if (agencyId) {
     return matchesSearch && matchesDate
   })
 
-  // Totales facturados separados por moneda (para los indicadores superiores).
-  const totalsByCurrency = filteredInvoices.reduce<Record<string, number>>((acc, inv) => {
-    const code = inv.currency?.code || "MXN"
-    acc[code] = (acc[code] || 0) + Number(inv.total_amount)
+  // Montos de los indicadores superiores, separados por moneda (MXN y USD).
+  // Se calculan sobre las facturas filtradas en pantalla para que respeten los
+  // filtros activos, igual que el total facturado.
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const sumByCurrency = (
+    predicate: (inv: Invoice) => boolean,
+    field: "total_amount" | "balance_due",
+  ) => {
+    const acc = { MXN: 0, USD: 0 }
+    filteredInvoices.forEach((inv) => {
+      if (!predicate(inv)) return
+      const code = inv.currency?.code === "USD" ? "USD" : "MXN"
+      acc[code] += Number(inv[field]) || 0
+    })
     return acc
-  }, {})
-  const totalMXN = totalsByCurrency["MXN"] || 0
-  const totalUSD = totalsByCurrency["USD"] || 0
+  }
+  const totalByCur = sumByCurrency(() => true, "total_amount")
+  const pendingByCur = sumByCurrency((inv) => inv.status === "pending", "balance_due")
+  const overdueByCur = sumByCurrency(
+    (inv) => inv.status === "pending" && !!inv.due_date && String(inv.due_date).slice(0, 10) < todayStr,
+    "balance_due",
+  )
+  const paidByCur = sumByCurrency((inv) => inv.status === "paid", "total_amount")
   const hasDateFilter = datePreset !== "all"
 
   // Estado de la casilla "seleccionar todas" según lo que hay filtrado en pantalla.
@@ -648,6 +642,24 @@ if (agencyId) {
     const symbol = currency?.symbol || "$"
     return `${symbol}${Number(amount).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   }
+
+  // Muestra un monto desglosado en MXN y USD, con ambos números del mismo tamaño.
+  const renderMoneySplit = (amounts: { MXN: number; USD: number }, colorClass = "") => (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-baseline gap-1">
+        <span className={`text-2xl font-bold ${colorClass}`}>
+          ${amounts.MXN.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+        <span className="text-xs font-medium text-muted-foreground">MXN</span>
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className={`text-2xl font-bold ${colorClass}`}>
+          ${amounts.USD.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+        <span className="text-xs font-medium text-muted-foreground">USD</span>
+      </div>
+    </div>
+  )
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
@@ -694,20 +706,7 @@ if (agencyId) {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold">
-                  ${Number(totalMXN).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-xs font-medium text-muted-foreground">MXN</span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-lg font-semibold text-muted-foreground">
-                  ${Number(totalUSD).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-xs font-medium text-muted-foreground">USD</span>
-              </div>
-            </div>
+            {renderMoneySplit(totalByCur)}
             <p className="mt-1 text-xs text-muted-foreground">{filteredInvoices.length} facturas</p>
           </CardContent>
         </Card>
@@ -717,8 +716,8 @@ if (agencyId) {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{formatCurrency(stats.pending)}</div>
-            <p className="text-xs text-muted-foreground">Pendiente de pago</p>
+            {renderMoneySplit(pendingByCur, "text-amber-600")}
+            <p className="mt-1 text-xs text-muted-foreground">Pendiente de pago</p>
           </CardContent>
         </Card>
         <Card>
@@ -727,8 +726,8 @@ if (agencyId) {
             <AlertCircle className="h-4 w-4 text-destructive" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">{formatCurrency(stats.overdue)}</div>
-            <p className="text-xs text-muted-foreground">Requiere atención</p>
+            {renderMoneySplit(overdueByCur, "text-destructive")}
+            <p className="mt-1 text-xs text-muted-foreground">Requiere atención</p>
           </CardContent>
         </Card>
         <Card>
@@ -737,8 +736,8 @@ if (agencyId) {
             <CheckCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(stats.paid)}</div>
-            <p className="text-xs text-muted-foreground">Cobros completados</p>
+            {renderMoneySplit(paidByCur, "text-green-600")}
+            <p className="mt-1 text-xs text-muted-foreground">Cobros completados</p>
           </CardContent>
         </Card>
       </div>
