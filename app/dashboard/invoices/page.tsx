@@ -546,13 +546,21 @@ if (agencyId) {
       })) as Invoice[]
       setInvoices(mapped)
       
-      // Calculate stats
+      // Calculate stats. Los estados reales son: pending, paid, draft, cancelled.
+      // "Por Cobrar" = saldo pendiente de las facturas pendientes de pago.
+      // "Vencido" = saldo de las facturas pendientes cuya fecha de vencimiento ya pasó.
       const allInvoices = data || []
+      const todayStr = new Date().toISOString().slice(0, 10)
+      const isPending = (inv: { status: string }) => inv.status === "pending"
       setStats({
         total: allInvoices.reduce((sum, inv) => sum + Number(inv.total_amount), 0),
-        pending: allInvoices.filter(inv => ["sent", "partial"].includes(inv.status)).reduce((sum, inv) => sum + Number(inv.balance_due), 0),
-        overdue: allInvoices.filter(inv => inv.status === "overdue").reduce((sum, inv) => sum + Number(inv.balance_due), 0),
-        paid: allInvoices.filter(inv => inv.status === "paid").reduce((sum, inv) => sum + Number(inv.total_amount), 0),
+        pending: allInvoices
+          .filter(isPending)
+          .reduce((sum, inv) => sum + Number(inv.balance_due), 0),
+        overdue: allInvoices
+          .filter((inv) => isPending(inv) && inv.due_date && String(inv.due_date).slice(0, 10) < todayStr)
+          .reduce((sum, inv) => sum + Number(inv.balance_due), 0),
+        paid: allInvoices.filter((inv) => inv.status === "paid").reduce((sum, inv) => sum + Number(inv.total_amount), 0),
       })
     }
     setLoading(false)
