@@ -5,14 +5,6 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Input } from "@/components/ui/input"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -25,7 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Spinner } from "@/components/ui/spinner"
-import { Search, DollarSign, TrendingUp, Calendar, Building2, Landmark, ArrowUpRight, ArrowDownRight, Eye, Plus, PiggyBank, Pencil, ArrowLeftRight } from "lucide-react"
+import { DollarSign, TrendingUp, Calendar, Building2, Landmark, ArrowUpRight, ArrowDownRight, Plus, PiggyBank, Pencil, ArrowLeftRight } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 
@@ -85,7 +77,6 @@ export default function IncomesPage() {
   const [paidInvoices, setPaidInvoices] = useState<PaidInvoice[]>([])
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState("")
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
   const [dateRange, setDateRange] = useState<string>("all")
   const [currencies, setCurrencies] = useState<Currency[]>([])
@@ -447,25 +438,6 @@ export default function IncomesPage() {
       currency: currencyCode || "MXN",
     }).format(amount)
   }
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "-"
-    return new Date(dateString).toLocaleDateString("es-MX", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  }
-
-  const filteredInvoices = paidInvoices.filter((invoice) => {
-    const searchLower = searchTerm.toLowerCase()
-    return (
-      invoice.invoice_number?.toLowerCase().includes(searchLower) ||
-      invoice.client?.company_name?.toLowerCase().includes(searchLower) ||
-      invoice.payment_reference?.toLowerCase().includes(searchLower) ||
-      invoice.account?.account_name?.toLowerCase().includes(searchLower)
-    )
-  })
 
   const getAccountTypeLabel = (type: string) => {
     const types: Record<string, string> = {
@@ -880,116 +852,6 @@ export default function IncomesPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Historial de Ingresos</CardTitle>
-          <CardDescription>Pagos recibidos registrados en Facturas y Pagos</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por número de factura, cliente o referencia..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-full md:w-[180px]">
-                <SelectValue placeholder="Período" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todo el tiempo</SelectItem>
-                <SelectItem value="today">Hoy</SelectItem>
-                <SelectItem value="week">Última semana</SelectItem>
-                <SelectItem value="month">Último mes</SelectItem>
-                <SelectItem value="year">Último año</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Spinner className="h-8 w-8" />
-            </div>
-          ) : filteredInvoices.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <DollarSign className="h-12 w-12 text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium">No hay ingresos registrados</h3>
-              <p className="text-muted-foreground mt-1">
-                {searchTerm || selectedAgency !== "all" || dateRange !== "all"
-                  ? "No se encontraron ingresos con los filtros seleccionados"
-                  : "Los ingresos aparecerán aquí cuando registres pagos en Facturas y Pagos"}
-              </p>
-              <Button variant="link" asChild className="mt-2">
-                <Link href="/dashboard/invoices">Ir a Facturas y Pagos</Link>
-              </Button>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Factura</TableHead>
-                  <TableHead>Fecha de Pago</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Cuenta</TableHead>
-                  <TableHead>Referencia</TableHead>
-                  <TableHead className="text-right">Monto</TableHead>
-                  <TableHead className="w-[80px]">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredInvoices.map((invoice) => (
-                  <TableRow key={invoice.id}>
-                    <TableCell>
-                      <div className="font-medium">{invoice.invoice_number}</div>
-                      {invoice.agency && (
-                        <div className="text-xs text-muted-foreground">{invoice.agency.name}</div>
-                      )}
-                    </TableCell>
-                    <TableCell>{formatDate(invoice.payment_date)}</TableCell>
-                    <TableCell>
-                      {invoice.client?.company_name || "-"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">{invoice.account?.account_name || "-"}</div>
-                      {invoice.project && (
-                        <div className="text-xs text-muted-foreground">{invoice.project.name}</div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
-                        {invoice.payment_reference || "-"}
-                      </code>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="font-medium text-green-600">
-                        {formatCurrency(Number(invoice.paid_amount) || Number(invoice.total_amount), invoice.currency?.code)}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="icon" asChild>
-                        <Link href={`/dashboard/invoices/${invoice.id}`}>
-                          <Eye className="h-4 w-4" />
-                        </Link>
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
 
       {/* Add Bank Account Dialog */}
       <Dialog open={showAddAccountDialog} onOpenChange={setShowAddAccountDialog}>
