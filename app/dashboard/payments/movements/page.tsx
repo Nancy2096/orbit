@@ -51,16 +51,28 @@ interface Movement {
   description: string | null
   reference: string | null
   movement_date: string
-  source_type: string | null
-  source_id: string | null
-  created_at: string
+  source: "bank" | "payment" | "equity"
+  deletable: boolean
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
   nomina: "Nómina",
   manual: "Manual",
   transferencia: "Transferencia",
+  cobro: "Cobro de factura",
+  capital: "Capital",
   otro: "Otro",
+}
+
+// Rango del mes en curso (primer y último día), en formato YYYY-MM-DD usando la
+// fecha local para evitar desfases por zona horaria.
+function getMonthRange() {
+  const now = new Date()
+  const first = new Date(now.getFullYear(), now.getMonth(), 1)
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const toStr = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  return { from: toStr(first), to: toStr(last) }
 }
 
 function MovementsContent() {
@@ -78,6 +90,8 @@ function MovementsContent() {
   const [accounts, setAccounts] = useState<BankAccountLite[]>([])
   const [movements, setMovements] = useState<Movement[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all")
+  const [dateFrom, setDateFrom] = useState<string>(() => getMonthRange().from)
+  const [dateTo, setDateTo] = useState<string>(() => getMonthRange().to)
   const [showDialog, setShowDialog] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
@@ -128,17 +142,83 @@ function MovementsContent() {
       return
     }
 
-    const { data: movData, error: movError } = await supabase
-      .from("bank_movements")
-      .select("*")
-      .in("bank_account_id", accountIds)
-      .order("movement_date", { ascending: false })
-      .order("created_at", { ascending: false })
+    // Cada banco debe reflejar TODAS sus entradas y salidas. Estas viven en tres
+    // tablas distintas, así que las combinamos aquí:
+    //  - bank_movements: movimientos manuales y salidas de nómina
+    //  - payments (cobrados): entradas de dinero por cobro de facturas
+    //  - equity_transactions: aportaciones (entrada) y retiros (salida) de capital
+    const [bmRes, payRes, eqRes] = await Promise.all([
+      supabase.from("bank_movements").select("*").in("bank_account_id", accountIds),
+      supabase
+        .from("payments")
+        .select(
+          "id, bank_account_id, amount, payment_date, reference_number, payment_number, notes, invoice:invoices(invoice_number)",
+        )
+        .eq("status", "completed")
+        .in("bank_account_id", accountIds),
+      supabase
+        .from("equity_transactions")
+        .select("id, bank_account_id, amount, transaction_date, transaction_type, description, reference_document")
+        .in("bank_account_id", accountIds),
+    ])
 
-    if (movError) {
-      console.error("Error cargando movimientos:", movError)
-    }
-    setMovements((movData as Movement[]) || [])
+    if (bmRes.error) console.error("Error cargando movimientos:", bmRes.error)
+    if (payRes.error) console.error("Error cargando cobros:", payRes.error)
+    if (eqRes.error) console.error("Error cargando capital:", eqRes.error)
+
+    const bankMovs: Movement[] = ((bmRes.data as Record<string, unknown>[]) || []).map((m) => ({
+      id: m.id as string,
+      bank_account_id: m.bank_account_id as string,
+      movement_type: m.movement_type as "ingreso" | "salida",
+      category: m.category as string,
+      amount: Number(m.amount),
+      description: (m.description as string) ?? null,
+      reference: (m.reference as string) ?? null,
+      movement_date: m.movement_date as string,
+      source: "bank",
+      deletable: (m.category as string) !== "nomina",
+    }))
+
+    const paymentMovs: Movement[] = ((payRes.data as Record<string, unknown>[]) || []).map((p) => {
+      const invoice = Array.isArray(p.invoice) ? p.invoice[0] : p.invoice
+      const invoiceNumber = (invoice as { invoice_number?: string } | undefined)?.invoice_number
+      return {
+        id: `pay-${p.id as string}`,
+        bank_account_id: p.bank_account_id as string,
+        movement_type: "ingreso",
+        category: "cobro",
+        amount: Number(p.amount),
+        description: invoiceNumber
+          ? `Cobro factura ${invoiceNumber}`
+          : ((p.notes as string) || "Cobro recibido"),
+        reference: (p.reference_number as string) || (p.payment_number as string) || null,
+        movement_date: p.payment_date as string,
+        source: "payment",
+        deletable: false,
+      }
+    })
+
+    const equityMovs: Movement[] = ((eqRes.data as Record<string, unknown>[]) || []).map((e) => {
+      const type = e.transaction_type as string
+      const isOut = type === "retiro" || type === "withdrawal" || type === "expense"
+      return {
+        id: `eq-${e.id as string}`,
+        bank_account_id: e.bank_account_id as string,
+        movement_type: isOut ? "salida" : "ingreso",
+        category: "capital",
+        amount: Number(e.amount),
+        description: (e.description as string) || (isOut ? "Retiro de capital" : "Aportación de capital"),
+        reference: (e.reference_document as string) || null,
+        movement_date: e.transaction_date as string,
+        source: "equity",
+        deletable: false,
+      }
+    })
+
+    const all = [...bankMovs, ...paymentMovs, ...equityMovs].sort((a, b) =>
+      a.movement_date === b.movement_date ? 0 : a.movement_date < b.movement_date ? 1 : -1,
+    )
+    setMovements(all)
     setLoading(false)
   }, [supabase, bankNameParam])
 
@@ -204,6 +284,14 @@ function MovementsContent() {
   }
 
   const handleDelete = async (movement: Movement) => {
+    if (movement.source === "payment") {
+      toast.error("Los cobros se revierten desde la factura correspondiente en Facturas y Pagos.")
+      return
+    }
+    if (movement.source === "equity") {
+      toast.error("Los movimientos de capital se administran desde Capital / Aportaciones.")
+      return
+    }
     if (movement.category === "nomina") {
       toast.error("Los movimientos de nómina se revierten desde el periodo de nómina, no aquí.")
       return
@@ -220,10 +308,12 @@ function MovementsContent() {
     load()
   }
 
-  const filteredMovements =
-    selectedAccountId === "all"
-      ? movements
-      : movements.filter((m) => m.bank_account_id === selectedAccountId)
+  const filteredMovements = movements.filter((m) => {
+    if (selectedAccountId !== "all" && m.bank_account_id !== selectedAccountId) return false
+    if (dateFrom && m.movement_date < dateFrom) return false
+    if (dateTo && m.movement_date > dateTo) return false
+    return true
+  })
 
   const accountById = new Map(accounts.map((a) => [a.id, a]))
   const symbol = accounts[0]?.currency?.symbol || "$"
@@ -271,6 +361,73 @@ function MovementsContent() {
         )}
       </div>
 
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-4 py-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="date_from">Desde</Label>
+            <Input
+              id="date_from"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="w-40"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="date_to">Hasta</Label>
+            <Input
+              id="date_to"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-40"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const r = getMonthRange()
+                setDateFrom(r.from)
+                setDateTo(r.to)
+              }}
+            >
+              Mes actual
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDateFrom("")
+                setDateTo("")
+              }}
+            >
+              Todo
+            </Button>
+          </div>
+          {accounts.length > 1 && (
+            <div className="ml-auto flex flex-col gap-2">
+              <Label>Cuenta</Label>
+              <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+                <SelectTrigger className="w-64">
+                  <SelectValue placeholder="Filtrar por cuenta" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las cuentas</SelectItem>
+                  {accounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.bank_name}
+                      {a.agency?.name ? ` · ${a.agency.name}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
@@ -314,24 +471,8 @@ function MovementsContent() {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardHeader>
           <CardTitle className="text-base">Detalle de movimientos</CardTitle>
-          {accounts.length > 1 && (
-            <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder="Filtrar por cuenta" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas las cuentas</SelectItem>
-                {accounts.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.bank_name}
-                    {a.agency?.name ? ` · ${a.agency.name}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -340,7 +481,8 @@ function MovementsContent() {
             </div>
           ) : filteredMovements.length === 0 ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
-              No hay movimientos registrados para este banco.
+              No hay movimientos en el rango de fechas seleccionado. Ajusta las fechas o usa
+              &quot;Todo&quot; para ver el historial completo.
             </p>
           ) : (
             <Table>
@@ -406,7 +548,7 @@ function MovementsContent() {
                       </TableCell>
                       {canManage && (
                         <TableCell>
-                          {m.category !== "nomina" && (
+                          {m.deletable && (
                             <Button
                               variant="ghost"
                               size="icon"
