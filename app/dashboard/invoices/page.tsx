@@ -285,6 +285,14 @@ if (agencyId) {
       }
     }
 
+    // Si se regresa de "pagado" a otro estado, revierte el pago del banco y el saldo.
+    if (newStatus !== "paid" && statusInvoice.status === "paid") {
+      const { error: reverseError } = await reverseInvoicePayment(statusInvoice.id, statusInvoice.total_amount)
+      if (reverseError) {
+        toast.error("El estado se actualizó, pero no se pudo revertir el pago del banco: " + reverseError.message)
+      }
+    }
+
     toast.success(newStatus === "paid" ? "Pago registrado exitosamente" : "Estado actualizado correctamente")
 
     setStatusModalOpen(false)
@@ -292,6 +300,8 @@ if (agencyId) {
   }
 
   const handleStatusChange = async (invoiceId: string, status: string) => {
+    const invoice = invoices.find((inv) => inv.id === invoiceId)
+
     const { error } = await supabase
       .from("invoices")
       .update({ status: status, updated_at: new Date().toISOString() })
@@ -300,6 +310,14 @@ if (agencyId) {
     if (error) {
       toast.error("Error al cambiar el estado: " + error.message)
       return
+    }
+
+    // Si estaba pagada y se cambia a otro estado, revierte el pago del banco y el saldo.
+    if (invoice && invoice.status === "paid" && status !== "paid") {
+      const { error: reverseError } = await reverseInvoicePayment(invoiceId, invoice.total_amount)
+      if (reverseError) {
+        toast.error("El estado se actualizó, pero no se pudo revertir el pago del banco: " + reverseError.message)
+      }
     }
 
     toast.success("Estado actualizado")
@@ -339,15 +357,28 @@ if (agencyId) {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return
     setBulkProcessing(true)
+    // Facturas que estaban pagadas y ahora cambian a otro estado: hay que revertir su pago.
+    const toReverse =
+      status !== "paid" ? invoices.filter((inv) => ids.includes(inv.id) && inv.status === "paid") : []
+
     const { error } = await supabase
       .from("invoices")
       .update({ status, updated_at: new Date().toISOString() })
       .in("id", ids)
-    setBulkProcessing(false)
     if (error) {
+      setBulkProcessing(false)
       toast.error("Error al actualizar: " + error.message)
       return
     }
+
+    // Revierte el pago del banco y el saldo de las que dejaron de estar pagadas.
+    for (const inv of toReverse) {
+      const { error: reverseError } = await reverseInvoicePayment(inv.id, inv.total_amount)
+      if (reverseError) {
+        toast.error(`No se pudo revertir el pago de ${inv.invoice_number}: ${reverseError.message}`)
+      }
+    }
+    setBulkProcessing(false)
     toast.success(`${ids.length} ${ids.length === 1 ? "factura actualizada" : "facturas actualizadas"}`)
     setSelectedIds(new Set())
     fetchInvoices()
@@ -411,6 +442,28 @@ if (agencyId) {
       status: "completed",
       notes: data.notes || null,
     })
+  }
+
+  // Revierte el cobro de una factura al regresarla a un estado distinto de "pagado".
+  // Elimina los pagos asociados (la tabla `payments` es la fuente de verdad de
+  // Bancos, por lo que esto devuelve el dinero al banco) y restablece los campos de
+  // pago de la factura, dejando el saldo igual al total (queda "por cobrar").
+  const reverseInvoicePayment = async (invoiceId: string, totalAmount: number) => {
+    await supabase.from("payments").delete().eq("invoice_id", invoiceId)
+    return await supabase
+      .from("invoices")
+      .update({
+        paid_amount: 0,
+        balance_due: totalAmount,
+        payment_date: null,
+        payment_reference: null,
+        payment_notes: null,
+        payment_receipt_url: null,
+        payment_method: null,
+        bank_account_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", invoiceId)
   }
 
   const handlePaymentSubmit = async () => {
@@ -987,13 +1040,13 @@ if (agencyId) {
                         {formatCurrency(invoice.total_amount, invoice.currency)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {Number(invoice.balance_due) > 0 ? (
-                          <span className="text-amber-600 font-medium">
-                            {formatCurrency(invoice.balance_due, invoice.currency)}
-                          </span>
-                        ) : (
-                          <span className="text-green-600">Cobrado</span>
-                        )}
+                        <span
+                          className={
+                            Number(invoice.balance_due) > 0 ? "text-amber-600 font-medium" : "text-green-600"
+                          }
+                        >
+                          {formatCurrency(invoice.balance_due, invoice.currency)}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <Badge variant={status.variant} className="gap-1">
