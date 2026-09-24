@@ -26,7 +26,11 @@ export async function POST() {
   const role = Array.isArray(userData?.role) ? userData?.role[0] : userData?.role
   const roleName = role?.name ?? null
 
-  if (roleName !== "superadmin") {
+  // Acceso temporal para pruebas de envío: además de superadmin, se permite a
+  // nancy@agency4realestate.com. Eliminar junto con esta ruta al terminar.
+  const isTemporarilyAllowed = authUser.email === "nancy@agency4realestate.com"
+
+  if (roleName !== "superadmin" && !isTemporarilyAllowed) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 })
   }
 
