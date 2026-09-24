@@ -474,6 +474,17 @@ export default function VacationsPage() {
     return count
   }
 
+  // Notificación por correo (fire-and-forget): nunca bloquea la interfaz ni muestra errores al usuario.
+  const notifyLeave = (id: string, event: "created" | "approved" | "rejected") => {
+    fetch("/api/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity: "leave", id, event }),
+    }).catch((err) => {
+      console.warn("[v0] notifyLeave failed:", err)
+    })
+  }
+
   const handleCreateRequest = async () => {
     if (!newRequest.staff_id || !newRequest.leave_type_id || !newRequest.start_date || !newRequest.end_date) {
       return
@@ -526,7 +537,7 @@ export default function VacationsPage() {
       return
     }
 
-    const { error } = await supabase
+    const { data: inserted, error } = await supabase
       .from("leave_requests")
       .insert({
         agency_id: selectedAgency,
@@ -534,6 +545,8 @@ export default function VacationsPage() {
         status: "pending",
         ...payload,
       })
+      .select("id")
+      .single()
 
     if (!error) {
       // Update pending days in balance
@@ -543,6 +556,8 @@ export default function VacationsPage() {
         .eq("staff_id", newRequest.staff_id)
         .eq("leave_type_id", newRequest.leave_type_id)
         .eq("year", currentYear)
+
+      if (inserted?.id) notifyLeave(inserted.id, "created")
 
       setShowRequestDialog(false)
       resetRequestForm()
@@ -582,6 +597,8 @@ export default function VacationsPage() {
           .eq("id", balance.id)
       }
 
+      notifyLeave(selectedRequest.id, "approved")
+
       setShowReviewDialog(false)
       setSelectedRequest(null)
       setReviewNotes("")
@@ -619,6 +636,8 @@ export default function VacationsPage() {
           })
           .eq("id", balance.id)
       }
+
+      notifyLeave(selectedRequest.id, "rejected")
 
       setShowReviewDialog(false)
       setSelectedRequest(null)
