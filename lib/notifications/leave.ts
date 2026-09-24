@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { getNotificationEmail } from "@/lib/notifications/recipients"
 
 export const runtime = "nodejs"
 
@@ -188,7 +189,9 @@ export async function buildLeaveNotification(
 
   const typeName = leaveType?.name?.trim() || "ausencia"
   const requesterName = fullName(requester)
-  const requesterEmail = requester?.email?.trim() || undefined
+  // El email siempre se resuelve desde el usuario vinculado (getNotificationEmail),
+  // no desde staff.email.
+  const requesterEmail = (await getNotificationEmail(data.staff_id)) || undefined
 
   const requestMeta = {
     id: data.id,
@@ -207,8 +210,9 @@ export async function buildLeaveNotification(
 
     if (data.approver_id && data.approver_id !== data.staff_id) {
       // Aprobador designado en la solicitud (elegido desde la cadena de aprobadores).
-      if (approver?.email?.trim()) {
-        recipientEmail = approver.email.trim()
+      const approverEmail = await getNotificationEmail(data.approver_id)
+      if (approverEmail) {
+        recipientEmail = approverEmail
         recipientLabel = fullName(approver)
       } else {
         console.warn(
@@ -224,8 +228,9 @@ export async function buildLeaveNotification(
           .select("id, first_name, last_name, email")
           .eq("id", bossId)
           .single<StaffRef>()
-        if (boss?.email?.trim()) {
-          recipientEmail = boss.email.trim()
+        const bossEmail = await getNotificationEmail(bossId)
+        if (bossEmail) {
+          recipientEmail = bossEmail
           recipientLabel = fullName(boss)
         } else {
           console.warn(
