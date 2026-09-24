@@ -32,6 +32,20 @@ interface Staff {
   monthly_salary: number | null
 }
 
+// Dispara la notificación por correo sin bloquear la interfaz. Si algo falla,
+// solo se registra con console.warn; el usuario nunca ve errores por el correo.
+function notifyBonus(id: string, event: "created") {
+  try {
+    void fetch("/api/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity: "bonus", id, event }),
+    }).catch((e) => console.warn("[notify:bonus] no se pudo notificar:", e))
+  } catch (e) {
+    console.warn("[notify:bonus] no se pudo notificar:", e)
+  }
+}
+
 export default function NewBonusPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -163,6 +177,8 @@ export default function NewBonusPage() {
 
       if (error) throw error
 
+      // El insert ya está confirmado: notifica al jefe directo sin bloquear.
+      notifyBonus(data.id, "created")
       toast.success("Bono registrado. Enviado a autorización.")
       router.push(`/dashboard/hr/bonuses/${data.id}`)
     } catch (error) {
@@ -330,7 +346,7 @@ export default function NewBonusPage() {
                 <Textarea
                   value={formData.agency_impact}
                   onChange={(e) => setFormData((prev) => ({ ...prev, agency_impact: e.target.value }))}
-                  placeholder="¿Cómo aplicará lo aprendido y qué beneficio traerá a la agencia?"
+                  placeholder="¿Cómo aplicar�� lo aprendido y qué beneficio traerá a la agencia?"
                   rows={4}
                 />
                 <FieldDescription>

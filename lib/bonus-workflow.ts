@@ -71,6 +71,32 @@ export interface CurrentUserInfo {
   isOperationsDirector: boolean
 }
 
+/**
+ * Criterio de "Dirección de Operaciones": puesto de nivel director cuyo nombre
+ * menciona "operaciones", o superadmin, o acceso global.
+ *
+ * Es la única fuente de verdad de quién puede ejecutar la autorización de pago
+ * (`authorizePayment`). Se comparte entre la validación de permisos (abajo, en
+ * `getCurrentUserInfo`) y el cálculo de destinatarios de notificaciones. El
+ * comportamiento es idéntico al criterio original, incluida la regex `/operac/i`.
+ *
+ * Nota: para calcular DESTINATARIOS de correo, el llamador pasa
+ * `isGlobalAccess: false` a propósito, de modo que el acceso global siga siendo
+ * un permiso pero no convierta a nadie en destinatario del correo de pago.
+ */
+export function isOperationsDirectorFor(input: {
+  positionLevel: string | null
+  positionName: string | null
+  roleName: string | null
+  isGlobalAccess: boolean
+}): boolean {
+  return (
+    (input.positionLevel === "director" && /operac/i.test(input.positionName || "")) ||
+    input.roleName === "superadmin" ||
+    input.isGlobalAccess === true
+  )
+}
+
 // Obtiene el usuario logueado, su registro de staff y el nivel de su puesto.
 // Se usa para: (1) precargar al solicitante, (2) decidir qué autorizaciones
 // puede realizar en el flujo.
@@ -116,12 +142,14 @@ export async function getCurrentUserInfo(): Promise<CurrentUserInfo | null> {
     roleName === "admin" ||
     userRow?.is_global_access === true
 
-  // Dirección de Operaciones: puesto de nivel director cuyo nombre menciona "operaciones",
-  // o superadmin/acceso global (para no bloquear la administración).
-  const isOperationsDirector =
-    (positionLevel === "director" && /operac/i.test(positionName || "")) ||
-    roleName === "superadmin" ||
-    userRow?.is_global_access === true
+  // Dirección de Operaciones: mismo criterio compartido usado para los destinatarios
+  // de las notificaciones (incluye acceso global para no bloquear la administración).
+  const isOperationsDirector = isOperationsDirectorFor({
+    positionLevel,
+    positionName,
+    roleName,
+    isGlobalAccess: userRow?.is_global_access === true,
+  })
 
   return {
     userId: authUser.id,
