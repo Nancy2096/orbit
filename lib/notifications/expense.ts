@@ -113,8 +113,9 @@ const expenseTypeLabels: Record<string, string> = {
   financial: "Impuestos y Pagos Financieros",
 }
 
-function formatMoney(amount: number, symbol: string): string {
-  return `${symbol}${Number(amount || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+function formatMoney(amount: number, symbol: string, code?: string): string {
+  const base = `${symbol}${Number(amount || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return code ? `${base} ${code}` : base
 }
 
 function formatTimestamp(value: string | null | undefined): string {
@@ -193,6 +194,7 @@ function detailRow(label: string, value: string): string {
 function expenseDetailRows(exp: ExpenseRow, opts: { includePayment?: boolean } = {}): string {
   const currency = one(exp.currency)
   const symbol = currency?.symbol || "$"
+  const code = currency?.code || ""
   const category = one(exp.category)
   const agency = one(exp.agency)
   const project = one(exp.project)
@@ -204,11 +206,11 @@ function expenseDetailRows(exp: ExpenseRow, opts: { includePayment?: boolean } =
   const rows: string[] = []
   if (exp.expense_number) rows.push(detailRow("N° de gasto", esc(exp.expense_number)))
   rows.push(detailRow("Concepto", esc(exp.description || "-")))
-  rows.push(detailRow("Monto total", esc(formatMoney(Number(exp.total_amount || 0), symbol))))
+  rows.push(detailRow("Monto total", esc(formatMoney(Number(exp.total_amount || 0), symbol, code))))
   rows.push(
     detailRow(
       "Subtotal / IVA",
-      esc(`${formatMoney(Number(exp.amount || 0), symbol)} / ${formatMoney(Number(exp.tax_amount || 0), symbol)}`),
+      esc(`${formatMoney(Number(exp.amount || 0), symbol, code)} / ${formatMoney(Number(exp.tax_amount || 0), symbol, code)}`),
     ),
   )
   if (agency?.name) rows.push(detailRow("Agencia", esc(agency.name)))
@@ -457,7 +459,7 @@ export async function buildExpenseNotification(
       <p style="margin:0 0 16px;color:#4b5563;">${esc(requesterName)} registró un gasto que requiere tu aprobación.</p>
       ${expenseDetailRows(data)}
       ${reviewButton(data.id, "Revisar gasto")}
-      <p style="margin:18px 0 0;color:#9ca3af;font-size:12px;">Registrado el ${esc(formatTimestamp(data.created_at))}.</p>
+      <p style="margin:18px 0 0;color:#9ca3af;font-size:12px;">Registrado el ${esc(formatTimestamp(data.created_at))}</p>
     `
     return {
       messages: [
@@ -484,7 +486,7 @@ export async function buildExpenseNotification(
           <p style="margin:0 0 4px;font-size:17px;font-weight:bold;">Tu gasto fue <span style="color:${accent};">aprobado</span></p>
           <p style="margin:0 0 16px;color:#4b5563;">Hola ${esc(requesterName)}, tu gasto ${esc(number)} fue aprobado.</p>
           ${expenseDetailRows(data)}
-          ${data.approved_at ? `<p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">Aprobado el ${esc(formatTimestamp(data.approved_at))}.</p>` : ""}
+          ${data.approved_at ? `<p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">Aprobado el ${esc(formatTimestamp(data.approved_at))}</p>` : ""}
         `
         messages.push({
           to: [requesterEmail],

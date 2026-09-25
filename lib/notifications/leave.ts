@@ -262,7 +262,7 @@ export async function buildLeaveNotification(
       <p style="margin:0 0 16px;color:#4b5563;">${esc(requesterName)} envió una solicitud que requiere tu revisión${recipientLabel ? ` (${esc(recipientLabel)})` : ""}.</p>
       <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">${rows.join("")}</table>
       <a href="${reviewUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:600;">Revisar solicitud</a>
-      <p style="margin:18px 0 0;color:#9ca3af;font-size:12px;">Solicitud creada el ${esc(formatTimestamp(data.created_at))}.</p>
+      <p style="margin:18px 0 0;color:#9ca3af;font-size:12px;">Solicitud creada el ${esc(formatTimestamp(data.created_at))}</p>
     `
 
     return {
