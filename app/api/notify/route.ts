@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { sendEmail } from "@/lib/email"
 import { buildLeaveNotification, type LeaveEvent } from "@/lib/notifications/leave"
 import { buildBonusNotification, type BonusEvent } from "@/lib/notifications/bonus"
+import { buildExpenseNotification, type ExpenseEvent } from "@/lib/notifications/expense"
 
 export const runtime = "nodejs"
 
@@ -14,6 +15,16 @@ const BONUS_EVENTS: BonusEvent[] = [
   "payment_requested",
   "payment_authorized",
 ]
+const EXPENSE_EVENTS: ExpenseEvent[] = ["submitted", "approved", "rejected", "paid"]
+
+// Para gastos, cada evento tiene un único estado real válido (status). Si el
+// estado actual no coincide, el evento se rechaza con 409 sin enviar nada.
+const EXPENSE_EVENT_STATUS: Record<ExpenseEvent, string> = {
+  submitted: "pending",
+  approved: "approved",
+  rejected: "rejected",
+  paid: "paid",
+}
 
 // Forma común de una notificación construida en el servidor.
 interface BuiltNotification {
@@ -45,7 +56,7 @@ export async function POST(req: Request) {
   }
 
   const { entity, id, event } = body
-  if (!id || !event || (entity !== "leave" && entity !== "bonus")) {
+  if (!id || !event || (entity !== "leave" && entity !== "bonus" && entity !== "expense")) {
     return NextResponse.json({ error: "Parámetros inválidos" }, { status: 400 })
   }
 
@@ -69,9 +80,9 @@ export async function POST(req: Request) {
   }
 
   try {
-    // 3) Calcular destinatarios, construir el mensaje y validar el evento contra
-    //    el estado real de la entidad (en el servidor).
-    let notification: BuiltNotification | null = null
+    // 3) Calcular destinatarios, construir el/los mensaje(s) y validar el evento
+    //    contra el estado real de la entidad (en el servidor).
+    let messages: BuiltNotification[] = []
     let valid = false
 
     if (entity === "leave") {
@@ -83,7 +94,7 @@ export async function POST(req: Request) {
       if (!built) {
         return NextResponse.json({ error: "Solicitud no encontrada" }, { status: 404 })
       }
-      notification = built
+      messages = [built]
 
       const { status, staff_id, reviewed_by } = built.request
       if (leaveEvent === "created") {
@@ -93,8 +104,7 @@ export async function POST(req: Request) {
         // El estado debe ser exactamente el evento y quien resolvió debe ser quien llama.
         valid = status === leaveEvent && !!callerStaffId && reviewed_by === callerStaffId
       }
-    } else {
-      // entity === "bonus"
+    } else if (entity === "bonus") {
       if (!BONUS_EVENTS.includes(event as BonusEvent)) {
         return NextResponse.json({ error: "Evento inválido" }, { status: 400 })
       }
@@ -103,7 +113,7 @@ export async function POST(req: Request) {
       if (!built) {
         return NextResponse.json({ error: "Bono no encontrado" }, { status: 404 })
       }
-      notification = built
+      messages = [built]
 
       // Validación de evento contra el estado real (workflow_stage) y, cuando el
       // flujo lo registra, contra el actor (manager_approved_by / rejected_by son
@@ -126,6 +136,22 @@ export async function POST(req: Request) {
           valid = workflow_stage === "authorized"
           break
       }
+    } else {
+      // entity === "expense"
+      if (!EXPENSE_EVENTS.includes(event as ExpenseEvent)) {
+        return NextResponse.json({ error: "Evento inválido" }, { status: 400 })
+      }
+      const expenseEvent = event as ExpenseEvent
+      const built = await buildExpenseNotification(id, expenseEvent)
+      if (!built) {
+        return NextResponse.json({ error: "Gasto no encontrado" }, { status: 404 })
+      }
+      messages = built.messages
+
+      // Para gastos no hay control de rol por acción: basta con la sesión (ya
+      // exigida arriba) y que el estado real coincida exactamente con el evento.
+      // Los destinatarios se calculan solo en el servidor (nunca vienen del body).
+      valid = built.request.status === EXPENSE_EVENT_STATUS[expenseEvent]
     }
 
     if (!valid) {
@@ -135,19 +161,24 @@ export async function POST(req: Request) {
       )
     }
 
-    // Sin destinatarios con email: no se envía nada, pero no es un error.
-    if (notification.to.length === 0) {
+    // Enviar cada mensaje con al menos un destinatario. Sin destinatarios: no se
+    // envía nada, pero no es un error.
+    const toSend = messages.filter((m) => m.to.length > 0)
+    if (toSend.length === 0) {
       return NextResponse.json({ ok: true, sent: false, reason: "sin destinatarios" })
     }
 
-    const result = await sendEmail({
-      to: notification.to,
-      subject: notification.subject,
-      html: notification.html,
-      replyTo: notification.replyTo,
-    })
+    const results = await Promise.all(
+      toSend.map((m) =>
+        sendEmail({ to: m.to, subject: m.subject, html: m.html, replyTo: m.replyTo }),
+      ),
+    )
 
-    return NextResponse.json({ ok: true, sent: !result.skipped, ...result })
+    return NextResponse.json({
+      ok: true,
+      sent: results.some((r) => !r.skipped),
+      messages: results.length,
+    })
   } catch (error) {
     // Cualquier fallo al calcular o enviar se registra pero nunca rompe la respuesta.
     console.error(`[notify] Error al procesar la notificación de ${entity}:`, error)

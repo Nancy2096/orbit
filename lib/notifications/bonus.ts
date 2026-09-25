@@ -367,7 +367,7 @@ export async function buildBonusNotification(
       <p style="margin:0 0 16px;color:#4b5563;">${esc(requesterName)} registró un bono por capacitación que requiere tu autorización${boss ? ` (${esc(boss.label)})` : ""}.</p>
       ${bonusDetailRows(data)}
       ${reviewButton(data.id, "Revisar bono")}
-      <p style="margin:18px 0 0;color:#9ca3af;font-size:12px;">Registrado el ${esc(formatTimestamp(data.created_at))}.</p>
+      <p style="margin:18px 0 0;color:#9ca3af;font-size:12px;">Registrado el ${esc(formatTimestamp(data.created_at))}</p>
     `
 
     return {
@@ -422,7 +422,7 @@ export async function buildBonusNotification(
       <p style="margin:0 0 16px;color:#4b5563;">Hola ${esc(requesterName)}, tu bono por el curso "${esc(courseLabel)}" fue rechazado.</p>
       ${bonusDetailRows(data)}
       ${notesBlock}
-      ${data.rejected_at ? `<p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">Rechazado el ${esc(formatTimestamp(data.rejected_at))}.</p>` : ""}
+      ${data.rejected_at ? `<p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">Rechazado el ${esc(formatTimestamp(data.rejected_at))}</p>` : ""}
     `
     return {
       to,
@@ -461,7 +461,7 @@ export async function buildBonusNotification(
     <p style="margin:0 0 4px;font-size:17px;font-weight:bold;">El pago de tu bono fue <span style="color:${accent};">autorizado</span></p>
     <p style="margin:0 0 16px;color:#4b5563;">Hola ${esc(requesterName)}, el pago de tu bono por el curso "${esc(courseLabel)}" fue autorizado. Se pagará en la próxima nómina.</p>
     ${bonusDetailRows(data)}
-    ${data.approved_at ? `<p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">Autorizado el ${esc(formatTimestamp(data.approved_at))}.</p>` : ""}
+    ${data.approved_at ? `<p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">Autorizado el ${esc(formatTimestamp(data.approved_at))}</p>` : ""}
   `
   return {
     to,

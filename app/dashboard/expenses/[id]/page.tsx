@@ -33,6 +33,16 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+// Dispara la notificación de correo del gasto sin bloquear la UI (fire-and-forget).
+// Los destinatarios y la validación del evento se resuelven en el servidor.
+function notifyExpense(id: string, event: "submitted" | "approved" | "rejected" | "paid") {
+  void fetch("/api/notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entity: "expense", id, event }),
+  }).catch((err) => console.warn("[notify] No se pudo notificar el gasto:", err))
+}
+
 interface ApprovalHistory {
   id: string
   action: string
@@ -289,6 +299,11 @@ export default function ExpenseDetailPage() {
           comments,
         })
       }
+
+      // Notificar tras guardar con éxito (aprobado incluye aviso a finanzas).
+      if (newStatus === "pending") notifyExpense(expense.id, "submitted")
+      else if (newStatus === "approved") notifyExpense(expense.id, "approved")
+      else if (newStatus === "paid") notifyExpense(expense.id, "paid")
 
       toast.success(`Estado actualizado a ${statusConfig[newStatus]?.label || newStatus}`)
       await loadExpense()
