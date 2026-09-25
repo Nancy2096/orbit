@@ -89,6 +89,22 @@ const fileApiUrl = (blobUrl: string) => {
   }
 }
 
+type BonusNotifyEvent = "manager_approved" | "rejected" | "payment_requested" | "payment_authorized"
+
+// Dispara la notificación por correo sin bloquear la interfaz. Si algo falla,
+// solo se registra con console.warn; el usuario nunca ve errores por el correo.
+function notifyBonus(id: string, event: BonusNotifyEvent) {
+  try {
+    void fetch("/api/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity: "bonus", id, event }),
+    }).catch((e) => console.warn("[notify:bonus] no se pudo notificar:", e))
+  } catch (e) {
+    console.warn("[notify:bonus] no se pudo notificar:", e)
+  }
+}
+
 export default function BonusDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const supabase = createClient()
@@ -171,7 +187,11 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
     setLoading(false)
   }
 
-  const patchBonus = async (updates: Record<string, unknown>, successMsg: string) => {
+  const patchBonus = async (
+    updates: Record<string, unknown>,
+    successMsg: string,
+    notifyEvent?: BonusNotifyEvent,
+  ) => {
     if (!bonus) return
     setWorking(true)
     const { error } = await supabase.from("bonuses").update(updates).eq("id", bonus.id)
@@ -180,6 +200,8 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
       toast.error("Ocurrió un error. Intenta de nuevo.")
     } else {
       toast.success(successMsg)
+      // El update ya está confirmado: dispara el correo sin bloquear la interfaz.
+      if (notifyEvent) notifyBonus(bonus.id, notifyEvent)
       await fetchAll()
     }
     setWorking(false)
@@ -197,6 +219,7 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
         approved_at: new Date().toISOString(),
       },
       "Bono autorizado. Ahora se requieren las evidencias.",
+      "manager_approved",
     )
 
   const reject = () => {
@@ -213,6 +236,7 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
         status: "cancelled",
       },
       "Bono rechazado.",
+      "rejected",
     )
   }
 
@@ -264,6 +288,7 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
     patchBonus(
       { workflow_stage: BONUS_STAGES.PENDING_PAYMENT },
       "Evidencias completas. Enviado a autorización de pago.",
+      "payment_requested",
     )
 
   // Paso 4: autorización de pago (Dirección de Operaciones).
@@ -278,6 +303,7 @@ export default function BonusDetailPage({ params }: { params: Promise<{ id: stri
         approved_at: bonus?.approved_at || new Date().toISOString(),
       },
       "Pago autorizado. El bono se pagará en la próxima nómina.",
+      "payment_authorized",
     )
 
   const formatDate = (dateString: string | null) => {
