@@ -4,6 +4,7 @@ import { sendEmail } from "@/lib/email"
 import { buildLeaveNotification, type LeaveEvent } from "@/lib/notifications/leave"
 import { buildBonusNotification, type BonusEvent } from "@/lib/notifications/bonus"
 import { buildExpenseNotification, type ExpenseEvent } from "@/lib/notifications/expense"
+import { buildThirdPartyNotification, type ThirdPartyEvent } from "@/lib/notifications/third-party"
 
 export const runtime = "nodejs"
 
@@ -16,6 +17,7 @@ const BONUS_EVENTS: BonusEvent[] = [
   "payment_authorized",
 ]
 const EXPENSE_EVENTS: ExpenseEvent[] = ["submitted", "approved", "rejected", "paid"]
+const THIRD_PARTY_EVENTS: ThirdPartyEvent[] = ["created", "validated", "rejected", "invoiced", "paid"]
 
 // Para gastos, cada evento tiene un único estado real válido (status). Si el
 // estado actual no coincide, el evento se rechaza con 409 sin enviar nada.
@@ -23,6 +25,16 @@ const EXPENSE_EVENT_STATUS: Record<ExpenseEvent, string> = {
   submitted: "pending",
   approved: "approved",
   rejected: "rejected",
+  paid: "paid",
+}
+
+// Para pagos por cuenta de cliente, cada evento tiene un único estado real
+// válido (status). Si no coincide, se rechaza con 409 sin enviar nada.
+const THIRD_PARTY_EVENT_STATUS: Record<ThirdPartyEvent, string> = {
+  created: "draft",
+  validated: "validated",
+  rejected: "rejected",
+  invoiced: "invoiced",
   paid: "paid",
 }
 
@@ -56,7 +68,11 @@ export async function POST(req: Request) {
   }
 
   const { entity, id, event } = body
-  if (!id || !event || (entity !== "leave" && entity !== "bonus" && entity !== "expense")) {
+  if (
+    !id ||
+    !event ||
+    (entity !== "leave" && entity !== "bonus" && entity !== "expense" && entity !== "third-party")
+  ) {
     return NextResponse.json({ error: "Parámetros inválidos" }, { status: 400 })
   }
 
@@ -136,8 +152,7 @@ export async function POST(req: Request) {
           valid = workflow_stage === "authorized"
           break
       }
-    } else {
-      // entity === "expense"
+    } else if (entity === "expense") {
       if (!EXPENSE_EVENTS.includes(event as ExpenseEvent)) {
         return NextResponse.json({ error: "Evento inválido" }, { status: 400 })
       }
@@ -152,6 +167,22 @@ export async function POST(req: Request) {
       // exigida arriba) y que el estado real coincida exactamente con el evento.
       // Los destinatarios se calculan solo en el servidor (nunca vienen del body).
       valid = built.request.status === EXPENSE_EVENT_STATUS[expenseEvent]
+    } else {
+      // entity === "third-party"
+      if (!THIRD_PARTY_EVENTS.includes(event as ThirdPartyEvent)) {
+        return NextResponse.json({ error: "Evento inválido" }, { status: 400 })
+      }
+      const tpEvent = event as ThirdPartyEvent
+      const built = await buildThirdPartyNotification(id, tpEvent)
+      if (!built) {
+        return NextResponse.json({ error: "Pago no encontrado" }, { status: 404 })
+      }
+      messages = built.messages
+
+      // Como en gastos, no hay control de rol por acción en la UI: basta con la
+      // sesión (ya exigida) y que el estado real coincida con el evento. Los
+      // destinatarios se calculan solo en el servidor (nunca vienen del body).
+      valid = built.request.status === THIRD_PARTY_EVENT_STATUS[tpEvent]
     }
 
     if (!valid) {

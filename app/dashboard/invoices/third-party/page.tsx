@@ -441,6 +441,32 @@ export default function ThirdPartyPaymentsPage() {
     return `FAC-${year}-${String(nextNumber).padStart(5, "0")}`
   }
 
+  // Dispara una notificación de correo sin bloquear la UI. Los destinatarios se
+  // calculan en el servidor; aquí solo se envía entidad/id/evento.
+  const notifyThirdParty = (paymentId: string, event: string) => {
+    void fetch("/api/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity: "third-party", id: paymentId, event }),
+    }).catch((err) => console.warn("[v0] notify third-party fallo:", err))
+  }
+
+  // Resuelve el staff id del usuario actual (por user_id y, como respaldo, por
+  // email) para poblar created_by. getNotificationEmail resuelve por staff id.
+  const getCurrentStaffId = async (): Promise<string | null> => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return null
+    const { data: byUser } = await supabase.from("staff").select("id").eq("user_id", user.id).limit(1)
+    if (byUser?.[0]) return byUser[0].id
+    if (user.email) {
+      const { data: byEmail } = await supabase.from("staff").select("id").ilike("email", user.email).limit(1)
+      if (byEmail?.[0]) return byEmail[0].id
+    }
+    return null
+  }
+
   const handleSubmit = async () => {
 if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formData.original_amount) {
   toast.error("Por favor completa los campos requeridos: Agencia, Proveedor, Cliente y Monto")
@@ -451,6 +477,7 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
 
     const { commission, tax, total } = calculateAmounts()
     const paymentNumber = await generatePaymentNumber()
+    const createdByStaffId = await getCurrentStaffId()
 
     const { data: payment, error } = await supabase
       .from("third_party_payments")
@@ -475,6 +502,7 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
         total_amount: total,
         notes: formData.notes || null,
         status: "draft",
+        created_by: createdByStaffId,
       })
       .select()
       .single()
@@ -488,6 +516,7 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
     }
 
     toast.success("Pago por cuenta de cliente registrado en borrador")
+    if (payment?.id) notifyThirdParty(payment.id, "created")
     setModalOpen(false)
     resetForm()
     fetchPayments()
@@ -536,6 +565,20 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
     }
 
     toast.success(`Estado cambiado a ${statusConfig[newStatus]?.label || newStatus}`)
+
+    // Notificar solo si el estado realmente cambió a uno con evento asociado.
+    // El servidor valida que el estado real coincida con el evento.
+    if (newStatus !== changeStatusPayment.status) {
+      const eventByStatus: Record<string, string> = {
+        validated: "validated",
+        rejected: "rejected",
+        invoiced: "invoiced",
+        paid: "paid",
+      }
+      const ev = eventByStatus[newStatus]
+      if (ev) notifyThirdParty(changeStatusPayment.id, ev)
+    }
+
     setChangeStatusModalOpen(false)
     fetchPayments()
   }
@@ -573,6 +616,7 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
     }
 
     toast.success(workflowAction === "validate" ? "Pago validado correctamente" : "Pago rechazado")
+    notifyThirdParty(selectedPayment.id, workflowAction === "validate" ? "validated" : "rejected")
     setWorkflowModalOpen(false)
     fetchPayments()
   }
@@ -736,7 +780,10 @@ const resetForm = () => {
       }
 
       toast.success("Factura creada en 'Facturas y Pagos' y gasto registrado en 'Gastos'")
-      
+
+      // El pago pasó a 'invoiced': notificar al creador (fire-and-forget).
+      if (!updateError) notifyThirdParty(payment.id, "invoiced")
+
       // Refresh the list to remove the invoiced payment
       fetchPayments()
       
