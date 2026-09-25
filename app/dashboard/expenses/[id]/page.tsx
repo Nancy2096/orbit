@@ -301,7 +301,8 @@ export default function ExpenseDetailPage() {
       }
 
       // Notificar tras guardar con éxito (aprobado incluye aviso a finanzas).
-      if (newStatus === "approved") notifyExpense(expense.id, "approved")
+      if (newStatus === "pending") notifyExpense(expense.id, "submitted")
+      else if (newStatus === "approved") notifyExpense(expense.id, "approved")
       else if (newStatus === "paid") notifyExpense(expense.id, "paid")
 
       toast.success(`Estado actualizado a ${statusConfig[newStatus]?.label || newStatus}`)
