@@ -210,17 +210,15 @@ function reviewButton(bonusId: string, label: string): string {
 
 // Recorre la cadena de reports_to_id del solicitante y devuelve el primer jefe
 // que exista, esté activo y tenga usuario vinculado (subiendo eslabones si no).
+// NO filtra por agency_id: igual que la UI, la cadena jerárquica se recorre sin
+// acotar por agencia (hay staff, incluidos jefes, con agency_id nulo).
 async function resolveDirectBoss(
   admin: ReturnType<typeof createAdmin>,
-  agencyId: string | null,
   requesterStaffId: string,
 ): Promise<{ staffId: string; label: string } | null> {
-  if (!agencyId) return null
-
   const { data: rows } = await admin
     .from("staff")
     .select("id, first_name, last_name, reports_to_id, is_active, user_id")
-    .eq("agency_id", agencyId)
 
   const byId = new Map((rows || []).map((s: any) => [s.id, s]))
   const requester = byId.get(requesterStaffId)
@@ -354,13 +352,23 @@ export async function buildBonusNotification(
   }
 
   if (event === "created") {
-    const boss = await resolveDirectBoss(admin, data.agency_id, data.staff_id)
-    if (!boss) {
+    const boss = await resolveDirectBoss(admin, data.staff_id)
+    let to: string[]
+    if (boss) {
+      to = await emailsFor([boss.staffId])
+    } else {
+      // Respaldo: si no hay jefe directo válido, notificar a la Dirección de
+      // Operaciones (mismo criterio que payment_requested; hoy Enrique y Keila).
       console.warn(
-        `[notify:bonus] El bono ${data.id} no tiene jefe directo válido (activo y con usuario); no se notifica.`,
+        `[notify:bonus] El bono ${data.id} no tiene jefe directo válido (activo y con usuario); se usa el respaldo de Dirección de Operaciones.`,
       )
+      to = await emailsFor(await resolveOperationsDirectors(admin))
+      if (to.length === 0) {
+        console.warn(
+          `[notify:bonus] El respaldo de Dirección de Operaciones tampoco tiene destinatarios para el bono ${data.id}.`,
+        )
+      }
     }
-    const to = boss ? await emailsFor([boss.staffId]) : []
 
     const inner = `
       <p style="margin:0 0 4px;font-size:17px;font-weight:bold;">Nuevo bono por autorizar</p>
