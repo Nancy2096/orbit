@@ -844,6 +844,16 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     }
   }
 
+  // Dispara la notificación de correo del gasto sin bloquear la UI (fire-and-forget).
+  // Los destinatarios y la validación del evento se resuelven en el servidor.
+  const notifyExpense = (id: string, event: "submitted" | "approved" | "rejected" | "paid") => {
+    void fetch("/api/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity: "expense", id, event }),
+    }).catch((err) => console.warn("[notify] No se pudo notificar el gasto:", err))
+  }
+
   const handleSaveExpense = async (submitForApproval: boolean) => {
     // Un gasto aprobado es de solo lectura: no se puede editar, guardar como
     // borrador ni reenviar a aprobación. Solo se puede ver y eliminar.
@@ -914,6 +924,9 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
             ? "Gasto aprobado por el mismo solicitante (sin jefe asignado)"
             : "Gasto enviado para aprobación",
         })
+        // Notificar tras guardar con éxito: aprobación automática avisa a
+        // finanzas; envío normal notifica a quien debe aprobar.
+        notifyExpense(editingExpense.id, isSelfApproval ? "approved" : "submitted")
       }
     } else {
       let expenseNumber: string
@@ -972,6 +985,9 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
             ? "Gasto registrado y aprobado por el mismo solicitante (sin jefe asignado)"
             : "Gasto enviado para aprobación",
         })
+        // Notificar tras guardar con éxito: aprobación automática avisa a
+        // finanzas; envío normal notifica a quien debe aprobar.
+        notifyExpense(newExpense.id, isSelfApproval ? "approved" : "submitted")
       }
     }
 
@@ -1008,6 +1024,8 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         performed_by_id: approverId,
         comments: "Gasto aprobado",
       })
+      // Notificar tras guardar con éxito (aprobado incluye aviso a finanzas).
+      notifyExpense(selectedExpenseForApproval.id, "approved")
     }
 
     setShowApprovalDialog(false)
@@ -1043,6 +1061,8 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         performed_by_id: approverId,
         comments: rejectionReason,
       })
+      // Notificar tras guardar con éxito.
+      notifyExpense(selectedExpenseForApproval.id, "rejected")
     }
 
     setShowApprovalDialog(false)
@@ -1153,6 +1173,9 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         `Se descontaron ${currencySymbol}${amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })} ` +
         `del saldo (nuevo saldo: ${currencySymbol}${newBalance.toLocaleString("es-MX", { minimumFractionDigits: 2 })}).`,
     })
+
+    // Notificar tras guardar con éxito.
+    notifyExpense(expense.id, "paid")
 
     setShowPaymentDialog(false)
     setSelectedExpenseForPayment(null)
