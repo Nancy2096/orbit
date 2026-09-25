@@ -191,7 +191,7 @@ function detailRow(label: string, value: string): string {
 }
 
 // Bloque común con los datos del gasto para todas las plantillas.
-function expenseDetailRows(exp: ExpenseRow, opts: { includePayment?: boolean } = {}): string {
+function expenseDetailRows(exp: ExpenseRow, opts: { includePayment?: boolean; approverLabel?: string } = {}): string {
   const currency = one(exp.currency)
   const symbol = currency?.symbol || "$"
   const code = currency?.code || ""
@@ -224,7 +224,7 @@ function expenseDetailRows(exp: ExpenseRow, opts: { includePayment?: boolean } =
   if (account?.account_name) rows.push(detailRow("Cuenta", esc(account.account_name)))
   if (exp.invoice_number) rows.push(detailRow("N° factura", esc(exp.invoice_number)))
   if (requester) rows.push(detailRow("Solicitante", esc(fullName(requester))))
-  if (approver) rows.push(detailRow("Aprobado por", esc(fullName(approver))))
+  if (approver) rows.push(detailRow(opts.approverLabel || "Aprobado por", esc(fullName(approver))))
 
   const receipt = receiptUrlAbs(exp.receipt_url)
   if (receipt) {
@@ -538,7 +538,7 @@ export async function buildExpenseNotification(
     const inner = `
       <p style="margin:0 0 4px;font-size:17px;font-weight:bold;">Tu gasto fue <span style="color:${accent};">rechazado</span></p>
       <p style="margin:0 0 16px;color:#4b5563;">Hola ${esc(requesterName)}, tu gasto ${esc(number)} fue rechazado.</p>
-      ${expenseDetailRows(data)}
+      ${expenseDetailRows(data, { approverLabel: "Revisado por" })}
       ${reasonBlock}
     `
     return {
