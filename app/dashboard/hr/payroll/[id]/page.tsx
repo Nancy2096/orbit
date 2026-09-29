@@ -108,6 +108,11 @@ interface Staff {
   bank_account_number: string | null
   // Banco que paga el sueldo (RRHH > Personal > Información Laboral)
   payroll_bank_name: string | null
+  // Moneda del sueldo (currency_id) y, si se paga en otra moneda, la moneda de
+  // pago y el tipo de cambio capturados en Sueldos y salarios.
+  currency_id: string | null
+  payroll_payment_currency_id: string | null
+  payroll_exchange_rate: number | null
 }
 
 interface CommissionItem {
@@ -228,6 +233,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const [receiptTargetStaffId, setReceiptTargetStaffId] = useState<string | null>(null)
   // Descarga de la tabla del periodo en Excel (comisiones, bonos y notas).
   const [downloadingXls, setDownloadingXls] = useState(false)
+  // Catálogo de monedas (id -> código) para mostrar la moneda de pago.
+  const [currencies, setCurrencies] = useState<{ id: string; code: string }[]>([])
 
   useEffect(() => {
     fetchData()
@@ -253,6 +260,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     fetchReceipts()
   }, [resolvedParams.id])
+
+  // Catálogo de monedas para mostrar el código (MXN/USD) de la moneda de pago.
+  useEffect(() => {
+    supabase
+      .from("currencies")
+      .select("id, code")
+      .then(({ data }) => {
+        if (data) setCurrencies(data as { id: string; code: string }[])
+      })
+  }, [supabase])
 
   // Abre el selector de archivos para el empleado indicado.
   const openReceiptPicker = (staffId: string) => {
@@ -863,8 +880,13 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     const netByBankName = new Map<string, number>()
     for (const e of entries) {
       const bankName = (e.staff.payroll_bank_name || "").trim()
-      if (!bankName || e.net_pay <= 0) continue
-      netByBankName.set(bankName, (netByBankName.get(bankName) || 0) + e.net_pay)
+      // Monto en la MONEDA DE PAGO del colaborador: si se paga en otra moneda
+      // (p. ej. USD), se convierte el neto dividiéndolo entre el tipo de cambio,
+      // para que el banco de salida se afecte en su propia moneda y no con el
+      // monto en pesos.
+      const amount = getPaymentInfo(e).amount
+      if (!bankName || amount <= 0) continue
+      netByBankName.set(bankName, (netByBankName.get(bankName) || 0) + amount)
     }
 
     // Limpiar movimientos previos de nómina de este periodo (idempotencia).
@@ -1202,6 +1224,32 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     })
   }
 
+  // Código de moneda (MXN/USD) a partir de su id.
+  const currencyCodeById = (id: string | null | undefined) =>
+    currencies.find((c) => c.id === id)?.code || "MXN"
+
+  // Moneda y monto en que REALMENTE se paga al colaborador. El neto se calcula
+  // en la moneda del sueldo (normalmente MXN); si el colaborador se paga en otra
+  // moneda (definida en Sueldos y salarios), se convierte dividiendo el neto
+  // entre el tipo de cambio capturado (mismo criterio que Sueldos: monto ÷ TC).
+  const getPaymentInfo = (entry: PayrollEntry) => {
+    const s = entry.staff
+    const payCurrencyId = s.payroll_payment_currency_id || s.currency_id || null
+    const code = currencyCodeById(payCurrencyId)
+    const rate = Number(s.payroll_exchange_rate) || 0
+    const amount = rate > 0 ? entry.net_pay / rate : entry.net_pay
+    return { code, amount, rate }
+  }
+
+  // Formatea un monto con el código de moneda indicado (ej. $10.00 USD).
+  const formatMoneyCode = (amount: number, code: string) =>
+    new Intl.NumberFormat("es-MX", {
+      style: "currency",
+      currency: code || "MXN",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount || 0)
+
   // Descarga un Excel con TODO lo registrado en el periodo: resumen por
   // colaborador, el detalle de comisiones y de bonos, y las notas del periodo
   // (con su registro de autor/fecha). Toma los renglones tal como se muestran
@@ -1232,6 +1280,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         Impuestos: e.taxes,
         "Pago bruto": e.gross_pay,
         "Pago neto": e.net_pay,
+        Moneda: getPaymentInfo(e).code,
+        "Monto a pagar": getPaymentInfo(e).amount,
         "Banco Origen": e.staff.payroll_bank_name || "",
       }))
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), "Resumen")
@@ -1674,6 +1724,8 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                   <TableHead className="text-right">Impuestos</TableHead>
                   <TableHead className="text-right">Bruto</TableHead>
                   <TableHead className="text-right">Neto</TableHead>
+                  <TableHead>Moneda</TableHead>
+                  <TableHead className="text-right">Monto a Pagar</TableHead>
                     <TableHead>Banco</TableHead>
                     <TableHead>CLABE Interbancaria</TableHead>
                     <TableHead>Banco Origen</TableHead>
@@ -1755,6 +1807,19 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     <TableCell className="text-right text-red-600">-{formatCurrency(entry.taxes)}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(entry.gross_pay)}</TableCell>
                     <TableCell className="text-right font-bold text-green-600">{formatCurrency(entry.net_pay)}</TableCell>
+                    {(() => {
+                      const pay = getPaymentInfo(entry)
+                      return (
+                        <>
+                          <TableCell>
+                            <Badge variant="outline">{pay.code}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-green-600">
+                            {formatMoneyCode(pay.amount, pay.code)}
+                          </TableCell>
+                        </>
+                      )
+                    })()}
                     <TableCell>
                       {entry.staff.bank_name || <span className="text-muted-foreground">—</span>}
                     </TableCell>
