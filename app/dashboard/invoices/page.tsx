@@ -26,7 +26,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, FileText, Eye, DollarSign, Clock, AlertCircle, CheckCircle, Settings, Upload, CreditCard, MoreHorizontal, X, RefreshCw, Landmark, Pencil, Trash2 } from "lucide-react"
+import { Plus, Search, FileText, Eye, DollarSign, Clock, AlertCircle, CheckCircle, Settings, Upload, CreditCard, MoreHorizontal, X, RefreshCw, Landmark, Pencil, Trash2, Send, Paperclip } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,7 +67,10 @@ interface Invoice {
   total_amount: number
   paid_amount: number
   balance_due: number
-  client: { id: string; company_name: string } | null
+  email_sent_at: string | null
+  email_sent_count: number | null
+  email_last_sent_to: string | null
+  client: { id: string; company_name: string; billing_email?: string | null; primary_contact_email?: string | null } | null
   account: { id: string; name: string } | null
   agency: { id: string; name: string } | null
   currency: { id: string; code: string; symbol: string } | null
@@ -135,6 +138,16 @@ export default function InvoicesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+
+  // Enviar factura por correo al cliente (con adjuntos opcionales)
+  const [sendModalOpen, setSendModalOpen] = useState(false)
+  const [sendInvoice, setSendInvoice] = useState<Invoice | null>(null)
+  const [sendTo, setSendTo] = useState("")
+  const [sendCc, setSendCc] = useState("")
+  const [sendSubject, setSendSubject] = useState("")
+  const [sendMessage, setSendMessage] = useState("")
+  const [sendFiles, setSendFiles] = useState<File[]>([])
+  const [sending, setSending] = useState(false)
 
   // Stats
 
@@ -558,13 +571,69 @@ if (agencyId) {
     fetchInvoices()
   }
 
+  // Abre el modal de envío, precargando el correo del cliente y un asunto por defecto.
+  const openSendModal = (invoice: Invoice) => {
+    setSendInvoice(invoice)
+    setSendTo(invoice.client?.billing_email || invoice.client?.primary_contact_email || "")
+    setSendCc("")
+    setSendSubject(`Factura ${invoice.invoice_number}${invoice.agency?.name ? ` · ${invoice.agency.name}` : ""}`)
+    setSendMessage("")
+    setSendFiles([])
+    setSendModalOpen(true)
+  }
+
+  // Envía la factura por correo al cliente con el PDF adjunto y archivos extra opcionales.
+  const handleSendEmail = async () => {
+    if (!sendInvoice) return
+    if (!sendTo.trim()) {
+      toast.error("Ingresa el correo del destinatario")
+      return
+    }
+
+    setSending(true)
+    try {
+      const formData = new FormData()
+      formData.append("to", sendTo.trim())
+      if (sendCc.trim()) formData.append("cc", sendCc.trim())
+      if (sendSubject.trim()) formData.append("subject", sendSubject.trim())
+      if (sendMessage.trim()) formData.append("message", sendMessage.trim())
+      for (const file of sendFiles) {
+        formData.append("attachments", file)
+      }
+
+      const response = await fetch(`/api/invoices/${sendInvoice.id}/send-email`, {
+        method: "POST",
+        body: formData,
+      })
+      const result = await response.json()
+
+      if (!response.ok) {
+        toast.error(result.error || "No se pudo enviar el correo")
+        setSending(false)
+        return
+      }
+
+      if (result.skipped) {
+        toast.warning("El envío de correos está deshabilitado (EMAIL_NOTIFICATIONS_ENABLED)")
+      } else {
+        toast.success(`Factura enviada a ${result.sent_to}`)
+      }
+      setSendModalOpen(false)
+      fetchInvoices()
+    } catch (error) {
+      toast.error("Error al enviar el correo")
+    } finally {
+      setSending(false)
+    }
+  }
+
   const fetchInvoices = async () => {
     setLoading(true)
     let query = supabase
       .from("invoices")
       .select(`
         *,
-        client:clients(id, company_name),
+        client:clients(id, company_name, billing_email, primary_contact_email),
         account:accounts(id, account_name),
         agency:agencies(id, name),
         currency:currencies(id, code, symbol)
@@ -998,6 +1067,7 @@ if (agencyId) {
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Saldo</TableHead>
                   <TableHead>Estado</TableHead>
+                  <TableHead className="w-[90px]">Enviar</TableHead>
                   <TableHead className="w-[80px]">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1053,6 +1123,24 @@ if (agencyId) {
                           <StatusIcon className="h-3 w-3" />
                           {status.label}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => openSendModal(invoice)}
+                          title={
+                            invoice.email_sent_at
+                              ? `Enviada ${formatDate(invoice.email_sent_at)}${invoice.email_sent_count ? ` · ${invoice.email_sent_count} ${invoice.email_sent_count === 1 ? "envío" : "envíos"}` : ""}`
+                              : "Enviar factura al cliente"
+                          }
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          {invoice.email_sent_at ? (
+                            <CheckCircle className="h-3.5 w-3.5 text-green-600" />
+                          ) : null}
+                        </Button>
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -1174,6 +1262,116 @@ if (agencyId) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Enviar factura por correo */}
+      <Dialog open={sendModalOpen} onOpenChange={(open) => !sending && setSendModalOpen(open)}>
+        <DialogContent className="sm:max-w-[540px]">
+          <DialogHeader>
+            <DialogTitle>Enviar factura por correo</DialogTitle>
+            <DialogDescription>
+              {sendInvoice && (
+                <>
+                  Se enviará la factura <strong>{sendInvoice.invoice_number}</strong> en PDF a{" "}
+                  {sendInvoice.client?.company_name || "el cliente"}.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {sendInvoice?.email_sent_at && (
+              <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                Último envío: {formatDate(sendInvoice.email_sent_at)}
+                {sendInvoice.email_last_sent_to ? ` a ${sendInvoice.email_last_sent_to}` : ""}
+                {sendInvoice.email_sent_count ? ` · ${sendInvoice.email_sent_count} en total` : ""}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="send-to">Para *</Label>
+              <Input
+                id="send-to"
+                type="email"
+                placeholder="cliente@empresa.com"
+                value={sendTo}
+                onChange={(e) => setSendTo(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="send-cc">CC (separa varios con coma)</Label>
+              <Input
+                id="send-cc"
+                placeholder="copia@empresa.com, otra@empresa.com"
+                value={sendCc}
+                onChange={(e) => setSendCc(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="send-subject">Asunto</Label>
+              <Input
+                id="send-subject"
+                value={sendSubject}
+                onChange={(e) => setSendSubject(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="send-message">Mensaje (opcional)</Label>
+              <Textarea
+                id="send-message"
+                rows={3}
+                placeholder="Mensaje para el cliente..."
+                value={sendMessage}
+                onChange={(e) => setSendMessage(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="send-files">Adjuntos adicionales</Label>
+              <Input
+                id="send-files"
+                type="file"
+                multiple
+                onChange={(e) => setSendFiles(Array.from(e.target.files || []))}
+              />
+              <p className="text-xs text-muted-foreground">
+                El PDF de la factura se adjunta automáticamente. Máx. 10 MB por archivo, 20 MB en total.
+              </p>
+              {sendFiles.length > 0 && (
+                <ul className="space-y-1 text-sm text-muted-foreground">
+                  {sendFiles.map((file, index) => (
+                    <li key={index} className="flex items-center gap-2">
+                      <Paperclip className="h-3.5 w-3.5" />
+                      <span className="truncate">{file.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setSendModalOpen(false)} disabled={sending}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSendEmail} disabled={sending} className="gap-2">
+              {sending ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  Enviando...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4" />
+                  Enviar
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Payment Registration Modal */}
       <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}>
