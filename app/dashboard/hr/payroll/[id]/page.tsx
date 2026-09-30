@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { upload } from "@vercel/blob/client"
 import { createClient } from "@/lib/supabase/client"
+import { getEntryPayment, isActiveDuringPeriod, sumByCurrency } from "@/lib/payroll-currency"
 import { PayrollNotes } from "@/components/hr/payroll-notes"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
@@ -397,18 +398,48 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           new Set(snapshot.map((e) => e.staff_id).filter(Boolean)),
         )
         if (snapshotStaffIds.length > 0) {
-          const { data: bankRows } = await supabase
+          const { data: staffRows } = await supabase
             .from("staff")
-            .select("id, payroll_bank_name")
+            .select(
+              "id, payroll_bank_name, payroll_payment_currency_id, payroll_exchange_rate, currency_id, is_active, hire_date, status_change_date",
+            )
             .in("id", snapshotStaffIds)
-          const bankById = new Map((bankRows || []).map((r: any) => [r.id, r.payroll_bank_name]))
-          const enriched = snapshot.map((e) => ({
-            ...e,
-            staff: {
-              ...e.staff,
-              payroll_bank_name: e.staff?.payroll_bank_name ?? bankById.get(e.staff_id) ?? null,
-            },
-          }))
+          const staffById = new Map((staffRows || []).map((r: any) => [r.id, r]))
+
+          // Una nómina pagada queda congelada. Una por realizar (calculada o
+          // aprobada) toma la moneda/tipo de cambio vigente de Sueldos y salarios
+          // y omite al personal que no estuvo activo durante el periodo.
+          const isPendingPeriod = periodData.status !== "paid"
+          const enriched = snapshot
+            .map((e) => {
+              const current = staffById.get(e.staff_id)
+              if (isPendingPeriod && current) {
+                return {
+                  ...e,
+                  staff: {
+                    ...e.staff,
+                    payroll_bank_name: current.payroll_bank_name ?? e.staff?.payroll_bank_name ?? null,
+                    payroll_payment_currency_id: current.payroll_payment_currency_id,
+                    payroll_exchange_rate: current.payroll_exchange_rate,
+                    currency_id: current.currency_id,
+                    is_active: current.is_active,
+                    hire_date: current.hire_date,
+                    status_change_date: current.status_change_date,
+                  },
+                }
+              }
+              return {
+                ...e,
+                staff: {
+                  ...e.staff,
+                  payroll_bank_name: e.staff?.payroll_bank_name ?? current?.payroll_bank_name ?? null,
+                },
+              }
+            })
+            .filter(
+              (e) =>
+                !isPendingPeriod || isActiveDuringPeriod(e.staff, periodData.start_date, periodData.end_date),
+            )
           setEntries(enriched)
         } else {
           setEntries(snapshot)
@@ -442,23 +473,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       if (staffError) throw staffError
 
-      // Regla de inclusión:
-      //  - Personal activo: siempre se incluye.
-      //  - Personal dado de baja/inactivo/suspendido DURANTE el periodo: se incluye
-      //    para pagarle la parte proporcional de los días trabajados en el mes.
-      //  - Personal en baja con finiquito pendiente (> 0 y no pagado): se incluye
-      //    para liquidarlo. El resto de bajas anteriores al periodo se omite.
-      const staffData = (staffRaw || []).filter((s) => {
-        // Excluir a quien ingresó DESPUÉS del cierre del periodo: aún no formaba
-        // parte de la empresa, por lo que no debe aparecer en nóminas pasadas.
-        if (s.hire_date && String(s.hire_date).slice(0, 10) > periodData.end_date) return false
-        if (s.is_active) return true
-        const hasFiniquito = Number(s.finiquito) > 0 && !s.finiquito_paid_at
-        const changed = s.status_change_date
-        const leftDuringPeriod =
-          !!changed && changed >= periodData.start_date && changed <= periodData.end_date
-        return hasFiniquito || leftDuringPeriod
-      })
+      // Solo personal activo durante el periodo: activos, o bajas ocurridas
+      // dentro/después del periodo (se les paga lo proporcional). Las bajas
+      // anteriores al periodo y los ingresos posteriores al cierre se omiten.
+      const staffData = (staffRaw || []).filter((s) =>
+        isActiveDuringPeriod(s, periodData.start_date, periodData.end_date),
+      )
 
       // Obtener bonos y comisiones (del apartado Comercial) aplicables al periodo.
       // Se consideran solo los aprobados o pagados cuya fecha cae dentro del periodo.
@@ -1384,22 +1404,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   // en la moneda del sueldo (normalmente MXN); si el colaborador se paga en otra
   // moneda (definida en Sueldos y salarios), se convierte dividiendo el neto
   // entre el tipo de cambio capturado (mismo criterio que Sueldos: monto ÷ TC).
-  const getPaymentInfo = (entry: PayrollEntry) => {
-  if (entry.paid_amount != null && entry.paid_currency_code) {
-    const paid = Number(entry.paid_amount) || 0
-    return {
-      code: entry.paid_currency_code,
-      amount: paid,
-      rate: paid > 0 ? entry.net_pay / paid : 0,
-    }
-  }
-  const s = entry.staff
-  const payCurrencyId = s.payroll_payment_currency_id || s.currency_id || null
-    const code = currencyCodeById(payCurrencyId)
-    const rate = Number(s.payroll_exchange_rate) || 0
-    const amount = rate > 0 ? entry.net_pay / rate : entry.net_pay
-    return { code, amount, rate }
-  }
+  const getPaymentInfo = (entry: PayrollEntry) => getEntryPayment(entry, currencyCodeById)
 
   // Formatea un monto con el código de moneda indicado (ej. $10.00 USD).
   const formatMoneyCode = (amount: number, code: string) =>
@@ -1590,6 +1595,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     deductions: entries.reduce((sum, e) => sum + e.deductions + e.loanDeductions + e.taxes, 0),
     net: entries.reduce((sum, e) => sum + e.net_pay, 0),
   }
+  const currencyTotals = sumByCurrency(entries, (id) => currencies.find((c) => c.id === id)?.code || "MXN")
+  const mxnTotals = currencyTotals.MXN ?? { gross: 0, net: 0 }
+  const usdTotals = currencyTotals.USD ?? { gross: 0, net: 0 }
   const employeesWithoutSalary = entries.filter(e => !e.staff.monthly_salary || e.staff.monthly_salary === 0)
 
   // Estado de la nómina para controlar la edición:
@@ -1858,8 +1866,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(calculatedTotals.gross)}</div>
-            <p className="text-xs text-muted-foreground">Antes de deducciones</p>
+            <div className="text-2xl font-bold">{formatMoneyCode(mxnTotals.gross, "MXN")}</div>
+            <div className="text-lg font-semibold">{formatMoneyCode(usdTotals.gross, "USD")}</div>
+            <p className="text-xs text-muted-foreground">Antes de deducciones, por moneda de pago</p>
           </CardContent>
         </Card>
         <Card>
@@ -1878,8 +1887,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(calculatedTotals.net)}</div>
-            <p className="text-xs text-muted-foreground">A pagar</p>
+            <div className="text-2xl font-bold text-green-600">{formatMoneyCode(mxnTotals.net, "MXN")}</div>
+            <div className="text-lg font-semibold text-green-600">{formatMoneyCode(usdTotals.net, "USD")}</div>
+            <p className="text-xs text-muted-foreground">A pagar, por moneda de pago</p>
           </CardContent>
         </Card>
       </div>

@@ -44,6 +44,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { toast } from "sonner"
 import { Plus, Search, Wallet, Calendar, DollarSign, Users, Eye, CheckCircle, MoreHorizontal, Pencil, Trash2, Download } from "lucide-react"
 import { computePayrollEntries, exportPayrollToXls, fetchPayrollNotes } from "@/lib/payroll-export"
+import { sumByCurrency, type CurrencyTotals, type PaymentEntryLike } from "@/lib/payroll-currency"
 
 interface PayrollPeriod {
   id: string
@@ -56,6 +57,7 @@ interface PayrollPeriod {
   total_gross: number
   total_deductions: number
   total_net: number
+  entries_snapshot: PaymentEntryLike[] | null
   agency: {
     id: string
     name: string
@@ -92,6 +94,7 @@ const periodTypeLabels: Record<string, string> = {
 export default function PayrollPage() {
   const [periods, setPeriods] = useState<PayrollPeriod[]>([])
   const [agencies, setAgencies] = useState<Agency[]>([])
+  const [currencies, setCurrencies] = useState<{ id: string; code: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
@@ -132,7 +135,7 @@ export default function PayrollPage() {
 
   const fetchData = async () => {
     try {
-      const [periodsRes, agenciesRes] = await Promise.all([
+      const [periodsRes, agenciesRes, currenciesRes] = await Promise.all([
         supabase
           .from("payroll_periods")
           .select(`
@@ -145,10 +148,12 @@ export default function PayrollPage() {
           .select("id, name")
           .eq("is_active", true)
           .order("name"),
+        supabase.from("currencies").select("id, code"),
       ])
 
       if (periodsRes.data) setPeriods(periodsRes.data)
       if (agenciesRes.data) setAgencies(agenciesRes.data)
+      if (currenciesRes.data) setCurrencies(currenciesRes.data)
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
@@ -200,16 +205,36 @@ export default function PayrollPage() {
     return `${day} ${month} ${year}`
   }
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number, code = "MXN") => {
     return new Intl.NumberFormat("es-MX", {
       style: "currency",
-      currency: "MXN",
-    }).format(amount)
+      currency: code,
+    }).format(amount || 0)
+  }
+
+  const codeById = (id: string | null | undefined) => currencies.find((c) => c.id === id)?.code || "MXN"
+
+  // Totales por moneda de pago. Sin renglones calculados (borrador), los totales
+  // guardados del periodo se consideran en pesos.
+  const periodTotals = (p: PayrollPeriod): CurrencyTotals => {
+    if (Array.isArray(p.entries_snapshot) && p.entries_snapshot.length > 0) {
+      return sumByCurrency(p.entries_snapshot, codeById)
+    }
+    return { MXN: { gross: Number(p.total_gross || 0), net: Number(p.total_net || 0) } }
   }
 
   // Stats
-  const totalGross = periods.reduce((sum, p) => sum + Number(p.total_gross || 0), 0)
-  const totalNet = periods.reduce((sum, p) => sum + Number(p.total_net || 0), 0)
+  const allTotals = periods.reduce(
+    (acc, p) => {
+      const t = periodTotals(p)
+      acc.mxnGross += t.MXN?.gross ?? 0
+      acc.mxnNet += t.MXN?.net ?? 0
+      acc.usdGross += t.USD?.gross ?? 0
+      acc.usdNet += t.USD?.net ?? 0
+      return acc
+    },
+    { mxnGross: 0, mxnNet: 0, usdGross: 0, usdNet: 0 },
+  )
   const pendingCount = periods.filter((p) => p.status === "draft" || p.status === "calculating").length
   const paidCount = periods.filter((p) => p.status === "paid").length
 
@@ -238,7 +263,8 @@ export default function PayrollPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(totalGross)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(allTotals.mxnGross, "MXN")}</div>
+            <div className="text-lg font-semibold">{formatCurrency(allTotals.usdGross, "USD")}</div>
             <p className="text-xs text-muted-foreground">Todos los períodos</p>
           </CardContent>
         </Card>
@@ -248,7 +274,8 @@ export default function PayrollPage() {
             <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(totalNet)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(allTotals.mxnNet, "MXN")}</div>
+            <div className="text-lg font-semibold">{formatCurrency(allTotals.usdNet, "USD")}</div>
             <p className="text-xs text-muted-foreground">Después de deducciones</p>
           </CardContent>
         </Card>
@@ -386,7 +413,19 @@ export default function PayrollPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-medium">
-                        {formatCurrency(Number(period.total_net || 0))}
+                        {(() => {
+                          const t = periodTotals(period)
+                          return (
+                            <div className="flex flex-col items-end">
+                              <span>{formatCurrency(t.MXN?.net ?? 0, "MXN")}</span>
+                              {(t.USD?.net ?? 0) > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  {formatCurrency(t.USD.net, "USD")}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
