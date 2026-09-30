@@ -163,7 +163,16 @@ export default function PayrollPage() {
                   ...p,
                   entries_snapshot: p.entries_snapshot.map((e: any) => {
                     const current = staffById.get(e.staff_id)
-                    return current ? { ...e, staff: { ...e.staff, ...current } } : e
+                    if (!current) return e
+                    // El tipo de cambio queda fijo desde el cálculo del periodo.
+                    return {
+                      ...e,
+                      staff: {
+                        ...e.staff,
+                        ...current,
+                        payroll_exchange_rate: e.staff?.payroll_exchange_rate ?? current.payroll_exchange_rate,
+                      },
+                    }
                   }),
                 }
               : p,

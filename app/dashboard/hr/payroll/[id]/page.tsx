@@ -407,8 +407,10 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
           const staffById = new Map((staffRows || []).map((r: any) => [r.id, r]))
 
           // Una nómina pagada queda congelada. Una por realizar (calculada o
-          // aprobada) toma la moneda/tipo de cambio vigente de Sueldos y salarios
-          // y omite al personal que no estuvo activo durante el periodo.
+          // aprobada) toma la moneda vigente de Sueldos y salarios y omite al
+          // personal que no estuvo activo durante el periodo. El tipo de cambio
+          // se conserva el del momento del cálculo (cambia en el tiempo); solo
+          // se actualiza al recalcular el periodo.
           const isPendingPeriod = periodData.status !== "paid"
           const enriched = snapshot
             .map((e) => {
@@ -420,7 +422,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
                     ...e.staff,
                     payroll_bank_name: current.payroll_bank_name ?? e.staff?.payroll_bank_name ?? null,
                     payroll_payment_currency_id: current.payroll_payment_currency_id,
-                    payroll_exchange_rate: current.payroll_exchange_rate,
+                    payroll_exchange_rate: e.staff?.payroll_exchange_rate ?? current.payroll_exchange_rate,
                     currency_id: current.currency_id,
                     is_active: current.is_active,
                     hire_date: current.hire_date,

@@ -228,6 +228,11 @@ export default function SalariesPage() {
   // Diálogo de confirmación antes de guardar cambios de sueldo/comisión.
   const [confirmOpen, setConfirmOpen] = useState(false)
 
+  // Tipo de cambio USD general para todo el personal que cobra en dólares.
+  const [usdRateOpen, setUsdRateOpen] = useState(false)
+  const [usdRateValue, setUsdRateValue] = useState("")
+  const [savingUsdRate, setSavingUsdRate] = useState(false)
+
   // Pestaña activa: compensación actual o evolución en el tiempo.
   const [activeTab, setActiveTab] = useTabParam("current")
 
@@ -1055,6 +1060,57 @@ export default function SalariesPage() {
     )
   }
 
+  const usdCurrency = currencies.find((c) => c.code === "USD")
+  const usdStaff = usdCurrency ? staff.filter((s) => s.payroll_payment_currency_id === usdCurrency.id) : []
+  const currentUsdRate = (() => {
+    const counts = new Map<number, number>()
+    for (const s of usdStaff) {
+      const r = Number(s.payroll_exchange_rate)
+      if (r > 0) counts.set(r, (counts.get(r) || 0) + 1)
+    }
+    let best: number | null = null
+    let bestCount = 0
+    for (const [rate, count] of counts) {
+      if (count > bestCount) {
+        best = rate
+        bestCount = count
+      }
+    }
+    return best
+  })()
+
+  const openUsdRateDialog = () => {
+    setUsdRateValue(currentUsdRate != null ? String(currentUsdRate) : "")
+    setUsdRateOpen(true)
+  }
+
+  const saveUsdRate = async () => {
+    const rate = Number.parseFloat(usdRateValue)
+    if (!usdCurrency || !(rate > 0)) return
+    setSavingUsdRate(true)
+    const { error } = await supabase
+      .from("staff")
+      .update({ payroll_exchange_rate: rate })
+      .eq("payroll_payment_currency_id", usdCurrency.id)
+    setSavingUsdRate(false)
+    if (error) {
+      console.error("Error updating USD exchange rate:", error)
+      toast.error("No se pudo actualizar el tipo de cambio")
+      return
+    }
+    // Descarta ediciones pendientes del tipo de cambio para no sobrescribir el nuevo valor.
+    setEdits((prev) => {
+      const next = { ...prev }
+      for (const s of usdStaff) {
+        if (next[s.id]) next[s.id] = { ...next[s.id], payroll_exchange_rate: String(rate) }
+      }
+      return next
+    })
+    setUsdRateOpen(false)
+    toast.success(`Tipo de cambio USD actualizado a ${rate.toFixed(2)} para ${usdStaff.length} colaboradores`)
+    fetchData()
+  }
+
   return (
     <div className="space-y-6">
       {/* Encabezado */}
@@ -1067,6 +1123,12 @@ export default function SalariesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canEdit && activeTab === "current" && usdCurrency && (
+            <Button variant="outline" onClick={openUsdRateDialog}>
+              <Banknote className="mr-2 h-4 w-4" />
+              Tipo de cambio USD{currentUsdRate != null ? `: ${currentUsdRate.toFixed(2)}` : ""}
+            </Button>
+          )}
           {canEdit && activeTab === "current" && (
             <Button onClick={handleSaveClick} disabled={dirtyCount === 0 || saving}>
               {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
@@ -1804,6 +1866,37 @@ export default function SalariesPage() {
       </Tabs>
 
       {/* Confirmación de cambios de sueldo / comisión */}
+      <AlertDialog open={usdRateOpen} onOpenChange={(o) => !savingUsdRate && setUsdRateOpen(o)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Tipo de cambio USD</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se aplicará a los {usdStaff.length} colaboradores que cobran en dólares. Solo afecta a la nómina que
+              calcules (o recalcules) a partir de ahora; los periodos ya calculados y pagados conservan el tipo de
+              cambio con el que se calcularon.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="usd-rate">Pesos por 1 USD</Label>
+            <Input
+              id="usd-rate"
+              inputMode="decimal"
+              autoFocus
+              placeholder="18.70"
+              value={usdRateValue}
+              onChange={(e) => setUsdRateValue(sanitizeDecimal(e.target.value))}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingUsdRate}>Cancelar</AlertDialogCancel>
+            <Button onClick={saveUsdRate} disabled={savingUsdRate || !(Number.parseFloat(usdRateValue) > 0)}>
+              {savingUsdRate && <Spinner className="mr-2 h-4 w-4" />}
+              Aplicar a todos
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
