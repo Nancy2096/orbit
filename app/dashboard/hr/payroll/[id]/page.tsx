@@ -922,16 +922,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   // descuenta de la cuenta primaria/activa de ese banco. Es idempotente:
   // elimina los movimientos previos de este periodo antes de insertar.
   const registerPayrollBankMovements = async (periodId: string) => {
-    const netByBankName = new Map<string, number>()
+    const entriesByBankName = new Map<string, PayrollEntry[]>()
     for (const e of entries) {
       const bankName = (e.staff.payroll_bank_name || "").trim()
-      // Monto en la MONEDA DE PAGO del colaborador: si se paga en otra moneda
-      // (p. ej. USD), se convierte el neto dividiéndolo entre el tipo de cambio,
-      // para que el banco de salida se afecte en su propia moneda y no con el
-      // monto en pesos.
-      const amount = getPaymentInfo(e).amount
-      if (!bankName || amount <= 0) continue
-      netByBankName.set(bankName, (netByBankName.get(bankName) || 0) + amount)
+      if (!bankName || (Number(e.net_pay) || 0) <= 0) continue
+      entriesByBankName.set(bankName, [...(entriesByBankName.get(bankName) || []), e])
     }
 
     // Limpiar movimientos previos de nómina de este periodo (idempotencia).
@@ -941,12 +936,23 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       .eq("source_type", "payroll_period")
       .eq("source_id", periodId)
 
-    if (netByBankName.size === 0) return { registered: 0, unmatched: [] as string[] }
+    if (entriesByBankName.size === 0) return { registered: 0, unmatched: [] as string[] }
 
     const { data: accounts } = await supabase
       .from("bank_accounts")
-      .select("id, bank_name, agency_id, is_primary, is_active")
+      .select("id, bank_name, agency_id, is_primary, is_active, currency_id")
       .eq("is_active", true)
+
+    // Monto en la moneda del BANCO: si el colaborador cobra en la misma moneda
+    // del banco se usa su monto de pago (p. ej. USD); si el banco es en pesos se
+    // usa el neto en pesos, aunque el colaborador tenga otra moneda de pago.
+    const amountForBank = (bankEntries: PayrollEntry[], bankCode: string) =>
+      bankEntries.reduce((sum, e) => {
+        const pay = getPaymentInfo(e)
+        if (pay.code === bankCode) return sum + pay.amount
+        if (bankCode === "MXN") return sum + (Number(e.net_pay) || 0)
+        return sum + pay.amount
+      }, 0)
 
     // Elige la cuenta de un banco por nombre: prioriza la primaria, si no la
     // primera cuenta activa con ese nombre.
@@ -965,12 +971,14 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
     const rows: Record<string, unknown>[] = []
     const unmatched: string[] = []
-    for (const [bankName, amount] of netByBankName.entries()) {
+    for (const [bankName, bankEntries] of entriesByBankName.entries()) {
       const acct = pickAccount(bankName) as Record<string, unknown> | null
       if (!acct) {
         unmatched.push(bankName)
         continue
       }
+      const amount = Math.round(amountForBank(bankEntries, currencyCodeById(acct.currency_id as string | null)) * 100) / 100
+      if (amount <= 0) continue
       rows.push({
         bank_account_id: acct.id,
         agency_id: acct.agency_id ?? null,

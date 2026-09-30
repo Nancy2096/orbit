@@ -135,7 +135,7 @@ export default function PayrollPage() {
 
   const fetchData = async () => {
     try {
-      const [periodsRes, agenciesRes, currenciesRes] = await Promise.all([
+      const [periodsRes, agenciesRes, currenciesRes, staffRes] = await Promise.all([
         supabase
           .from("payroll_periods")
           .select(`
@@ -149,9 +149,27 @@ export default function PayrollPage() {
           .eq("is_active", true)
           .order("name"),
         supabase.from("currencies").select("id, code"),
+        supabase.from("staff").select("id, payroll_payment_currency_id, payroll_exchange_rate, currency_id"),
       ])
 
-      if (periodsRes.data) setPeriods(periodsRes.data)
+      // Las nóminas por realizar usan la moneda de pago vigente de Sueldos y
+      // salarios; las pagadas quedan congeladas con su snapshot.
+      const staffById = new Map((staffRes.data || []).map((s: any) => [s.id, s]))
+      if (periodsRes.data) {
+        setPeriods(
+          periodsRes.data.map((p: any) =>
+            p.status !== "paid" && Array.isArray(p.entries_snapshot)
+              ? {
+                  ...p,
+                  entries_snapshot: p.entries_snapshot.map((e: any) => {
+                    const current = staffById.get(e.staff_id)
+                    return current ? { ...e, staff: { ...e.staff, ...current } } : e
+                  }),
+                }
+              : p,
+          ),
+        )
+      }
       if (agenciesRes.data) setAgencies(agenciesRes.data)
       if (currenciesRes.data) setCurrencies(currenciesRes.data)
     } catch (error) {
