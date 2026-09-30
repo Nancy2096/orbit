@@ -84,6 +84,17 @@ interface PayrollPeriod {
     id: string
     name: string
   } | null
+  // Corrección única de pagos en dólares ya realizados (una sola vez por periodo).
+  usd_correction_at?: string | null
+}
+
+interface UsdPayrollMovement {
+  id: string
+  amount: number
+  movement_date: string
+  bank_name: string
+  account_name: string
+  currency_code: string
 }
 
 interface Staff {
@@ -169,7 +180,11 @@ interface PayrollEntry {
   taxes: number
   gross_pay: number
   net_pay: number
-}
+  // Moneda y monto que realmente salió del banco (capturado en la corrección
+  // única de pagos en dólares). Si existe, tiene prioridad sobre la conversión.
+  paid_currency_code?: string | null
+  paid_amount?: number | null
+  }
 
 const commissionTypeLabels: Record<string, string> = {
   appointment: "Por Cita",
@@ -235,6 +250,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   const [downloadingXls, setDownloadingXls] = useState(false)
   // Catálogo de monedas (id -> código) para mostrar la moneda de pago.
   const [currencies, setCurrencies] = useState<{ id: string; code: string }[]>([])
+  // Corrección única: salidas de nómina registradas en bancos que no son MXN.
+  const [usdMovements, setUsdMovements] = useState<UsdPayrollMovement[]>([])
+  const [usdCorrectionOpen, setUsdCorrectionOpen] = useState(false)
+  const [usdCorrectionAmounts, setUsdCorrectionAmounts] = useState<Record<string, string>>({})
+  const [savingUsdCorrection, setSavingUsdCorrection] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -346,6 +366,11 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       if (periodError) throw periodError
       setPeriod(periodData)
+      if (periodData.status === "paid" && !periodData.usd_correction_at) {
+        void loadUsdPayrollMovements(periodData.id)
+      } else {
+        setUsdMovements([])
+      }
 
       // Config de impuestos guardada para este periodo. Si existe, se usa tal cual
       // (para que quien apruebe vea lo previamente configurado); si no, se usan
@@ -951,6 +976,133 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
     return { registered: rows.length, unmatched }
   }
 
+  // Salidas de nómina de este periodo registradas en bancos que no son MXN
+  // (candidatas a la corrección única de pagos en dólares).
+  const loadUsdPayrollMovements = async (periodId: string) => {
+    const { data, error } = await supabase
+      .from("bank_movements")
+      .select("id, amount, movement_date, bank_account:bank_accounts(bank_name, account_name, currency:currencies(code))")
+      .eq("source_type", "payroll_period")
+      .eq("source_id", periodId)
+    if (error) {
+      console.error("Error cargando movimientos de nómina:", error)
+      setUsdMovements([])
+      return
+    }
+    const rows: UsdPayrollMovement[] = (data || [])
+      .map((m: any) => {
+        const acct = Array.isArray(m.bank_account) ? m.bank_account[0] : m.bank_account
+        const cur = Array.isArray(acct?.currency) ? acct.currency[0] : acct?.currency
+        return {
+          id: m.id,
+          amount: Number(m.amount) || 0,
+          movement_date: m.movement_date,
+          bank_name: String(acct?.bank_name || "").trim(),
+          account_name: acct?.account_name ?? "",
+          currency_code: cur?.code || "MXN",
+        }
+      })
+      .filter((r) => r.currency_code !== "MXN")
+    setUsdMovements(rows)
+  }
+
+  const entriesForBank = (bankName: string) =>
+    entries.filter(
+      (e) =>
+        (e.staff.payroll_bank_name || "").trim().toLowerCase() === bankName.toLowerCase() &&
+        e.net_pay > 0,
+    )
+
+  const openUsdCorrection = () => {
+    const initial: Record<string, string> = {}
+    for (const m of usdMovements) {
+      for (const e of entriesForBank(m.bank_name)) {
+        initial[e.staff_id] = e.paid_amount != null ? String(e.paid_amount) : ""
+      }
+    }
+    setUsdCorrectionAmounts(initial)
+    setUsdCorrectionOpen(true)
+  }
+
+  const usdCorrectionTotal = (m: UsdPayrollMovement) =>
+    entriesForBank(m.bank_name).reduce(
+      (sum, e) => sum + (Number(usdCorrectionAmounts[e.staff_id]) || 0),
+      0,
+    )
+
+  // Corrección única: ajusta cada salida en dólares al monto real (la suma de lo
+  // pagado a cada colaborador en la moneda del banco). Al actualizar el
+  // movimiento existente se regresa el monto en pesos y se descuenta el real,
+  // conservando la fecha original. Los bancos en MXN no se tocan.
+  const handleSaveUsdCorrection = async () => {
+    if (!period) return
+
+    const corrections = new Map<string, { code: string; amount: number }>()
+    for (const m of usdMovements) {
+      const staffEntries = entriesForBank(m.bank_name)
+      if (staffEntries.length === 0) {
+        toast.error(`No hay colaboradores asociados a ${m.bank_name} en este periodo`)
+        return
+      }
+      for (const e of staffEntries) {
+        const amount = Number(usdCorrectionAmounts[e.staff_id])
+        if (!Number.isFinite(amount) || amount <= 0) {
+          toast.error(`Captura el monto real pagado a ${e.staff.first_name} ${e.staff.last_name}`)
+          return
+        }
+        corrections.set(e.staff_id, { code: m.currency_code, amount: Math.round(amount * 100) / 100 })
+      }
+    }
+
+    setSavingUsdCorrection(true)
+    try {
+      for (const m of usdMovements) {
+        const total =
+          Math.round(
+            entriesForBank(m.bank_name).reduce((sum, e) => sum + (corrections.get(e.staff_id)?.amount || 0), 0) * 100,
+          ) / 100
+        const { error } = await supabase
+          .from("bank_movements")
+          .update({
+            amount: total,
+            description: `Pago de nómina ${period.period_name} · ${m.bank_name} (corregido a ${m.currency_code})`,
+          })
+          .eq("id", m.id)
+        if (error) throw error
+      }
+
+      const updatedEntries = entries.map((e) => {
+        const c = corrections.get(e.staff_id)
+        return c ? { ...e, paid_currency_code: c.code, paid_amount: c.amount } : e
+      })
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      const correctedAt = new Date().toISOString()
+      const { error: periodError } = await supabase
+        .from("payroll_periods")
+        .update({
+          entries_snapshot: updatedEntries,
+          usd_correction_at: correctedAt,
+          usd_correction_by: user?.id ?? null,
+        })
+        .eq("id", period.id)
+        .is("usd_correction_at", null)
+      if (periodError) throw periodError
+
+      setEntries(updatedEntries)
+      setPeriod({ ...period, usd_correction_at: correctedAt })
+      setUsdMovements([])
+      setUsdCorrectionOpen(false)
+      toast.success("Pagos en dólares corregidos. Los bancos reflejan el monto real.")
+    } catch (error) {
+      console.error("Error corrigiendo pagos en dólares:", error)
+      toast.error("No se pudo completar la corrección. Puedes intentarlo de nuevo.")
+    } finally {
+      setSavingUsdCorrection(false)
+    }
+  }
+
   // Revierte (elimina) los movimientos bancarios generados por el pago de un
   // periodo, devolviendo el dinero al saldo de cada banco.
   const revertPayrollBankMovements = async (periodId: string) => {
@@ -1233,8 +1385,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
   // moneda (definida en Sueldos y salarios), se convierte dividiendo el neto
   // entre el tipo de cambio capturado (mismo criterio que Sueldos: monto ÷ TC).
   const getPaymentInfo = (entry: PayrollEntry) => {
-    const s = entry.staff
-    const payCurrencyId = s.payroll_payment_currency_id || s.currency_id || null
+  if (entry.paid_amount != null && entry.paid_currency_code) {
+    const paid = Number(entry.paid_amount) || 0
+    return {
+      code: entry.paid_currency_code,
+      amount: paid,
+      rate: paid > 0 ? entry.net_pay / paid : 0,
+    }
+  }
+  const s = entry.staff
+  const payCurrencyId = s.payroll_payment_currency_id || s.currency_id || null
     const code = currencyCodeById(payCurrencyId)
     const rate = Number(s.payroll_exchange_rate) || 0
     const amount = rate > 0 ? entry.net_pay / rate : entry.net_pay
@@ -1584,8 +1744,101 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
               )}
             </>
           )}
+          {period.status === "paid" && !period.usd_correction_at && usdMovements.length > 0 && canApprovePayroll && (
+            <Button variant="outline" onClick={openUsdCorrection}>
+              <Wallet className="mr-2 h-4 w-4" />
+              Corregir pago en dólares
+            </Button>
+          )}
         </div>
       </div>
+
+      <Dialog open={usdCorrectionOpen} onOpenChange={(open) => !savingUsdCorrection && setUsdCorrectionOpen(open)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Corregir pago en dólares</DialogTitle>
+            <DialogDescription>
+              Captura el monto real que salió para cada colaborador. Se regresa a cada banco el monto registrado en
+              pesos y se descuenta el monto real, con la fecha original. Esta corrección solo se puede hacer una vez.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-6">
+            {usdMovements.map((m) => {
+              const staffEntries = entriesForBank(m.bank_name)
+              const newTotal = usdCorrectionTotal(m)
+              return (
+                <section key={m.id} className="flex flex-col gap-3 rounded-lg border p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-medium">{m.bank_name}</h3>
+                      <p className="text-xs text-muted-foreground">
+                        {m.account_name} · Moneda {m.currency_code} · Fecha{" "}
+                        {new Date(m.movement_date).toLocaleDateString("es-MX", { timeZone: "UTC" })}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">{m.currency_code}</Badge>
+                  </div>
+                  {staffEntries.length === 0 ? (
+                    <p className="text-sm text-destructive">
+                      No hay colaboradores de este periodo con este banco de pago.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {staffEntries.map((e) => (
+                        <div key={e.staff_id} className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <Label htmlFor={`usd-${e.staff_id}`} className="font-normal">
+                              {e.staff.first_name} {e.staff.last_name}
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                              Neto registrado: {formatMoneyCode(e.net_pay, "MXN")}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id={`usd-${e.staff_id}`}
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              className="w-36 text-right"
+                              placeholder="0.00"
+                              value={usdCorrectionAmounts[e.staff_id] ?? ""}
+                              onChange={(ev) =>
+                                setUsdCorrectionAmounts((prev) => ({ ...prev, [e.staff_id]: ev.target.value }))
+                              }
+                            />
+                            <span className="w-10 text-sm text-muted-foreground">{m.currency_code}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-1 border-t pt-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Registrado actualmente (en pesos)</span>
+                      <span>{formatMoneyCode(m.amount, "MXN")}</span>
+                    </div>
+                    <div className="flex justify-between font-medium">
+                      <span>Nueva salida real</span>
+                      <span>{formatMoneyCode(newTotal, m.currency_code)}</span>
+                    </div>
+                  </div>
+                </section>
+              )
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUsdCorrectionOpen(false)} disabled={savingUsdCorrection}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveUsdCorrection} disabled={savingUsdCorrection}>
+              {savingUsdCorrection && <Spinner className="mr-2 h-4 w-4" />}
+              Aplicar corrección
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-4">
