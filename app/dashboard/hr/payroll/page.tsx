@@ -43,7 +43,12 @@ import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "sonner"
 import { Plus, Search, Wallet, Calendar, DollarSign, Users, Eye, CheckCircle, MoreHorizontal, Pencil, Trash2, Download } from "lucide-react"
-import { computePayrollEntries, exportPayrollToXls, fetchPayrollNotes } from "@/lib/payroll-export"
+import {
+  computePayrollEntries,
+  exportPayrollToXls,
+  fetchPayrollBankMovements,
+  fetchPayrollNotes,
+} from "@/lib/payroll-export"
 import { sumByCurrency, type CurrencyTotals, type PaymentEntryLike } from "@/lib/payroll-currency"
 
 interface PayrollPeriod {
@@ -111,15 +116,16 @@ export default function PayrollPage() {
       // El registro se consulta con select("*"), por lo que incluye payment_concept
       // y agency_id aunque no estén en el tipo local.
       const p = period as unknown as Parameters<typeof computePayrollEntries>[1]
-      const [entries, notes] = await Promise.all([
+      const [entries, notes, bankMovements] = await Promise.all([
         computePayrollEntries(supabase, p),
         fetchPayrollNotes(supabase, period.id),
+        fetchPayrollBankMovements(supabase, period.id, codeById),
       ])
       if (entries.length === 0) {
         toast.error("No hay colaboradores en este periodo para exportar")
         return
       }
-      exportPayrollToXls(p, entries, notes)
+      exportPayrollToXls(p, entries, { notes, bankMovements, codeById })
       toast.success("Tabla de nómina descargada")
     } catch (error) {
       console.error("Error exporting payroll:", error)

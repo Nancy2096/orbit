@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx"
 import type { createClient } from "@/lib/supabase/client"
-import { isActiveDuringPeriod } from "@/lib/payroll-currency"
+import { getEntryPayment, isActiveDuringPeriod, sumByCurrency } from "@/lib/payroll-currency"
 
 type SupabaseClient = ReturnType<typeof createClient>
 
@@ -23,6 +23,20 @@ export interface PayrollExportStaff {
   bank_name: string | null
   bank_clabe: string | null
   bank_account_number: string | null
+  payroll_bank_name?: string | null
+  payroll_payment_currency_id?: string | null
+  currency_id?: string | null
+  payroll_exchange_rate?: number | string | null
+}
+
+export interface PayrollExportBankMovement {
+  bankName: string
+  accountName: string
+  currencyCode: string
+  amount: number
+  movementType: string
+  movementDate: string | null
+  description: string
 }
 
 export interface PayrollExportPeriod {
@@ -76,6 +90,9 @@ export interface PayrollExportEntry {
   taxes: number
   gross_pay: number
   net_pay: number
+  // Monto real capturado en la corrección única de nóminas pagadas en USD.
+  paid_currency_code?: string | null
+  paid_amount?: number | null
   // Detalle de los conceptos aplicados en el periodo (para las hojas del XLS).
   commissionItems: PayrollExportCommissionItem[]
   bonusItems: PayrollExportBonusItem[]
@@ -206,7 +223,13 @@ function mapSnapshotToEntries(raw: unknown): PayrollExportEntry[] | null {
         bank_name: staffRaw.bank_name ?? null,
         bank_clabe: staffRaw.bank_clabe ?? null,
         bank_account_number: staffRaw.bank_account_number ?? null,
+        payroll_bank_name: staffRaw.payroll_bank_name ?? null,
+        payroll_payment_currency_id: staffRaw.payroll_payment_currency_id ?? null,
+        currency_id: staffRaw.currency_id ?? null,
+        payroll_exchange_rate: staffRaw.payroll_exchange_rate ?? null,
       },
+      paid_currency_code: e.paid_currency_code ?? null,
+      paid_amount: e.paid_amount != null ? num(e.paid_amount) : null,
       base_salary: num(e.base_salary),
       bonuses: num(e.bonuses),
       commissions: num(e.commissions),
@@ -409,44 +432,126 @@ export async function fetchPayrollNotes(
   }))
 }
 
-// Genera y descarga un archivo .xls con la tabla de nómina del periodo, incluyendo
-// las hojas de detalle: Comisiones, Bonos y Notas del periodo.
+// Movimientos bancarios que la nómina registró en los bancos de salida.
+export async function fetchPayrollBankMovements(
+  supabase: SupabaseClient,
+  periodId: string,
+  codeById: (id: string | null | undefined) => string,
+): Promise<PayrollExportBankMovement[]> {
+  const { data } = await supabase
+    .from("bank_movements")
+    .select("amount, movement_type, movement_date, description, bank_account:bank_accounts(bank_name, account_name, currency_id)")
+    .eq("source_type", "payroll_period")
+    .eq("source_id", periodId)
+    .order("movement_date", { ascending: true })
+
+  return (data || []).map((m: Record<string, any>) => {
+    const acct = Array.isArray(m.bank_account) ? m.bank_account[0] : m.bank_account
+    return {
+      bankName: acct?.bank_name || "",
+      accountName: acct?.account_name || "",
+      currencyCode: codeById(acct?.currency_id ?? null),
+      amount: Number(m.amount || 0),
+      movementType: m.movement_type || "",
+      movementDate: m.movement_date ?? null,
+      description: m.description || "",
+    }
+  })
+}
+
+const periodStatusLabels: Record<string, string> = {
+  draft: "Borrador",
+  calculated: "Calculada",
+  pending: "Pendiente",
+  approved: "Aprobada",
+  paid: "Pagada",
+  cancelled: "Cancelada",
+}
+
+const periodTypeLabels: Record<string, string> = {
+  semanal: "Semanal",
+  quincenal: "Quincenal",
+  mensual: "Mensual",
+}
+
+export interface PayrollExportOptions {
+  notes?: PayrollExportNote[]
+  bankMovements?: PayrollExportBankMovement[]
+  codeById?: (id: string | null | undefined) => string
+}
+
+// Genera y descarga un archivo .xls con todo el contenido del periodo: resumen y
+// totales por moneda, tabla de nómina (con moneda, tipo de cambio y banco de
+// salida), bancos de salida, movimientos bancarios, comisiones, bonos y notas.
 export function exportPayrollToXls(
   period: PayrollExportPeriod,
   entries: PayrollExportEntry[],
-  notes: PayrollExportNote[] = [],
+  options: PayrollExportOptions = {},
 ) {
+  const { notes = [], bankMovements = [], codeById = () => "MXN" } = options
   const round2 = (n: number) => Math.round(n * 100) / 100
+  const round4 = (n: number) => Math.round(n * 10000) / 10000
   const fmtDay = (v: string | null | undefined) =>
     v ? new Date(String(v).slice(0, 10) + "T00:00:00Z").toLocaleDateString("es-MX", { timeZone: "UTC" }) : ""
   const fmtDateTime = (v: string | null | undefined) => (v ? new Date(v).toLocaleString("es-MX") : "")
   const staffName = (e: PayrollExportEntry) => `${e.staff.first_name} ${e.staff.last_name}`.trim()
+  const payment = (e: PayrollExportEntry) => getEntryPayment(e, codeById)
+  const totalsByCurrency = sumByCurrency(entries, codeById)
+  const currencyCodes = Object.keys(totalsByCurrency).sort((a, b) =>
+    a === "MXN" ? -1 : b === "MXN" ? 1 : a.localeCompare(b),
+  )
 
-  const rows = entries.map((e) => ({
-    Colaborador: `${e.staff.first_name} ${e.staff.last_name}`.trim(),
-    Puesto: e.staff.position || "",
-    Banco: e.staff.bank_name || "",
-    "CLABE Interbancaria": e.staff.bank_clabe || "",
-    Concepto: period.payment_concept || "",
-    "Salario Base": round2(e.base_salary),
-    Bonos: round2(e.bonuses),
-    Comisiones: round2(e.commissions),
-    Finiquito: round2(e.finiquito),
-    Préstamos: round2(e.loanDeductions),
-    Deducciones: round2(e.deductions),
-    Impuestos: round2(e.taxes),
-    "Total Bruto": round2(e.gross_pay),
-    "Total Neto": round2(e.net_pay),
-  }))
+  const workbook = XLSX.utils.book_new()
 
-  // Fila de totales al final.
+  // 1) Periodo: datos generales y totales brutos/netos por moneda de pago.
+  const periodo: Record<string, unknown>[] = [
+    { Campo: "Periodo", Valor: period.period_name },
+    { Campo: "Tipo", Valor: periodTypeLabels[period.period_type] || period.period_type },
+    { Campo: "Fecha inicio", Valor: fmtDay(period.start_date) },
+    { Campo: "Fecha fin", Valor: fmtDay(period.end_date) },
+    { Campo: "Fecha de pago", Valor: fmtDay(period.payment_date) },
+    { Campo: "Estado", Valor: periodStatusLabels[period.status] || period.status },
+    { Campo: "Concepto", Valor: period.payment_concept || "" },
+    { Campo: "Colaboradores", Valor: entries.length },
+    { Campo: "Total Bruto (MXN, cálculo)", Valor: round2(entries.reduce((s, e) => s + e.gross_pay, 0)) },
+    { Campo: "Total Neto (MXN, cálculo)", Valor: round2(entries.reduce((s, e) => s + e.net_pay, 0)) },
+  ]
+  for (const code of currencyCodes) {
+    periodo.push({ Campo: `Total Bruto a pagar (${code})`, Valor: round2(totalsByCurrency[code].gross) })
+    periodo.push({ Campo: `Total Neto a pagar (${code})`, Valor: round2(totalsByCurrency[code].net) })
+  }
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(periodo), "Periodo")
+
+  // 2) Nómina: renglón por colaborador.
+  const rows: Record<string, unknown>[] = entries.map((e) => {
+    const p = payment(e)
+    return {
+      Colaborador: staffName(e),
+      Puesto: e.staff.position || "",
+      "Banco destino": e.staff.bank_name || "",
+      "CLABE Interbancaria": e.staff.bank_clabe || "",
+      "Número de cuenta": e.staff.bank_account_number || "",
+      "Banco de salida": e.staff.payroll_bank_name || "",
+      Concepto: period.payment_concept || "",
+      "Salario Base": round2(e.base_salary),
+      Bonos: round2(e.bonuses),
+      Comisiones: round2(e.commissions),
+      Finiquito: round2(e.finiquito),
+      Préstamos: round2(e.loanDeductions),
+      Deducciones: round2(e.deductions),
+      Impuestos: round2(e.taxes),
+      "Total Bruto (MXN)": round2(e.gross_pay),
+      "Total Neto (MXN)": round2(e.net_pay),
+      "Moneda de pago": p.code,
+      "Tipo de cambio": p.rate > 0 ? round4(p.rate) : "",
+      "Bruto en moneda de pago": round2(p.grossAmount),
+      "Monto a pagar": round2(p.amount),
+    }
+  })
+
   if (rows.length > 0) {
     rows.push({
-      Colaborador: "TOTAL",
-      Puesto: "",
-      Banco: "",
-      "CLABE Interbancaria": "",
-      Concepto: "",
+      Colaborador: "TOTAL (MXN, cálculo)",
       "Salario Base": round2(entries.reduce((s, e) => s + e.base_salary, 0)),
       Bonos: round2(entries.reduce((s, e) => s + e.bonuses, 0)),
       Comisiones: round2(entries.reduce((s, e) => s + e.commissions, 0)),
@@ -454,14 +559,62 @@ export function exportPayrollToXls(
       Préstamos: round2(entries.reduce((s, e) => s + e.loanDeductions, 0)),
       Deducciones: round2(entries.reduce((s, e) => s + e.deductions, 0)),
       Impuestos: round2(entries.reduce((s, e) => s + e.taxes, 0)),
-      "Total Bruto": round2(entries.reduce((s, e) => s + e.gross_pay, 0)),
-      "Total Neto": round2(entries.reduce((s, e) => s + e.net_pay, 0)),
+      "Total Bruto (MXN)": round2(entries.reduce((s, e) => s + e.gross_pay, 0)),
+      "Total Neto (MXN)": round2(entries.reduce((s, e) => s + e.net_pay, 0)),
     })
+    for (const code of currencyCodes) {
+      rows.push({
+        Colaborador: `TOTAL A PAGAR ${code}`,
+        "Moneda de pago": code,
+        "Bruto en moneda de pago": round2(totalsByCurrency[code].gross),
+        "Monto a pagar": round2(totalsByCurrency[code].net),
+      })
+    }
   }
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Nómina")
 
-  const worksheet = XLSX.utils.json_to_sheet(rows)
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Nómina")
+  // 3) Bancos de salida: cuánto sale de cada banco y en qué moneda.
+  const banks = new Map<string, { bank: string; code: string; count: number; netMxn: number; amount: number }>()
+  for (const e of entries) {
+    const p = payment(e)
+    const bank = (e.staff.payroll_bank_name || "").trim() || "Sin banco de salida"
+    const key = `${bank.toLowerCase()}|${p.code}`
+    const row = banks.get(key) || { bank, code: p.code, count: 0, netMxn: 0, amount: 0 }
+    row.count += 1
+    row.netMxn += e.net_pay
+    row.amount += p.amount
+    banks.set(key, row)
+  }
+  const bancos = [...banks.values()].map((b) => ({
+    "Banco de salida": b.bank,
+    Moneda: b.code,
+    Colaboradores: b.count,
+    "Neto calculado (MXN)": round2(b.netMxn),
+    "Monto a pagar": round2(b.amount),
+  }))
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(bancos.length ? bancos : [{ Aviso: "Sin colaboradores en el periodo" }]),
+    "Bancos de salida",
+  )
+
+  // 4) Movimientos bancarios registrados por la nómina.
+  const movimientos = bankMovements.map((m) => ({
+    Banco: m.bankName,
+    Cuenta: m.accountName,
+    Moneda: m.currencyCode,
+    Tipo: m.movementType === "withdrawal" ? "Salida" : m.movementType === "deposit" ? "Entrada" : m.movementType,
+    Monto: round2(m.amount),
+    Fecha: fmtDay(m.movementDate),
+    Descripción: m.description,
+  }))
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(
+      movimientos.length ? movimientos : [{ Aviso: "Sin movimientos bancarios registrados para el periodo" }],
+    ),
+    "Movimientos bancarios",
+  )
 
   // Hoja de Comisiones (con desglose base × porcentaje).
   const comisiones: Record<string, unknown>[] = []
