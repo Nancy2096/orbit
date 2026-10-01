@@ -14,8 +14,7 @@ import {
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 
 // Catálogo de secciones buscables del sistema PRINCIPAL de Orbit.
-// No incluye Orbit TasksFlow ni Orbit Marketing Intelligence (tienen su propio
-// layout y buscador). Cada entrada tiene palabras clave/sinónimos para mejorar
+// No incluye Orbit Marketing Intelligence (tiene su propio layout y buscador). Cada entrada tiene palabras clave/sinónimos para mejorar
 // las coincidencias al escribir.
 interface SearchItem {
   title: string
@@ -167,7 +166,7 @@ const SEARCH_ITEMS: SearchItem[] = [
   { title: "Importar", url: "/dashboard/import-export?tab=import", group: "Configuración", parent: "Importar / Exportar", keywords: ["importar"] },
 
   // Configuración › Configuración
-  { title: "Sistema", url: "/dashboard/settings?tab=system", group: "Configuración", parent: "Configuración", keywords: ["sistema"] },
+  { title: "Sistema", url: "/dashboard/settings?tab=system", group: "Configuraci��n", parent: "Configuración", keywords: ["sistema"] },
   { title: "Ajustes Generales", url: "/dashboard/settings?tab=general", group: "Configuración", parent: "Configuración", keywords: ["general"] },
   { title: "Integraciones del Sistema", url: "/dashboard/settings?tab=integrations", group: "Configuración", parent: "Configuración", keywords: ["integraciones"] },
   { title: "Auditoría", url: "/dashboard/settings?tab=audit", group: "Configuración", parent: "Configuración", keywords: ["auditoria", "logs"] },

@@ -400,7 +400,6 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
     backgroundColor: branding.sidebar_color,
   } as React.CSSProperties : {}
 
-  const isSuperAdmin = user?.role?.name === "superadmin" || user?.role?.display_name === "Super Administrador"
 
   return (
     <Sidebar collapsible="icon" style={sidebarStyle}>
@@ -698,17 +697,6 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
                     Mi Perfil
                   </Link>
                 </DropdownMenuItem>
-                {isSuperAdmin && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link href="/orbit-tasksflow" className="cursor-pointer">
-                        <ListTodo className="mr-2 h-4 w-4" />
-                        Orbit TasksFlow
-                      </Link>
-                    </DropdownMenuItem>
-                  </>
-                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleSignOut}
