@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx"
 import type { createClient } from "@/lib/supabase/client"
+import { isActiveDuringPeriod } from "@/lib/payroll-currency"
 
 type SupabaseClient = ReturnType<typeof createClient>
 
@@ -250,14 +251,9 @@ export async function computePayrollEntries(
 
   const { data: staffRaw } = await staffQuery
 
-  const staffData = (staffRaw || []).filter((s) => {
-    if (s.is_active) return true
-    const hasFiniquito = Number(s.finiquito) > 0 && !s.finiquito_paid_at
-    const changed = s.status_change_date
-    const leftDuringPeriod =
-      !!changed && changed >= period.start_date && changed <= period.end_date
-    return hasFiniquito || leftDuringPeriod
-  })
+  const staffData = (staffRaw || []).filter((s) =>
+    isActiveDuringPeriod(s, period.start_date, period.end_date),
+  )
 
   const staffIds = staffData.map((s) => s.id)
   const bonusesByStaff: Record<string, number> = {}
