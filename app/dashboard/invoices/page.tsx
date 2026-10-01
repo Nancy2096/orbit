@@ -5,6 +5,17 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { parseLocalDate } from "@/lib/utils"
+import {
+  MAX_ATTACHMENTS_TOTAL_BYTES,
+  MAX_ATTACHMENTS_TOTAL_LABEL,
+  MAX_CC_RECIPIENTS,
+  MAX_TO_RECIPIENTS,
+  NON_SENDABLE_INVOICE_STATUSES,
+  attachmentsTooLargeMessage,
+  formatBytes,
+  parseEmailList,
+  validateEmailList,
+} from "@/lib/invoice-email-rules"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -147,6 +158,7 @@ export default function InvoicesPage() {
   const [sendSubject, setSendSubject] = useState("")
   const [sendMessage, setSendMessage] = useState("")
   const [sendFiles, setSendFiles] = useState<File[]>([])
+  const sendFilesTotal = sendFiles.reduce((sum, file) => sum + file.size, 0)
   const [sending, setSending] = useState(false)
 
   // Stats
@@ -585,16 +597,30 @@ if (agencyId) {
   // Envía la factura por correo al cliente con el PDF adjunto y archivos extra opcionales.
   const handleSendEmail = async () => {
     if (!sendInvoice) return
-    if (!sendTo.trim()) {
-      toast.error("Ingresa el correo del destinatario")
+    const blockedReason = NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status]
+    if (blockedReason) {
+      toast.error(blockedReason)
+      return
+    }
+    const toList = parseEmailList(sendTo)
+    const ccList = parseEmailList(sendCc)
+    const recipientsError =
+      validateEmailList(toList, { field: "Para", max: MAX_TO_RECIPIENTS, required: true }) ||
+      validateEmailList(ccList, { field: "CC", max: MAX_CC_RECIPIENTS })
+    if (recipientsError) {
+      toast.error(recipientsError)
+      return
+    }
+    if (sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES) {
+      toast.error(attachmentsTooLargeMessage(sendFilesTotal))
       return
     }
 
     setSending(true)
     try {
       const formData = new FormData()
-      formData.append("to", sendTo.trim())
-      if (sendCc.trim()) formData.append("cc", sendCc.trim())
+      formData.append("to", toList.join(", "))
+      if (ccList.length > 0) formData.append("cc", ccList.join(", "))
       if (sendSubject.trim()) formData.append("subject", sendSubject.trim())
       if (sendMessage.trim()) formData.append("message", sendMessage.trim())
       for (const file of sendFiles) {
@@ -1288,10 +1314,9 @@ if (agencyId) {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="send-to">Para *</Label>
+              <Label htmlFor="send-to">{`Para * (máx. ${MAX_TO_RECIPIENTS}, separa con coma)`}</Label>
               <Input
                 id="send-to"
-                type="email"
                 placeholder="cliente@empresa.com"
                 value={sendTo}
                 onChange={(e) => setSendTo(e.target.value)}
@@ -1299,7 +1324,7 @@ if (agencyId) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="send-cc">CC (separa varios con coma)</Label>
+              <Label htmlFor="send-cc">{`CC (máx. ${MAX_CC_RECIPIENTS}, separa con coma)`}</Label>
               <Input
                 id="send-cc"
                 placeholder="copia@empresa.com, otra@empresa.com"
@@ -1337,17 +1362,32 @@ if (agencyId) {
                 onChange={(e) => setSendFiles(Array.from(e.target.files || []))}
               />
               <p className="text-xs text-muted-foreground">
-                El PDF de la factura se adjunta automáticamente. Máx. 10 MB por archivo, 20 MB en total.
+                {`El PDF de la factura se adjunta automáticamente. Los adjuntos adicionales pueden sumar como máximo ${MAX_ATTACHMENTS_TOTAL_LABEL} en total (límite temporal).`}
               </p>
               {sendFiles.length > 0 && (
-                <ul className="space-y-1 text-sm text-muted-foreground">
-                  {sendFiles.map((file, index) => (
-                    <li key={index} className="flex items-center gap-2">
-                      <Paperclip className="h-3.5 w-3.5" />
-                      <span className="truncate">{file.name}</span>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="space-y-1 text-sm text-muted-foreground">
+                    {sendFiles.map((file, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{file.name}</span>
+                        <span className="ml-auto shrink-0 text-xs">{formatBytes(file.size)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p
+                    className={
+                      sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES
+                        ? "text-xs font-medium text-destructive"
+                        : "text-xs text-muted-foreground"
+                    }
+                    role={sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES ? "alert" : undefined}
+                  >
+                    {sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES
+                      ? attachmentsTooLargeMessage(sendFilesTotal)
+                      : `Total: ${formatBytes(sendFilesTotal)} de ${MAX_ATTACHMENTS_TOTAL_LABEL}`}
+                  </p>
+                </>
               )}
             </div>
           </div>
@@ -1356,7 +1396,15 @@ if (agencyId) {
             <Button variant="outline" onClick={() => setSendModalOpen(false)} disabled={sending}>
               Cancelar
             </Button>
-            <Button onClick={handleSendEmail} disabled={sending} className="gap-2">
+            <Button
+              onClick={handleSendEmail}
+              disabled={
+                sending ||
+                sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES ||
+                (!!sendInvoice && !!NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status])
+              }
+              className="gap-2"
+            >
               {sending ? (
                 <>
                   <Spinner className="h-4 w-4" />
