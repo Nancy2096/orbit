@@ -4,12 +4,19 @@ import nodemailer from "nodemailer"
 
 export const runtime = "nodejs"
 
+interface EmailAttachment {
+  filename: string
+  content: Buffer | string
+  contentType?: string
+}
+
 interface SendEmailParams {
   to: string | string[]
   cc?: string | string[]
   subject: string
   html: string
   replyTo?: string
+  attachments?: EmailAttachment[]
 }
 
 interface SendEmailResult {
@@ -53,6 +60,7 @@ export async function sendEmail({
   subject,
   html,
   replyTo,
+  attachments,
 }: SendEmailParams): Promise<SendEmailResult> {
   if (process.env.EMAIL_NOTIFICATIONS_ENABLED !== "true") {
     console.log(
@@ -86,6 +94,7 @@ export async function sendEmail({
       subject: finalSubject,
       html,
       replyTo,
+      attachments,
     })
 
     const recipientsLog = [...finalTo, ...finalCc].join(", ")
