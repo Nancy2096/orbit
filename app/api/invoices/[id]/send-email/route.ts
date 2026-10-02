@@ -3,11 +3,77 @@ import { createClient } from "@/lib/supabase/server"
 import { createClient as createServiceClient } from "@supabase/supabase-js"
 import { sendEmail } from "@/lib/email"
 import { generateInvoicePdf, type InvoicePdfItem } from "@/lib/invoice-pdf"
+import { getModulesForPath } from "@/lib/permission-access"
+import {
+  MAX_ATTACHMENTS_TOTAL_BYTES,
+  MAX_CC_RECIPIENTS,
+  MAX_TO_RECIPIENTS,
+  NON_SENDABLE_INVOICE_STATUSES,
+  attachmentsTooLargeMessage,
+  isValidEmail,
+  parseEmailList,
+  validateEmailList,
+} from "@/lib/invoice-email-rules"
 
 export const runtime = "nodejs"
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10 MB por archivo
-const MAX_TOTAL_BYTES = 20 * 1024 * 1024 // 20 MB en total (adjuntos extra)
+type ServiceClient = ReturnType<typeof createServiceClient>
+
+interface SenderAccess {
+  canUseInvoices: boolean
+  allAgencies: boolean
+  agencyIds: Set<string>
+}
+
+// Mismo criterio que el panel: superadmin tiene acceso total; el resto necesita
+// alguno de los módulos de la ruta /dashboard/invoices. is_global_access solo
+// amplía el alcance a todas las agencias, no otorga módulos.
+async function getSenderAccess(service: ServiceClient, userId: string): Promise<SenderAccess> {
+  const { data: userRow } = await service
+    .from("users")
+    .select("role_id, is_global_access, is_active, role:roles(name)")
+    .eq("id", userId)
+    .maybeSingle()
+
+  const none: SenderAccess = { canUseInvoices: false, allAgencies: false, agencyIds: new Set() }
+  if (!userRow || userRow.is_active === false) return none
+
+  const role = Array.isArray(userRow.role) ? userRow.role[0] : userRow.role
+  const isSuperadmin = role?.name === "superadmin"
+
+  let canUseInvoices = isSuperadmin
+  if (!canUseInvoices && userRow.role_id) {
+    const requiredModules = getModulesForPath("/dashboard/invoices") ?? []
+    const { data: rolePerms } = await service
+      .from("role_permissions")
+      .select("permission:permissions(module)")
+      .eq("role_id", userRow.role_id)
+    canUseInvoices = (rolePerms ?? []).some((row) => {
+      const perm = Array.isArray(row.permission) ? row.permission[0] : row.permission
+      return !!perm?.module && requiredModules.includes(perm.module)
+    })
+  }
+
+  const allAgencies = isSuperadmin || userRow.is_global_access === true
+  let agencyIds = new Set<string>()
+  if (!allAgencies) {
+    const { data: links } = await service.from("user_agencies").select("agency_id").eq("user_id", userId)
+    agencyIds = new Set((links ?? []).map((l) => l.agency_id as string))
+  }
+
+  return { canUseInvoices, allAgencies, agencyIds }
+}
+
+function resolveReplyTo(agencyEmail: string | null | undefined, invoiceNumber: string): string | undefined {
+  const candidates = [agencyEmail?.trim(), process.env.FINANCE_REPLY_TO?.trim()]
+  const replyTo = candidates.find((value): value is string => !!value && isValidEmail(value))
+  if (!replyTo) {
+    console.warn(
+      `[invoices/send-email] Factura ${invoiceNumber}: sin Reply-To (agencies.email vacío y FINANCE_REPLY_TO no configurado o inválido)`,
+    )
+  }
+  return replyTo
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -62,6 +128,20 @@ export async function POST(
     return NextResponse.json({ error: "No autenticado" }, { status: 401 })
   }
 
+  const service = createServiceClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  )
+
+  const access = await getSenderAccess(service, user.id)
+  if (!access.canUseInvoices) {
+    return NextResponse.json(
+      { error: "No tienes permiso para enviar facturas (módulo de Facturas)" },
+      { status: 403 },
+    )
+  }
+
   // 2) Leer el formulario (multipart) con destinatarios y adjuntos.
   let form: FormData
   try {
@@ -70,28 +150,29 @@ export async function POST(
     return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 })
   }
 
-  const to = String(form.get("to") || "").trim()
-  const cc = String(form.get("cc") || "").trim()
+  const toList = parseEmailList(String(form.get("to") || ""))
+  const ccList = parseEmailList(String(form.get("cc") || ""))
   const subjectInput = String(form.get("subject") || "").trim()
   const message = String(form.get("message") || "").trim()
 
-  if (!to) {
-    return NextResponse.json({ error: "Falta el correo del destinatario" }, { status: 400 })
+  const recipientsError =
+    validateEmailList(toList, { field: "Para", max: MAX_TO_RECIPIENTS, required: true }) ||
+    validateEmailList(ccList, { field: "CC", max: MAX_CC_RECIPIENTS })
+  if (recipientsError) {
+    return NextResponse.json({ error: recipientsError }, { status: 400 })
   }
 
-  // 3) Cargar la factura con datos para el PDF (service role: lectura consistente).
-  const service = createServiceClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } },
-  )
+  const to = toList.join(", ")
+  const cc = ccList.join(", ")
 
+  // 3) Cargar la factura con datos para el PDF (service role: lectura consistente).
   const { data: invoice, error: invoiceError } = await service
     .from("invoices")
     .select(
       `
       id,
       invoice_number,
+      agency_id,
       status,
       issue_date,
       due_date,
@@ -111,6 +192,27 @@ export async function POST(
 
   if (invoiceError || !invoice) {
     return NextResponse.json({ error: "Factura no encontrada" }, { status: 404 })
+  }
+
+  if (!access.allAgencies && (!invoice.agency_id || !access.agencyIds.has(invoice.agency_id))) {
+    return NextResponse.json(
+      { error: "No tienes acceso a la agencia de esta factura" },
+      { status: 403 },
+    )
+  }
+
+  const blockedReason = NON_SENDABLE_INVOICE_STATUSES[invoice.status]
+  if (blockedReason) {
+    return NextResponse.json({ error: blockedReason }, { status: 409 })
+  }
+
+  // Validar el tamaño antes de generar el PDF para no hacer trabajo innecesario.
+  const extraFiles = form
+    .getAll("attachments")
+    .filter((f): f is File => f instanceof File && f.size > 0)
+  const totalExtra = extraFiles.reduce((sum, file) => sum + file.size, 0)
+  if (totalExtra > MAX_ATTACHMENTS_TOTAL_BYTES) {
+    return NextResponse.json({ error: attachmentsTooLargeMessage(totalExtra) }, { status: 413 })
   }
 
   const { data: itemRows } = await service
@@ -162,23 +264,7 @@ export async function POST(
     },
   ]
 
-  const extraFiles = form.getAll("attachments").filter((f): f is File => f instanceof File)
-  let totalExtra = 0
   for (const file of extraFiles) {
-    if (file.size === 0) continue
-    if (file.size > MAX_FILE_BYTES) {
-      return NextResponse.json(
-        { error: `El archivo "${file.name}" supera el límite de 10 MB` },
-        { status: 400 },
-      )
-    }
-    totalExtra += file.size
-    if (totalExtra > MAX_TOTAL_BYTES) {
-      return NextResponse.json(
-        { error: "Los adjuntos superan el límite total de 20 MB" },
-        { status: 400 },
-      )
-    }
     const arrayBuffer = await file.arrayBuffer()
     attachments.push({
       filename: file.name,
@@ -188,16 +274,15 @@ export async function POST(
   }
 
   const subject = subjectInput || `Factura ${invoice.invoice_number}`
-  const ccList = cc
-    ? cc.split(",").map((s) => s.trim()).filter(Boolean)
-    : undefined
+  const replyTo = resolveReplyTo(agency?.email, invoice.invoice_number)
 
   // 6) Enviar el correo (respeta EMAIL_NOTIFICATIONS_ENABLED / EMAIL_TEST_RECIPIENT).
   let result
   try {
     result = await sendEmail({
-      to,
-      cc: ccList,
+      to: toList,
+      cc: ccList.length > 0 ? ccList : undefined,
+      replyTo,
       subject,
       html: buildHtml({
         invoiceNumber: invoice.invoice_number,
