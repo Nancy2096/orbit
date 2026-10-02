@@ -12,8 +12,10 @@ import {
   MAX_TO_RECIPIENTS,
   NON_SENDABLE_INVOICE_STATUSES,
   attachmentsTooLargeMessage,
+  buildDefaultInvoiceSubject,
   formatBytes,
   parseEmailList,
+  validateCfdiFiles,
   validateEmailList,
 } from "@/lib/invoice-email-rules"
 import { Button } from "@/components/ui/button"
@@ -97,6 +99,7 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   paid: { label: "Cobrado", variant: "default", icon: CheckCircle },
   overdue: { label: "Vencido", variant: "destructive", icon: AlertCircle },
   cancelled: { label: "Cancelado", variant: "secondary", icon: FileText },
+  draft: { label: "Borrador", variant: "outline", icon: FileText },
 }
 
 export default function InvoicesPage() {
@@ -158,8 +161,14 @@ export default function InvoicesPage() {
   const [sendSubject, setSendSubject] = useState("")
   const [sendMessage, setSendMessage] = useState("")
   const [sendFiles, setSendFiles] = useState<File[]>([])
+  const [sendIncludeSummary, setSendIncludeSummary] = useState(false)
   const sendFilesTotal = sendFiles.reduce((sum, file) => sum + file.size, 0)
+  const sendCfdiError = validateCfdiFiles(sendFiles.map((file) => file.name))
   const [sending, setSending] = useState(false)
+  const sendDisabledReason: string | null =
+    (sendInvoice && NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status]) ||
+    (sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES ? attachmentsTooLargeMessage(sendFilesTotal) : null) ||
+    sendCfdiError
 
   // Stats
 
@@ -588,13 +597,14 @@ if (agencyId) {
     setSendInvoice(invoice)
     setSendTo(invoice.client?.billing_email || invoice.client?.primary_contact_email || "")
     setSendCc("")
-    setSendSubject(`Factura ${invoice.invoice_number}${invoice.agency?.name ? ` · ${invoice.agency.name}` : ""}`)
+    setSendSubject(buildDefaultInvoiceSubject(invoice.client?.company_name, invoice.issue_date))
     setSendMessage("")
     setSendFiles([])
+    setSendIncludeSummary(false)
     setSendModalOpen(true)
   }
 
-  // Envía la factura por correo al cliente con el PDF adjunto y archivos extra opcionales.
+  // Envía al cliente el CFDI (PDF y XML) y, opcionalmente, el resumen informativo de Orbit.
   const handleSendEmail = async () => {
     if (!sendInvoice) return
     const blockedReason = NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status]
@@ -615,6 +625,10 @@ if (agencyId) {
       toast.error(attachmentsTooLargeMessage(sendFilesTotal))
       return
     }
+    if (sendCfdiError) {
+      toast.error(sendCfdiError)
+      return
+    }
 
     setSending(true)
     try {
@@ -623,6 +637,7 @@ if (agencyId) {
       if (ccList.length > 0) formData.append("cc", ccList.join(", "))
       if (sendSubject.trim()) formData.append("subject", sendSubject.trim())
       if (sendMessage.trim()) formData.append("message", sendMessage.trim())
+      formData.append("include_orbit_summary", sendIncludeSummary ? "true" : "false")
       for (const file of sendFiles) {
         formData.append("attachments", file)
       }
@@ -760,9 +775,14 @@ if (agencyId) {
     return acc
   }
   const totalByCur = sumByCurrency(() => true, "total_amount")
-  const pendingByCur = sumByCurrency((inv) => inv.status === "pending", "balance_due")
+  const pendingByCur = sumByCurrency(
+    (inv) => inv.status === "pending" || inv.status === "overdue",
+    "balance_due",
+  )
   const overdueByCur = sumByCurrency(
-    (inv) => inv.status === "pending" && !!inv.due_date && String(inv.due_date).slice(0, 10) < todayStr,
+    (inv) =>
+      inv.status === "overdue" ||
+      (inv.status === "pending" && !!inv.due_date && String(inv.due_date).slice(0, 10) < todayStr),
     "balance_due",
   )
   const paidByCur = sumByCurrency((inv) => inv.status === "paid", "total_amount")
@@ -1099,7 +1119,11 @@ if (agencyId) {
               </TableHeader>
               <TableBody>
                 {filteredInvoices.map((invoice) => {
-                  const status = statusConfig[invoice.status] || statusConfig.pending
+                  const status = statusConfig[invoice.status] || {
+                    label: invoice.status || "Sin estado",
+                    variant: "outline" as const,
+                    icon: FileText,
+                  }
                   const StatusIcon = status.icon
                   return (
                     <TableRow
@@ -1297,7 +1321,7 @@ if (agencyId) {
             <DialogDescription>
               {sendInvoice && (
                 <>
-                  Se enviará la factura <strong>{sendInvoice.invoice_number}</strong> en PDF a{" "}
+                  Se enviará el CFDI de la factura <strong>{sendInvoice.invoice_number}</strong> a{" "}
                   {sendInvoice.client?.company_name || "el cliente"}.
                 </>
               )}
@@ -1354,16 +1378,20 @@ if (agencyId) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="send-files">Adjuntos adicionales</Label>
+              <Label htmlFor="send-files">Archivos del CFDI (PDF y XML) *</Label>
               <Input
                 id="send-files"
                 type="file"
                 multiple
+                aria-describedby="send-files-help"
                 onChange={(e) => setSendFiles(Array.from(e.target.files || []))}
               />
-              <p className="text-xs text-muted-foreground">
-                {`El PDF de la factura se adjunta automáticamente. Los adjuntos adicionales pueden sumar como máximo ${MAX_ATTACHMENTS_TOTAL_LABEL} en total (límite temporal).`}
+              <p id="send-files-help" className="text-xs text-muted-foreground">
+                {`Adjunta al menos el PDF y el XML del CFDI timbrado. Puedes agregar otros archivos; en total pueden sumar como máximo ${MAX_ATTACHMENTS_TOTAL_LABEL} (límite temporal).`}
               </p>
+              {sendCfdiError && (
+                <p className="text-xs font-medium text-destructive">{sendCfdiError}</p>
+              )}
               {sendFiles.length > 0 && (
                 <>
                   <ul className="space-y-1 text-sm text-muted-foreground">
@@ -1390,19 +1418,43 @@ if (agencyId) {
                 </>
               )}
             </div>
+
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="send-include-summary"
+                checked={sendIncludeSummary}
+                onCheckedChange={(checked) => setSendIncludeSummary(checked === true)}
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <Label htmlFor="send-include-summary" className="font-normal">
+                  Adjuntar también el resumen generado por Orbit
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Documento informativo en PDF. No es un CFDI.
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            {sendDisabledReason && !sending && (
+              <p
+                id="send-disabled-reason"
+                role="status"
+                className="text-xs font-medium text-destructive sm:mr-auto sm:max-w-[60%]"
+              >
+                {sendDisabledReason}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setSendModalOpen(false)} disabled={sending}>
               Cancelar
             </Button>
             <Button
               onClick={handleSendEmail}
-              disabled={
-                sending ||
-                sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES ||
-                (!!sendInvoice && !!NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status])
-              }
+              disabled={sending || !!sendDisabledReason}
+              aria-describedby={sendDisabledReason ? "send-disabled-reason" : undefined}
               className="gap-2"
             >
               {sending ? (
@@ -1417,6 +1469,7 @@ if (agencyId) {
                 </>
               )}
             </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

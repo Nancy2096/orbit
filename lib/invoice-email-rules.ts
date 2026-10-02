@@ -48,5 +48,50 @@ export function formatBytes(bytes: number): string {
 }
 
 export function attachmentsTooLargeMessage(totalBytes: number): string {
-  return `Los adjuntos adicionales suman ${formatBytes(totalBytes)} y el máximo temporal es ${MAX_ATTACHMENTS_TOTAL_LABEL}. Quita archivos o compártelos por otro medio.`
+  return `Los archivos adjuntos suman ${formatBytes(totalBytes)} y el máximo temporal es ${MAX_ATTACHMENTS_TOTAL_LABEL}. Quita archivos o compártelos por otro medio.`
+}
+
+function hasExtension(name: string, ext: string): boolean {
+  return name.trim().toLowerCase().endsWith(ext)
+}
+
+// El CFDI timbrado (PDF + XML) es obligatorio: Orbit no timbra ante el SAT.
+export function validateCfdiFiles(fileNames: string[]): string | null {
+  const hasPdf = fileNames.some((n) => hasExtension(n, ".pdf"))
+  const hasXml = fileNames.some((n) => hasExtension(n, ".xml"))
+  if (!hasPdf && !hasXml) return "Adjunta el CFDI: se requiere al menos un archivo .pdf y uno .xml"
+  if (!hasPdf) return "Falta el PDF del CFDI (archivo .pdf)"
+  if (!hasXml) return "Falta el XML del CFDI (archivo .xml)"
+  return null
+}
+
+const MONTHS_ES = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+]
+
+// "2026-09-15" -> "Septiembre 2026". Se lee año/mes del texto para evitar
+// corrimientos de zona horaria con fechas sin hora.
+export function formatInvoiceMonth(issueDate: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})/.exec(issueDate || "")
+  if (!match) return ""
+  const month = MONTHS_ES[Number(match[2]) - 1]
+  return month ? `${month} ${match[1]}` : ""
+}
+
+export function buildDefaultInvoiceSubject(
+  clientName: string | null | undefined,
+  issueDate: string | null | undefined,
+): string {
+  return ["Factura", clientName?.trim(), formatInvoiceMonth(issueDate)].filter(Boolean).join(" - ")
 }
