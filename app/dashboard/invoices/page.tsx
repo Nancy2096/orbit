@@ -775,9 +775,14 @@ if (agencyId) {
     return acc
   }
   const totalByCur = sumByCurrency(() => true, "total_amount")
-  const pendingByCur = sumByCurrency((inv) => inv.status === "pending", "balance_due")
+  const pendingByCur = sumByCurrency(
+    (inv) => inv.status === "pending" || inv.status === "overdue",
+    "balance_due",
+  )
   const overdueByCur = sumByCurrency(
-    (inv) => inv.status === "pending" && !!inv.due_date && String(inv.due_date).slice(0, 10) < todayStr,
+    (inv) =>
+      inv.status === "overdue" ||
+      (inv.status === "pending" && !!inv.due_date && String(inv.due_date).slice(0, 10) < todayStr),
     "balance_due",
   )
   const paidByCur = sumByCurrency((inv) => inv.status === "paid", "total_amount")
