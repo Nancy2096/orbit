@@ -98,6 +98,18 @@ const styles = StyleSheet.create({
     textAlign: "right",
     marginTop: 2,
   },
+  disclaimer: {
+    marginTop: -12,
+    marginBottom: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: "#f3f4f6",
+    border: "1 solid #d1d5db",
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    color: "#374151",
+    textAlign: "center",
+  },
   section: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -209,9 +221,13 @@ function InvoiceDocument({ data }: { data: InvoicePdfData }) {
             {agency?.website ? <Text style={styles.muted}>{agency.website}</Text> : null}
           </View>
           <View>
-            <Text style={styles.invoiceTitle}>FACTURA</Text>
+            <Text style={styles.invoiceTitle}>Resumen de factura</Text>
             <Text style={styles.invoiceNumber}>{data.invoice_number}</Text>
           </View>
+        </View>
+
+        <View style={styles.disclaimer}>
+          <Text>Documento informativo. No es un Comprobante Fiscal Digital por Internet (CFDI).</Text>
         </View>
 
         <View style={styles.section}>

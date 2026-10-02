@@ -12,8 +12,10 @@ import {
   MAX_TO_RECIPIENTS,
   NON_SENDABLE_INVOICE_STATUSES,
   attachmentsTooLargeMessage,
+  buildDefaultInvoiceSubject,
   formatBytes,
   parseEmailList,
+  validateCfdiFiles,
   validateEmailList,
 } from "@/lib/invoice-email-rules"
 import { Button } from "@/components/ui/button"
@@ -158,7 +160,9 @@ export default function InvoicesPage() {
   const [sendSubject, setSendSubject] = useState("")
   const [sendMessage, setSendMessage] = useState("")
   const [sendFiles, setSendFiles] = useState<File[]>([])
+  const [sendIncludeSummary, setSendIncludeSummary] = useState(false)
   const sendFilesTotal = sendFiles.reduce((sum, file) => sum + file.size, 0)
+  const sendCfdiError = validateCfdiFiles(sendFiles.map((file) => file.name))
   const [sending, setSending] = useState(false)
 
   // Stats
@@ -588,13 +592,14 @@ if (agencyId) {
     setSendInvoice(invoice)
     setSendTo(invoice.client?.billing_email || invoice.client?.primary_contact_email || "")
     setSendCc("")
-    setSendSubject(`Factura ${invoice.invoice_number}${invoice.agency?.name ? ` · ${invoice.agency.name}` : ""}`)
+    setSendSubject(buildDefaultInvoiceSubject(invoice.client?.company_name, invoice.issue_date))
     setSendMessage("")
     setSendFiles([])
+    setSendIncludeSummary(false)
     setSendModalOpen(true)
   }
 
-  // Envía la factura por correo al cliente con el PDF adjunto y archivos extra opcionales.
+  // Envía al cliente el CFDI (PDF y XML) y, opcionalmente, el resumen informativo de Orbit.
   const handleSendEmail = async () => {
     if (!sendInvoice) return
     const blockedReason = NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status]
@@ -615,6 +620,10 @@ if (agencyId) {
       toast.error(attachmentsTooLargeMessage(sendFilesTotal))
       return
     }
+    if (sendCfdiError) {
+      toast.error(sendCfdiError)
+      return
+    }
 
     setSending(true)
     try {
@@ -623,6 +632,7 @@ if (agencyId) {
       if (ccList.length > 0) formData.append("cc", ccList.join(", "))
       if (sendSubject.trim()) formData.append("subject", sendSubject.trim())
       if (sendMessage.trim()) formData.append("message", sendMessage.trim())
+      formData.append("include_orbit_summary", sendIncludeSummary ? "true" : "false")
       for (const file of sendFiles) {
         formData.append("attachments", file)
       }
@@ -1297,7 +1307,7 @@ if (agencyId) {
             <DialogDescription>
               {sendInvoice && (
                 <>
-                  Se enviará la factura <strong>{sendInvoice.invoice_number}</strong> en PDF a{" "}
+                  Se enviará el CFDI de la factura <strong>{sendInvoice.invoice_number}</strong> a{" "}
                   {sendInvoice.client?.company_name || "el cliente"}.
                 </>
               )}
@@ -1354,16 +1364,20 @@ if (agencyId) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="send-files">Adjuntos adicionales</Label>
+              <Label htmlFor="send-files">Archivos del CFDI (PDF y XML) *</Label>
               <Input
                 id="send-files"
                 type="file"
                 multiple
+                aria-describedby="send-files-help"
                 onChange={(e) => setSendFiles(Array.from(e.target.files || []))}
               />
-              <p className="text-xs text-muted-foreground">
-                {`El PDF de la factura se adjunta automáticamente. Los adjuntos adicionales pueden sumar como máximo ${MAX_ATTACHMENTS_TOTAL_LABEL} en total (límite temporal).`}
+              <p id="send-files-help" className="text-xs text-muted-foreground">
+                {`Adjunta al menos el PDF y el XML del CFDI timbrado. Puedes agregar otros archivos; en total pueden sumar como máximo ${MAX_ATTACHMENTS_TOTAL_LABEL} (límite temporal).`}
               </p>
+              {sendCfdiError && (
+                <p className="text-xs font-medium text-destructive">{sendCfdiError}</p>
+              )}
               {sendFiles.length > 0 && (
                 <>
                   <ul className="space-y-1 text-sm text-muted-foreground">
@@ -1390,6 +1404,23 @@ if (agencyId) {
                 </>
               )}
             </div>
+
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="send-include-summary"
+                checked={sendIncludeSummary}
+                onCheckedChange={(checked) => setSendIncludeSummary(checked === true)}
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <Label htmlFor="send-include-summary" className="font-normal">
+                  Adjuntar también el resumen generado por Orbit
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Documento informativo en PDF. No es un CFDI.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="flex justify-end gap-2">
@@ -1401,6 +1432,7 @@ if (agencyId) {
               disabled={
                 sending ||
                 sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES ||
+                !!sendCfdiError ||
                 (!!sendInvoice && !!NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status])
               }
               className="gap-2"

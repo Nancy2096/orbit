@@ -10,8 +10,11 @@ import {
   MAX_TO_RECIPIENTS,
   NON_SENDABLE_INVOICE_STATUSES,
   attachmentsTooLargeMessage,
+  buildDefaultInvoiceSubject,
+  formatInvoiceMonth,
   isValidEmail,
   parseEmailList,
+  validateCfdiFiles,
   validateEmailList,
 } from "@/lib/invoice-email-rules"
 
@@ -84,29 +87,57 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;")
 }
 
+function formatAmount(amount: number | null | undefined, symbol: string): string {
+  const value = typeof amount === "number" && Number.isFinite(amount) ? amount : 0
+  return `${symbol}${value.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function formatDueDate(value: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || "")
+  if (!match) return "Sin fecha"
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return date.toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })
+}
+
 function buildHtml(params: {
-  invoiceNumber: string
   clientName: string
   agencyName: string
+  period: string
+  total: string
+  currencyCode: string
+  dueDate: string
   message: string
+  includesSummary: boolean
 }): string {
-  const { invoiceNumber, clientName, agencyName, message } = params
+  const { clientName, agencyName, period, total, currencyCode, dueDate, message, includesSummary } = params
   const paragraphs = message
     .split(/\n+/)
     .filter(Boolean)
     .map((line) => `<p style="margin:0 0 12px">${escapeHtml(line)}</p>`)
     .join("")
 
+  const periodText = period ? ` correspondiente a <strong>${escapeHtml(period)}</strong>` : ""
+  const row = (label: string, value: string) =>
+    `<tr><td style="padding:6px 12px 6px 0;color:#6b7280">${label}</td><td style="padding:6px 0;font-weight:bold;color:#111827">${escapeHtml(value)}</td></tr>`
+
   return `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;max-width:560px;margin:0 auto">
-      <h2 style="color:#111827;margin:0 0 16px">Factura ${escapeHtml(invoiceNumber)}</h2>
       <p style="margin:0 0 12px">Estimado(a) ${escapeHtml(clientName)},</p>
+      <p style="margin:0 0 16px">Adjuntamos el CFDI (PDF y XML) de la factura de <strong>${escapeHtml(
+        clientName,
+      )}</strong>${periodText}.</p>
+      <table style="border-collapse:collapse;margin:0 0 16px;font-size:14px">
+        ${row("Total", total)}
+        ${row("Moneda", currencyCode || "—")}
+        ${row("Fecha de vencimiento", dueDate)}
+      </table>
+      ${paragraphs}
       ${
-        paragraphs ||
-        `<p style="margin:0 0 12px">Adjuntamos la factura <strong>${escapeHtml(
-          invoiceNumber,
-        )}</strong> en formato PDF. Quedamos atentos a cualquier duda.</p>`
+        includesSummary
+          ? `<p style="margin:0 0 12px;color:#6b7280;font-size:13px">También se incluye un resumen informativo generado por Orbit, que no es un CFDI.</p>`
+          : ""
       }
+      <p style="margin:0 0 12px">Quedamos atentos a cualquier duda.</p>
       <p style="margin:24px 0 0;color:#6b7280;font-size:13px">${escapeHtml(agencyName)}</p>
     </div>
   `
@@ -215,55 +246,62 @@ export async function POST(
     return NextResponse.json({ error: attachmentsTooLargeMessage(totalExtra) }, { status: 413 })
   }
 
-  const { data: itemRows } = await service
-    .from("invoice_items")
-    .select("description, quantity, unit_price, subtotal, sort_order")
-    .eq("invoice_id", id)
-    .order("sort_order")
+  const cfdiError = validateCfdiFiles(extraFiles.map((f) => f.name))
+  if (cfdiError) {
+    return NextResponse.json({ error: cfdiError }, { status: 400 })
+  }
 
-  const items: InvoicePdfItem[] = (itemRows || []).map((row) => ({
-    description: row.description,
-    quantity: row.quantity,
-    unit_price: row.unit_price,
-    subtotal: row.subtotal,
-  }))
+  const includeOrbitSummary = form.get("include_orbit_summary") === "true"
 
   const client = Array.isArray(invoice.client) ? invoice.client[0] : invoice.client
   const agency = Array.isArray(invoice.agency) ? invoice.agency[0] : invoice.agency
   const currency = Array.isArray(invoice.currency) ? invoice.currency[0] : invoice.currency
 
-  // 4) Generar el PDF de la factura.
-  let pdfBuffer: Buffer
-  try {
-    pdfBuffer = await generateInvoicePdf({
-      invoice_number: invoice.invoice_number,
-      status: invoice.status,
-      issue_date: invoice.issue_date,
-      due_date: invoice.due_date,
-      subtotal: invoice.subtotal,
-      tax_amount: invoice.tax_amount,
-      discount_amount: invoice.discount_amount,
-      total_amount: invoice.total_amount,
-      notes: invoice.notes,
-      currency,
-      client,
-      agency,
-      items,
-    })
-  } catch (error) {
-    console.error("[invoices/send-email] Error generando PDF:", error)
-    return NextResponse.json({ error: "No se pudo generar el PDF de la factura" }, { status: 500 })
+  const attachments: { filename: string; content: Buffer; contentType?: string }[] = []
+
+  // 4) Resumen informativo de Orbit (opcional, no es un CFDI).
+  if (includeOrbitSummary) {
+    const { data: itemRows } = await service
+      .from("invoice_items")
+      .select("description, quantity, unit_price, subtotal, sort_order")
+      .eq("invoice_id", id)
+      .order("sort_order")
+
+    const items: InvoicePdfItem[] = (itemRows || []).map((row) => ({
+      description: row.description,
+      quantity: row.quantity,
+      unit_price: row.unit_price,
+      subtotal: row.subtotal,
+    }))
+
+    try {
+      const pdfBuffer = await generateInvoicePdf({
+        invoice_number: invoice.invoice_number,
+        status: invoice.status,
+        issue_date: invoice.issue_date,
+        due_date: invoice.due_date,
+        subtotal: invoice.subtotal,
+        tax_amount: invoice.tax_amount,
+        discount_amount: invoice.discount_amount,
+        total_amount: invoice.total_amount,
+        notes: invoice.notes,
+        currency,
+        client,
+        agency,
+        items,
+      })
+      attachments.push({
+        filename: `Resumen-Factura-${invoice.invoice_number}.pdf`,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      })
+    } catch (error) {
+      console.error("[invoices/send-email] Error generando el resumen PDF:", error)
+      return NextResponse.json({ error: "No se pudo generar el resumen de Orbit" }, { status: 500 })
+    }
   }
 
-  // 5) Construir adjuntos: PDF de la factura + archivos extra (con límites).
-  const attachments: { filename: string; content: Buffer; contentType?: string }[] = [
-    {
-      filename: `Factura-${invoice.invoice_number}.pdf`,
-      content: pdfBuffer,
-      contentType: "application/pdf",
-    },
-  ]
-
+  // 5) Archivos del CFDI (PDF y XML) y otros adjuntos del usuario.
   for (const file of extraFiles) {
     const arrayBuffer = await file.arrayBuffer()
     attachments.push({
@@ -273,7 +311,7 @@ export async function POST(
     })
   }
 
-  const subject = subjectInput || `Factura ${invoice.invoice_number}`
+  const subject = subjectInput || buildDefaultInvoiceSubject(client?.company_name, invoice.issue_date)
   const replyTo = resolveReplyTo(agency?.email, invoice.invoice_number)
 
   // 6) Enviar el correo (respeta EMAIL_NOTIFICATIONS_ENABLED / EMAIL_TEST_RECIPIENT).
@@ -285,10 +323,14 @@ export async function POST(
       replyTo,
       subject,
       html: buildHtml({
-        invoiceNumber: invoice.invoice_number,
         clientName: client?.company_name || "cliente",
         agencyName: agency?.name || agency?.legal_name || "Orbit",
+        period: formatInvoiceMonth(invoice.issue_date),
+        total: formatAmount(invoice.total_amount, currency?.symbol || "$"),
+        currencyCode: currency?.code || "",
+        dueDate: formatDueDate(invoice.due_date),
         message,
+        includesSummary: includeOrbitSummary,
       }),
       attachments,
     })
