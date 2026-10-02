@@ -164,6 +164,10 @@ export default function InvoicesPage() {
   const sendFilesTotal = sendFiles.reduce((sum, file) => sum + file.size, 0)
   const sendCfdiError = validateCfdiFiles(sendFiles.map((file) => file.name))
   const [sending, setSending] = useState(false)
+  const sendDisabledReason: string | null =
+    (sendInvoice && NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status]) ||
+    (sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES ? attachmentsTooLargeMessage(sendFilesTotal) : null) ||
+    sendCfdiError
 
   // Stats
 
@@ -1423,18 +1427,24 @@ if (agencyId) {
             </div>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            {sendDisabledReason && !sending && (
+              <p
+                id="send-disabled-reason"
+                role="status"
+                className="text-xs font-medium text-destructive sm:mr-auto sm:max-w-[60%]"
+              >
+                {sendDisabledReason}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setSendModalOpen(false)} disabled={sending}>
               Cancelar
             </Button>
             <Button
               onClick={handleSendEmail}
-              disabled={
-                sending ||
-                sendFilesTotal > MAX_ATTACHMENTS_TOTAL_BYTES ||
-                !!sendCfdiError ||
-                (!!sendInvoice && !!NON_SENDABLE_INVOICE_STATUSES[sendInvoice.status])
-              }
+              disabled={sending || !!sendDisabledReason}
+              aria-describedby={sendDisabledReason ? "send-disabled-reason" : undefined}
               className="gap-2"
             >
               {sending ? (
@@ -1449,6 +1459,7 @@ if (agencyId) {
                 </>
               )}
             </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
