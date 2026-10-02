@@ -99,6 +99,7 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   paid: { label: "Cobrado", variant: "default", icon: CheckCircle },
   overdue: { label: "Vencido", variant: "destructive", icon: AlertCircle },
   cancelled: { label: "Cancelado", variant: "secondary", icon: FileText },
+  draft: { label: "Borrador", variant: "outline", icon: FileText },
 }
 
 export default function InvoicesPage() {
@@ -1113,7 +1114,11 @@ if (agencyId) {
               </TableHeader>
               <TableBody>
                 {filteredInvoices.map((invoice) => {
-                  const status = statusConfig[invoice.status] || statusConfig.pending
+                  const status = statusConfig[invoice.status] || {
+                    label: invoice.status || "Sin estado",
+                    variant: "outline" as const,
+                    icon: FileText,
+                  }
                   const StatusIcon = status.icon
                   return (
                     <TableRow
