@@ -46,6 +46,7 @@ const PATH_MODULE_ENTRIES: [string, string[]][] = [
   ["/dashboard/finance", ["finance"]],
   ["/dashboard/pre-invoices", ["pre_invoices", "invoices", "invoices_third_party", "invoices_workflow"]],
   ["/dashboard/invoices", ["invoices", "invoices_third_party", "invoices_workflow"]],
+  ["/dashboard/collections", ["invoices", "invoices_third_party", "invoices_workflow"]],
   ["/dashboard/payments", ["payments"]],
   ["/dashboard/expenses", ["expenses"]],
   ["/dashboard/vendors", ["vendors", "vendors_types"]],
