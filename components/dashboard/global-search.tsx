@@ -75,6 +75,7 @@ const SEARCH_ITEMS: SearchItem[] = [
   { title: "Dashboard Financiero", url: "/dashboard/finance", group: "Finanzas", keywords: ["finanzas", "financiero"] },
   { title: "Pre-Facturas", url: "/dashboard/pre-invoices", group: "Finanzas", keywords: ["prefactura", "pre factura", "prefacturas"] },
   { title: "Facturas y Pagos", url: "/dashboard/invoices", group: "Finanzas", keywords: ["factura", "pago", "cobros"] },
+  { title: "Gestión de Cobranza", url: "/dashboard/collections", group: "Finanzas", keywords: ["cobranza", "cartera", "vencido", "compromiso", "recordatorio"] },
   { title: "Bancos e Ingresos", url: "/dashboard/payments", group: "Finanzas", keywords: ["banco", "ingreso", "deposito"] },
   { title: "Gastos", url: "/dashboard/expenses", group: "Finanzas", keywords: ["gasto", "egreso"] },
   { title: "Proveedores", url: "/dashboard/vendors", group: "Finanzas", keywords: ["proveedor", "vendor"] },
@@ -167,7 +168,7 @@ const SEARCH_ITEMS: SearchItem[] = [
   { title: "Importar", url: "/dashboard/import-export?tab=import", group: "Configuración", parent: "Importar / Exportar", keywords: ["importar"] },
 
   // Configuración › Configuración
-  { title: "Sistema", url: "/dashboard/settings?tab=system", group: "Configuración", parent: "Configuración", keywords: ["sistema"] },
+  { title: "Sistema", url: "/dashboard/settings?tab=system", group: "Configuraci��n", parent: "Configuración", keywords: ["sistema"] },
   { title: "Ajustes Generales", url: "/dashboard/settings?tab=general", group: "Configuración", parent: "Configuración", keywords: ["general"] },
   { title: "Integraciones del Sistema", url: "/dashboard/settings?tab=integrations", group: "Configuración", parent: "Configuración", keywords: ["integraciones"] },
   { title: "Auditoría", url: "/dashboard/settings?tab=audit", group: "Configuración", parent: "Configuración", keywords: ["auditoria", "logs"] },

@@ -28,6 +28,7 @@ const pathNames: Record<string, string> = {
   clients: "Clientes",
   projects: "Proyectos",
   invoices: "Facturas y Pagos",
+  collections: "Gestión de Cobranza",
   payments: "Bancos e Ingresos",
   expenses: "Gastos",
   profitability: "Rentabilidad",

@@ -228,6 +228,11 @@ const financeNavItems = [
     icon: Receipt,
   },
   {
+    title: "Gestión de Cobranza",
+    url: "/dashboard/collections",
+    icon: HandCoins,
+  },
+  {
     title: "Bancos e Ingresos",
     url: "/dashboard/payments",
     icon: CreditCard,
