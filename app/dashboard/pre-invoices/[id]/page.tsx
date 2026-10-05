@@ -39,7 +39,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Eye, Send, FileCheck, Loader2, Printer, Mail, RefreshCw } from "lucide-react"
+import { ArrowLeft, Eye, FileCheck, Loader2, Printer, Mail, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 import {
@@ -341,14 +341,6 @@ export default function PreInvoiceDetailPage() {
           <Button variant="outline" onClick={() => setShowPreview(true)}>
             <Eye className="mr-2 h-4 w-4" />
             Vista previa
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setShowSendDialog(true)}
-            disabled={preInvoice.status === "cancelled"}
-          >
-            <Send className="mr-2 h-4 w-4" />
-            Enviar por correo
           </Button>
           {preInvoice.status === "invoiced" && preInvoice.invoice_id ? (
             <Button asChild>
