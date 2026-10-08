@@ -373,6 +373,12 @@ export default function EditInvoicePage() {
       return
     }
 
+    if (!formData.due_date) {
+      toast.error("La fecha de vencimiento es obligatoria")
+      setSaving(false)
+      return
+    }
+
     const totals = calculateTotals()
 
     // Update invoice
@@ -596,9 +602,12 @@ export default function EditInvoicePage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Fecha de Vencimiento</Label>
+              <Label htmlFor="due_date">Fecha de Vencimiento *</Label>
               <Input
+                id="due_date"
                 type="date"
+                required
+                aria-required="true"
                 value={formData.due_date}
                 onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
               />
