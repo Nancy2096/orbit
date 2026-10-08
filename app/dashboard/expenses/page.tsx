@@ -44,7 +44,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
 import * as XLSX from "xlsx"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { 
+  FileSpreadsheet,
   Plus, 
   Search, 
   Receipt, 
@@ -688,39 +697,54 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
   // Exporta toda la información detallada de los gastos seleccionados a un XLS:
   // una hoja "Gastos" con todos los campos y una hoja "Historial" con los
   // movimientos registrados de cada gasto (pagos, comprobantes, cambios, etc.).
-  const handleDownloadXls = async () => {
-    if (selectedIds.size === 0) return
+  const handleDownloadXls = () => {
+    // Respetar los filtros activos: exportar solo los gastos seleccionados
+    // que además estén visibles bajo los filtros/búsqueda actuales.
+    const visibleIds = new Set(filteredExpenses.map((e) => e.id))
+    const ids = Array.from(selectedIds).filter((id) => visibleIds.has(id))
+    return exportExpenses(ids, "xls")
+  }
+
+  const handleExportFiltered = (format: "xlsx" | "csv") =>
+    exportExpenses(filteredExpenses.map((e) => e.id), format)
+
+  // Supabase manda los ids en la URL: se consultan en lotes para no exceder su longitud.
+  const fetchInChunks = async (ids: string[], fetchChunk: (chunk: string[]) => Promise<any[]>) => {
+    const CHUNK = 150
+    const results: any[] = []
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      results.push(...(await fetchChunk(ids.slice(i, i + CHUNK))))
+    }
+    return results
+  }
+
+  const exportExpenses = async (ids: string[], format: "xls" | "xlsx" | "csv") => {
+    if (ids.length === 0) return
     setDownloadingXls(true)
     try {
-      // Respetar los filtros activos: exportar solo los gastos seleccionados
-      // que además estén visibles bajo los filtros/búsqueda actuales.
-      const visibleIds = new Set(filteredExpenses.map((e) => e.id))
-      const ids = Array.from(selectedIds).filter((id) => visibleIds.has(id))
-      if (ids.length === 0) {
-        setDownloadingXls(false)
-        return
-      }
-
-      // Traer el detalle completo de los gastos seleccionados (con relaciones).
-      const { data: fullExpenses, error } = await supabase
-        .from("expenses")
-        .select(`
-          *,
-          category:expense_categories(id, name, expense_type),
-          agency:agencies(id, name),
-          currency:currencies(id, code, symbol),
-          project:projects(id, name),
-          account:accounts(id, account_name),
-          vendor:vendors(id, name),
-          bank_account:bank_accounts(id, bank_name, account_name),
-          requested_by:staff!expenses_requested_by_id_fkey(id, first_name, last_name),
-          approved_by:staff!expenses_approved_by_id_fkey(id, first_name, last_name)
-        `)
-        .in("id", ids)
-        .order("created_at", { ascending: false })
-
-      if (error) throw error
-      const rows = (fullExpenses as any[]) || []
+      // Traer el detalle completo de los gastos (con relaciones).
+      const fetched = await fetchInChunks(ids, async (chunk) => {
+        const { data, error } = await supabase
+          .from("expenses")
+          .select(`
+            *,
+            category:expense_categories(id, name, expense_type),
+            agency:agencies(id, name),
+            currency:currencies(id, code, symbol),
+            project:projects(id, name),
+            account:accounts(id, account_name),
+            vendor:vendors(id, name),
+            bank_account:bank_accounts(id, bank_name, account_name),
+            requested_by:staff!expenses_requested_by_id_fkey(id, first_name, last_name),
+            approved_by:staff!expenses_approved_by_id_fkey(id, first_name, last_name)
+          `)
+          .in("id", chunk)
+        if (error) throw error
+        return (data as any[]) || []
+      })
+      // Mismo orden que se ve en pantalla.
+      const order = new Map(ids.map((id, i) => [id, i]))
+      const rows = fetched.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
 
       const typeLabel = (t?: string | null) =>
         expenseTypes.find((x) => x.value === t)?.label || t || ""
@@ -762,18 +786,40 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         Notas: e.notes || "",
       }))
 
-      // Hoja 2: Historial de movimientos de todos los gastos seleccionados.
-      const { data: history } = await supabase
-        .from("expense_approval_history")
-        .select(`
-          expense_id, action, comments, created_at,
-          performed_by:staff(first_name, last_name)
-        `)
-        .in("expense_id", ids)
-        .order("created_at", { ascending: true })
+      const stamp = new Date().toISOString().slice(0, 10)
+
+      // CSV: un solo archivo plano con todas las columnas de los gastos.
+      // Se antepone BOM para que Excel respete acentos y "ñ".
+      if (format === "csv") {
+        const sheet = XLSX.utils.json_to_sheet(gastos)
+        const csv = XLSX.utils.sheet_to_csv(sheet)
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = `Gastos_${stamp}.csv`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        URL.revokeObjectURL(url)
+        return
+      }
+
+      // Hoja 2: Historial de movimientos de todos los gastos exportados.
+      const history = await fetchInChunks(ids, async (chunk) => {
+        const { data } = await supabase
+          .from("expense_approval_history")
+          .select(`
+            expense_id, action, comments, created_at,
+            performed_by:staff(first_name, last_name)
+          `)
+          .in("expense_id", chunk)
+        return (data as any[]) || []
+      })
+      history.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
 
       const numberById = new Map(rows.map((e) => [e.id, e.expense_number]))
-      const historial = ((history as any[]) || []).map((h) => ({
+      const historial = history.map((h) => ({
         Gasto: numberById.get(h.expense_id) || "",
         Acción: h.action || "",
         Detalle: h.comments || "",
@@ -795,10 +841,9 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         "Historial",
       )
 
-      const stamp = new Date().toISOString().slice(0, 10)
-      XLSX.writeFile(workbook, `Gastos_${stamp}.xls`, { bookType: "xls" })
+      XLSX.writeFile(workbook, `Gastos_${stamp}.${format}`, { bookType: format })
     } catch (err) {
-      console.error("Error exporting expenses to XLS:", err)
+      console.error("Error exporting expenses:", err)
     } finally {
       setDownloadingXls(false)
     }
@@ -1448,8 +1493,38 @@ const resetExpenseForm = () => {
         <TabsContent value="expenses" className="space-y-4">
           {/* Filters */}
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
               <CardTitle>Filtros</CardTitle>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={loading || downloadingXls || filteredExpenses.length === 0}
+                  >
+                    {downloadingXls ? (
+                      <Spinner className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    Descargar ({filteredExpenses.length})
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel className="font-normal text-muted-foreground">
+                    Exportar gastos visibles
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => handleExportFiltered("xlsx")}>
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    Excel (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleExportFiltered("csv")}>
+                    <FileText className="mr-2 h-4 w-4" />
+                    CSV (.csv)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-center">
