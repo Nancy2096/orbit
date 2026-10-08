@@ -8,6 +8,7 @@ import {
   daysBetween,
   suggestActionFor,
   toLocalIsoDate,
+  type ActivityResult,
   type ActivityType,
   type AgingBucket,
   type SuggestedAction,
@@ -43,7 +44,7 @@ export interface CollectionRow {
   hasOverdue: boolean
   hasDueSoon: boolean
   nextDueDate: string | null
-  lastActivity: { type: ActivityType; note: string | null; createdAt: string } | null
+  lastActivity: { type: ActivityType; result: ActivityResult | null; note: string | null; createdAt: string } | null
   promise: { id: string; promisedDate: string; amount: number; currency: string; isBroken: boolean } | null
   servicePaused: boolean
   suggestedAction: SuggestedAction
@@ -218,7 +219,7 @@ export async function loadCollectionsSummary(
         .in("id", clientIds),
       service
         .from("collection_activities")
-        .select("client_id, activity_type, note, created_at")
+        .select("client_id, activity_type, result, note, created_at")
         .in("client_id", clientIds)
         .order("created_at", { ascending: false })
         .range(0, 4999),
@@ -234,7 +235,12 @@ export async function loadCollectionsSummary(
     const lastActivity = new Map<string, CollectionRow["lastActivity"]>()
     for (const a of activities ?? []) {
       if (!lastActivity.has(a.client_id)) {
-        lastActivity.set(a.client_id, { type: a.activity_type as ActivityType, note: a.note, createdAt: a.created_at })
+        lastActivity.set(a.client_id, {
+          type: a.activity_type as ActivityType,
+          result: (a.result as ActivityResult | null) ?? null,
+          note: a.note,
+          createdAt: a.created_at,
+        })
       }
     }
     const nextPromise = new Map<string, CollectionRow["promise"]>()

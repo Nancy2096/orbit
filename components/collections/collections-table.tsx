@@ -13,7 +13,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { ACTIVITY_LABELS, AGING_BUCKETS, SUGGESTED_ACTION_LABELS } from "@/lib/collections/rules"
+import { AGING_BUCKETS, SUGGESTED_ACTION_LABELS, activityLabel } from "@/lib/collections/rules"
 import {
   ACTION_STYLES,
   BUCKET_STYLES,
@@ -132,7 +132,7 @@ export function CollectionsTable({ rows, onOpen, onAction }: CollectionsTablePro
                 {row.lastActivity ? (
                   <div className="flex flex-col gap-0.5">
                     <span>
-                      {ACTIVITY_LABELS[row.lastActivity.type]} · {formatDate(row.lastActivity.createdAt, false)}
+                      {activityLabel(row.lastActivity.type, row.lastActivity.result)} · {formatDate(row.lastActivity.createdAt, false)}
                     </span>
                     {row.lastActivity.note && (
                       <span className="line-clamp-1 text-xs text-muted-foreground">{row.lastActivity.note}</span>

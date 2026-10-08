@@ -690,6 +690,12 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
       return
     }
 
+    if (!formData.due_date) {
+      setError("La fecha de vencimiento es obligatoria")
+      setLoading(false)
+      return
+    }
+
     const totals = calculateTotals()
 
     // Siempre reservamos el folio de forma atómica al guardar para garantizar
@@ -1113,10 +1119,12 @@ const fetchAccounts = async (clientId: string, agencyId: string) => {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="due_date">Fecha de Vencimiento</Label>
+                    <Label htmlFor="due_date">Fecha de Vencimiento *</Label>
                     <Input
                       id="due_date"
                       type="date"
+                      required
+                      aria-required="true"
                       value={formData.due_date}
                       onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                     />

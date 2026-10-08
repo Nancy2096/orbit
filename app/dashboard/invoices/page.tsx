@@ -65,6 +65,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
+import { OPEN_INVOICE_STATUSES } from "@/lib/collections/rules"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 
@@ -775,14 +776,13 @@ if (agencyId) {
     return acc
   }
   const totalByCur = sumByCurrency(() => true, "total_amount")
-  const pendingByCur = sumByCurrency(
-    (inv) => inv.status === "pending" || inv.status === "overdue",
-    "balance_due",
-  )
+  const isOpenInvoice = (inv: Invoice) =>
+    (OPEN_INVOICE_STATUSES as readonly string[]).includes(inv.status)
+  const pendingByCur = sumByCurrency(isOpenInvoice, "balance_due")
   const overdueByCur = sumByCurrency(
     (inv) =>
       inv.status === "overdue" ||
-      (inv.status === "pending" && !!inv.due_date && String(inv.due_date).slice(0, 10) < todayStr),
+      (isOpenInvoice(inv) && !!inv.due_date && String(inv.due_date).slice(0, 10) < todayStr),
     "balance_due",
   )
   const paidByCur = sumByCurrency((inv) => inv.status === "paid", "total_amount")
