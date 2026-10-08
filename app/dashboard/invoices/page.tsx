@@ -39,7 +39,8 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, FileText, Eye, DollarSign, Clock, AlertCircle, CheckCircle, Settings, Upload, CreditCard, MoreHorizontal, X, RefreshCw, Landmark, Pencil, Trash2, Send, Paperclip } from "lucide-react"
+import { Plus, Search, FileText, Eye, DollarSign, Clock, AlertCircle, CheckCircle, Settings, Upload, CreditCard, MoreHorizontal, X, RefreshCw, Landmark, Pencil, Trash2, Send, Paperclip, Download, FileSpreadsheet } from "lucide-react"
+import * as XLSX from "xlsx"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -152,6 +153,7 @@ export default function InvoicesPage() {
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkProcessing, setBulkProcessing] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
 
   // Enviar factura por correo al cliente (con adjuntos opcionales)
@@ -788,6 +790,169 @@ if (agencyId) {
   const paidByCur = sumByCurrency((inv) => inv.status === "paid", "total_amount")
   const hasDateFilter = datePreset !== "all"
 
+  // Exporta exactamente las facturas visibles (filtros + búsqueda) con todo su
+  // detalle. En Excel agrega hojas de conceptos y pagos; el CSV lleva solo facturas.
+  const handleExport = async (format: "xlsx" | "csv") => {
+    const ids = filteredInvoices.map((i) => i.id)
+    if (ids.length === 0) return
+    setExporting(true)
+    try {
+      // Supabase manda los ids en la URL: se consultan en lotes para no exceder su longitud.
+      const fetchInChunks = async (fetchChunk: (chunk: string[]) => Promise<any[]>) => {
+        const results: any[] = []
+        for (let i = 0; i < ids.length; i += 150) {
+          results.push(...(await fetchChunk(ids.slice(i, i + 150))))
+        }
+        return results
+      }
+      const one = (v: any) => (Array.isArray(v) ? v[0] : v)
+
+      const fetched = await fetchInChunks(async (chunk) => {
+        const { data, error } = await supabase
+          .from("invoices")
+          .select(`
+            *,
+            client:clients(id, company_name, billing_email, primary_contact_email),
+            account:accounts(id, account_name),
+            agency:agencies(id, name),
+            currency:currencies(id, code, symbol),
+            project:projects(id, name),
+            bank_account:bank_accounts(id, bank_name, account_name)
+          `)
+          .in("id", chunk)
+        if (error) throw error
+        return data || []
+      })
+      const byId = new Map(fetched.map((inv: any) => [inv.id, inv]))
+      const ordered = ids.map((id) => byId.get(id)).filter(Boolean) as any[]
+
+      const statusLabel = (s: string | null) => (s && statusConfig[s]?.label) || s || ""
+      const num = (v: any) => (v === null || v === undefined || v === "" ? "" : Number(v))
+      const date = (v: any) => (v ? String(v).slice(0, 10) : "")
+      const dateTime = (v: any) => (v ? new Date(v).toLocaleString("es-MX", { timeZone: "America/Mexico_City" }) : "")
+
+      const invoiceRows = ordered.map((inv) => {
+        const client = one(inv.client)
+        const currency = one(inv.currency)
+        const bank = one(inv.bank_account)
+        return {
+          "Número": inv.invoice_number,
+          "Tipo": inv.invoice_type ?? "",
+          "Estado": statusLabel(inv.status),
+          "Cliente": client?.company_name ?? "",
+          "Correo de facturación": client?.billing_email ?? "",
+          "Correo de contacto": client?.primary_contact_email ?? "",
+          "Cuenta": one(inv.account)?.account_name ?? "",
+          "Agencia": one(inv.agency)?.name ?? "",
+          "Proyecto": one(inv.project)?.name ?? "",
+          "Fecha de emisión": date(inv.issue_date),
+          "Fecha de vencimiento": date(inv.due_date),
+          "Plazo de pago (días)": num(inv.payment_terms),
+          "Moneda": currency?.code ?? "",
+          "Tipo de cambio": num(inv.exchange_rate),
+          "Subtotal": num(inv.subtotal),
+          "Descuento": num(inv.discount_amount),
+          "Tasa de impuesto": num(inv.tax_rate),
+          "Impuestos": num(inv.tax_amount),
+          "Total": num(inv.total_amount),
+          "Pagado": num(inv.paid_amount),
+          "Saldo": num(inv.balance_due),
+          "Uso CFDI": inv.cfdi_use ?? "",
+          "Método de pago": inv.payment_method ?? "",
+          "Banco": bank ? `${bank.bank_name ?? ""} ${bank.account_name ?? ""}`.trim() : "",
+          "Referencia de pago": inv.payment_reference ?? "",
+          "Fecha de pago": dateTime(inv.payment_date),
+          "Notas de pago": inv.payment_notes ?? "",
+          "Comprobante de pago": inv.payment_receipt_url ?? "",
+          "Notas": inv.notes ?? "",
+          "Notas internas": inv.internal_notes ?? "",
+          "Correo enviado (último)": dateTime(inv.email_sent_at),
+          "Correos enviados": num(inv.email_sent_count),
+          "Último destinatario": inv.email_last_sent_to ?? "",
+          "Creada": dateTime(inv.created_at),
+          "Actualizada": dateTime(inv.updated_at),
+        }
+      })
+
+      const stamp = new Date().toISOString().slice(0, 10)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(invoiceRows), "Facturas")
+
+      if (format === "csv") {
+        XLSX.writeFile(workbook, `facturas-${stamp}.csv`, { bookType: "csv" })
+      } else {
+        const numberOf = new Map(ordered.map((inv) => [inv.id, inv.invoice_number]))
+        const [items, payments] = await Promise.all([
+          fetchInChunks(async (chunk) => {
+            const { data, error } = await supabase
+              .from("invoice_items")
+              .select("*")
+              .in("invoice_id", chunk)
+              .order("sort_order", { ascending: true })
+            if (error) throw error
+            return data || []
+          }),
+          fetchInChunks(async (chunk) => {
+            const { data, error } = await supabase
+              .from("payments")
+              .select(`*, currency:currencies(code), bank_account:bank_accounts(bank_name, account_name)`)
+              .in("invoice_id", chunk)
+              .order("payment_date", { ascending: true })
+            if (error) throw error
+            return data || []
+          }),
+        ])
+
+        const itemRows = items.map((it: any) => ({
+          "Factura": numberOf.get(it.invoice_id) ?? "",
+          "Orden": num(it.sort_order),
+          "Descripción": it.description ?? "",
+          "Cantidad": num(it.quantity),
+          "Precio unitario": num(it.unit_price),
+          "Descuento %": num(it.discount_percentage),
+          "Tasa de impuesto": num(it.tax_rate),
+          "Subtotal": num(it.subtotal),
+          "Impuestos": num(it.tax_amount),
+          "Total": num(it.total),
+        }))
+        const paymentRows = payments.map((p: any) => {
+          const bank = one(p.bank_account)
+          return {
+            "Factura": numberOf.get(p.invoice_id) ?? "",
+            "Número de pago": p.payment_number ?? "",
+            "Fecha de pago": date(p.payment_date),
+            "Monto": num(p.amount),
+            "Moneda": one(p.currency)?.code ?? "",
+            "Tipo de cambio": num(p.exchange_rate),
+            "Método": p.payment_method ?? "",
+            "Referencia": p.reference_number ?? "",
+            "Banco": bank ? `${bank.bank_name ?? ""} ${bank.account_name ?? ""}`.trim() : "",
+            "Estado": p.status ?? "",
+            "Notas": p.notes ?? "",
+            "Registrado": dateTime(p.created_at),
+          }
+        })
+        XLSX.utils.book_append_sheet(
+          workbook,
+          itemRows.length ? XLSX.utils.json_to_sheet(itemRows) : XLSX.utils.aoa_to_sheet([["Sin conceptos"]]),
+          "Conceptos",
+        )
+        XLSX.utils.book_append_sheet(
+          workbook,
+          paymentRows.length ? XLSX.utils.json_to_sheet(paymentRows) : XLSX.utils.aoa_to_sheet([["Sin pagos"]]),
+          "Pagos",
+        )
+        XLSX.writeFile(workbook, `facturas-${stamp}.xlsx`)
+      }
+      toast.success(`${invoiceRows.length} facturas exportadas`)
+    } catch (error) {
+      console.error("Error exporting invoices:", error)
+      toast.error("No se pudo generar el archivo")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   // Estado de la casilla "seleccionar todas" según lo que hay filtrado en pantalla.
   const filteredIds = filteredInvoices.map((i) => i.id)
   const selectedCount = filteredIds.filter((id) => selectedIds.has(id)).length
@@ -912,8 +1077,30 @@ if (agencyId) {
 
       {/* Filters */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
           <CardTitle>Filtros</CardTitle>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loading || exporting || filteredInvoices.length === 0}
+              >
+                {exporting ? <Spinner className="mr-2 h-4 w-4" /> : <Download className="mr-2 h-4 w-4" />}
+                Descargar ({filteredInvoices.length})
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleExport("xlsx")}>
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport("csv")}>
+                <FileText className="mr-2 h-4 w-4" />
+                CSV (.csv)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-4 md:flex-row md:items-center">
