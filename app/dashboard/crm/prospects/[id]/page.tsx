@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select"
 import { createClient } from "@/lib/supabase/client"
 import { applyTaskTemplatesToProspect, syncAutomaticTasksWithStage } from "@/lib/crm-task-templates"
+import { TaskMessageDialog, type ContactOption, type MessageChannel } from "@/components/crm/task-message-dialog"
 import { toast } from "sonner"
 import { useAgency } from "@/contexts/agency-context"
 import { 
@@ -261,6 +262,7 @@ export default function ProspectDetailPage() {
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
+  const [messageDialog, setMessageDialog] = useState<{ task: Task; channel: MessageChannel } | null>(null)
   const [services, setServices] = useState<Service[]>([])
   const [prospectServices, setProspectServices] = useState<ProspectService[]>([])
   const [quotations, setQuotations] = useState<Quotation[]>([])
@@ -1252,6 +1254,29 @@ state_province: prospectData.state_province || "",
       toast.success("Tarea completada y registrada")
       fetchData() // Refrescar actividades
     }
+  }
+
+  const reloadActivities = async () => {
+    const { data } = await supabase
+      .from("crm_activities")
+      .select("*")
+      .eq("prospect_id", prospectId)
+      .order("activity_date", { ascending: false })
+    if (data) setActivities(data)
+  }
+
+  const contactOptions = (field: "contact_email" | "contact_phone"): ContactOption[] => {
+    const seen = new Set<string>()
+    const options: ContactOption[] = []
+    const add = (name: string, value: string | null | undefined) => {
+      const v = (value || "").trim()
+      if (!v || seen.has(v.toLowerCase())) return
+      seen.add(v.toLowerCase())
+      options.push({ label: name ? `${name} · ${v}` : v, value: v })
+    }
+    add(formData.contact_name, formData[field])
+    additionalContacts.forEach((c) => add(c.contact_name, c[field]))
+    return options
   }
 
   const toggleTaskDetail = (taskId: string) => {
@@ -2276,18 +2301,39 @@ state_province: prospectData.state_province || "",
                                 <div className="mt-3 space-y-3 rounded-lg border bg-muted/40 p-3">
                                   {task.whatsapp_message && (
                                     <div className="space-y-1">
-                                      <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-                                        <MessageCircle className="h-3.5 w-3.5" />
-                                        Mensaje de WhatsApp
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                                          <MessageCircle className="h-3.5 w-3.5" />
+                                          Mensaje de WhatsApp
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          className="h-7 bg-emerald-600 text-xs text-white hover:bg-emerald-700"
+                                          onClick={() => setMessageDialog({ task, channel: "whatsapp" })}
+                                        >
+                                          <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                                          Enviar WhatsApp
+                                        </Button>
                                       </div>
                                       <p className="whitespace-pre-wrap text-sm text-foreground/90">{task.whatsapp_message}</p>
                                     </div>
                                   )}
                                   {(task.email_subject || task.email_message) && (
                                     <div className="space-y-1">
-                                      <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700">
-                                        <Mail className="h-3.5 w-3.5" />
-                                        Correo electrónico
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700">
+                                          <Mail className="h-3.5 w-3.5" />
+                                          Correo electrónico
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 border-blue-200 text-xs text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                                          onClick={() => setMessageDialog({ task, channel: "email" })}
+                                        >
+                                          <Mail className="mr-1 h-3.5 w-3.5" />
+                                          Enviar correo
+                                        </Button>
                                       </div>
                                       {task.email_subject && (
                                         <p className="text-sm"><span className="font-medium">Asunto:</span> {task.email_subject}</p>
@@ -3622,6 +3668,20 @@ state_province: prospectData.state_province || "",
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <TaskMessageDialog
+        open={messageDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setMessageDialog(null)
+        }}
+        channel={messageDialog?.channel ?? "email"}
+        prospectId={prospectId}
+        prospectName={formData.contact_name}
+        task={messageDialog?.task ?? null}
+        emailOptions={contactOptions("contact_email")}
+        phoneOptions={contactOptions("contact_phone")}
+        onLogged={reloadActivities}
+      />
     </div>
   )
 }
