@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server"
 import { sendEmail } from "@/lib/email"
 import { loadAccessibleClient, requireCollectionsAccess } from "@/lib/collections/access"
-import { MAX_NOTE_LENGTH, OPEN_INVOICE_STATUSES, daysBetween, toLocalIsoDate } from "@/lib/collections/rules"
+import { loadReminderContext, type ReminderContext } from "@/lib/collections/reminder"
+import { MAX_NOTE_LENGTH, type ActivityResult } from "@/lib/collections/rules"
+import {
+  escapeHtml,
+  formatLongDate,
+  formatMoneyWithCode,
+  messageParagraphs,
+  wrapEmailDocument,
+} from "@/lib/email-format"
 import {
   MAX_CC_RECIPIENTS,
   MAX_TO_RECIPIENTS,
@@ -14,23 +22,66 @@ export const runtime = "nodejs"
 
 const MAX_SUBJECT_LENGTH = 200
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
+const noAgencyAccess = () =>
+  NextResponse.json({ error: "No tienes acceso a la agencia de este cliente" }, { status: 403 })
+
+// Vista previa para el modal: facturas incluidas por moneda, CC sugerido y avisos.
+export async function GET(_request: Request, { params }: { params: Promise<{ clientId: string }> }) {
+  const access = await requireCollectionsAccess()
+  if (access instanceof NextResponse) return access
+
+  const { clientId } = await params
+  const { client, error } = await loadAccessibleClient(access, clientId)
+  if (error) return error
+
+  const context = await loadReminderContext(access, client)
+  if (!context) return noAgencyAccess()
+  return NextResponse.json(context)
 }
 
-function formatMoney(amount: number, currency: string): string {
-  return `$${amount.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
-}
+function buildHtml(params: { recipientName: string; clientName: string; message: string; context: ReminderContext }) {
+  const { recipientName, clientName, message, context } = params
+  const cell = "padding:8px;border-bottom:1px solid #e5e7eb"
+  const head = "padding:8px;text-align:left;color:#6b7280;font-weight:normal;border-bottom:1px solid #e5e7eb"
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "Sin fecha"
-  const [y, m, d] = iso.slice(0, 10).split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })
+  const tables = context.groups
+    .map((group) => {
+      const rows = group.invoices
+        .map((inv) => {
+          const statusText =
+            inv.daysOverdue > 0 ? `Vencida hace ${inv.daysOverdue} día${inv.daysOverdue === 1 ? "" : "s"}` : "Por vencer"
+          return `<tr><td style="${cell}">${escapeHtml(inv.invoiceNumber || "—")}</td><td style="${cell}">${escapeHtml(
+            formatLongDate(inv.dueDate),
+          )}</td><td style="${cell};text-align:right">${escapeHtml(
+            formatMoneyWithCode(inv.balance, group.currency),
+          )}</td><td style="${cell}">${statusText}</td></tr>`
+        })
+        .join("")
+      return `
+        <p style="margin:16px 0 8px;font-weight:bold">Facturas en ${escapeHtml(group.currency)}</p>
+        <table style="border-collapse:collapse;width:100%;font-size:14px;margin:0 0 8px">
+          <thead><tr><th style="${head}">Factura</th><th style="${head}">Vencimiento</th><th style="${head};text-align:right">Saldo</th><th style="${head}">Estado</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><td colspan="2" style="padding:8px;font-weight:bold">Subtotal ${escapeHtml(
+            group.currency,
+          )}</td><td style="padding:8px;text-align:right;font-weight:bold">${escapeHtml(
+            formatMoneyWithCode(group.subtotal, group.currency),
+          )}</td><td></td></tr></tfoot>
+        </table>`
+    })
+    .join("")
+
+  return wrapEmailDocument(`
+    <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;max-width:600px;margin:0 auto">
+      <p style="margin:0 0 12px">Estimado(a) ${escapeHtml(recipientName)},</p>
+      ${messageParagraphs(message)}
+      <p style="margin:16px 0 0">Estado de cuenta de <strong>${escapeHtml(clientName)}</strong> al ${escapeHtml(
+        formatLongDate(context.today),
+      )}:</p>
+      ${tables}
+      <p style="margin:16px 0 12px">Si ya realizaste el pago, por favor responde a este correo con el comprobante para aplicarlo.</p>
+      <p style="margin:0">Saludos,<br/>${escapeHtml(context.agencyName)}</p>
+    </div>`)
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ clientId: string }> }) {
@@ -58,78 +109,62 @@ export async function POST(request: Request, { params }: { params: Promise<{ cli
     return NextResponse.json({ error: "El mensaje es demasiado largo" }, { status: 400 })
   }
 
-  const { service } = access
-  const today = toLocalIsoDate(new Date())
-  const [{ data: invoices }, { data: agency }] = await Promise.all([
-    service
-      .from("invoices")
-      .select("invoice_number, due_date, balance_due, currency:currencies(code)")
-      .eq("client_id", client.id)
-      .in("status", [...OPEN_INVOICE_STATUSES])
-      .gt("balance_due", 0)
-      .order("due_date", { ascending: true }),
-    service.from("agencies").select("name, email").eq("id", client.agency_id).maybeSingle(),
-  ])
-
-  if (!invoices || invoices.length === 0) {
-    return NextResponse.json({ error: "El cliente no tiene facturas pendientes" }, { status: 409 })
+  const context = await loadReminderContext(access, client)
+  if (!context) return noAgencyAccess()
+  if (context.groups.length === 0) {
+    return NextResponse.json({ error: "El cliente no tiene facturas pendientes en su agencia" }, { status: 409 })
   }
 
-  const rowsHtml = invoices
-    .map((inv) => {
-      const currency = (Array.isArray(inv.currency) ? inv.currency[0] : inv.currency) as { code?: string } | null
-      const days = inv.due_date ? daysBetween(inv.due_date, today) : 0
-      const statusText = days > 0 ? `Vencida hace ${days} día${days === 1 ? "" : "s"}` : "Por vencer"
-      const cell = "padding:8px;border-bottom:1px solid #e5e7eb"
-      return `<tr><td style="${cell}">${escapeHtml(inv.invoice_number || "—")}</td><td style="${cell}">${escapeHtml(
-        formatDate(inv.due_date),
-      )}</td><td style="${cell};text-align:right">${escapeHtml(
-        formatMoney(Number(inv.balance_due) || 0, currency?.code || "MXN"),
-      )}</td><td style="${cell}">${statusText}</td></tr>`
-    })
-    .join("")
+  const html = buildHtml({
+    recipientName: client.primary_contact_name || client.company_name || "cliente",
+    clientName: client.company_name || "",
+    message,
+    context,
+  })
 
-  const paragraphs = message
-    .split(/\n+/)
-    .filter(Boolean)
-    .map((line: string) => `<p style="margin:0 0 12px">${escapeHtml(line)}</p>`)
-    .join("")
-  const agencyName = agency?.name || "Orbit"
-  const head = "padding:8px;text-align:left;color:#6b7280;font-weight:normal;border-bottom:1px solid #e5e7eb"
-
-  const html = `
-    <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;max-width:600px;margin:0 auto">
-      <p style="margin:0 0 12px">Estimado(a) ${escapeHtml(client.primary_contact_name || client.company_name || "cliente")},</p>
-      ${paragraphs}
-      <p style="margin:16px 0 8px">Estado de cuenta de <strong>${escapeHtml(client.company_name || "")}</strong>:</p>
-      <table style="border-collapse:collapse;width:100%;font-size:14px;margin:0 0 16px">
-        <thead><tr><th style="${head}">Factura</th><th style="${head}">Vencimiento</th><th style="${head};text-align:right">Saldo</th><th style="${head}">Estado</th></tr></thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-      <p style="margin:0 0 12px">Si ya realizaste el pago, por favor responde a este correo con el comprobante para aplicarlo.</p>
-      <p style="margin:0">Saludos,<br/>${escapeHtml(agencyName)}</p>
-    </div>`
-
-  const replyTo = [agency?.email?.trim(), process.env.FINANCE_REPLY_TO?.trim()].find(
+  const replyTo = [context.agencyEmail, process.env.FINANCE_REPLY_TO?.trim()].find(
     (value): value is string => !!value && isValidEmail(value),
   )
   if (!replyTo) {
     console.warn(`[collections/reminder] Cliente ${client.id}: sin Reply-To (agencies.email y FINANCE_REPLY_TO vacíos)`)
   }
 
+  let result: ActivityResult
+  let sendErrorMessage: string | null = null
   try {
-    const result = await sendEmail({ to, cc, subject, html, replyTo })
-    await service.from("collection_activities").insert({
-      agency_id: client.agency_id,
-      client_id: client.id,
-      activity_type: "email",
-      note: subject,
-      metadata: { to, cc, skipped: result.skipped === true, invoices: invoices.length },
-      created_by: access.userId,
-    })
-    return NextResponse.json({ ok: true, skipped: result.skipped === true })
+    const sent = await sendEmail({ to, cc, subject, html, replyTo })
+    result = sent.skipped === true ? "skipped" : "sent"
   } catch (sendError) {
     console.error("[collections/reminder] Error al enviar:", sendError)
-    return NextResponse.json({ error: "No se pudo enviar el correo. Intenta de nuevo." }, { status: 502 })
+    result = "error"
+    sendErrorMessage = (sendError instanceof Error ? sendError.message : String(sendError)).slice(0, 500)
   }
+
+  const { error: logError } = await access.service.from("collection_activities").insert({
+    agency_id: client.agency_id,
+    client_id: client.id,
+    activity_type: "email",
+    result,
+    note: subject,
+    metadata: {
+      to,
+      cc,
+      replyTo: replyTo ?? null,
+      invoiceNumbers: context.groups.flatMap((g) => g.invoices.map((inv) => inv.invoiceNumber).filter(Boolean)),
+      subtotals: Object.fromEntries(context.groups.map((g) => [g.currency, g.subtotal])),
+      ...(sendErrorMessage ? { error: sendErrorMessage } : {}),
+    },
+    created_by: access.userId,
+  })
+  if (logError) console.error("[collections/reminder] No se pudo guardar la gestión en el historial:", logError)
+
+  if (result === "error") {
+    return NextResponse.json(
+      {
+        error: `No se pudo enviar el correo. Intenta de nuevo.${logError ? " Tampoco se pudo guardar el intento en el historial." : ""}`,
+      },
+      { status: 502 },
+    )
+  }
+  return NextResponse.json({ ok: true, skipped: result === "skipped", historyLogged: !logError })
 }

@@ -30,7 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cli
         .order("due_date", { ascending: true }),
       service
         .from("collection_activities")
-        .select("id, activity_type, note, metadata, created_at, user:users(first_name, last_name)")
+        .select("id, activity_type, result, note, metadata, created_at, user:users(first_name, last_name)")
         .eq("client_id", client.id)
         .order("created_at", { ascending: false })
         .limit(100),
@@ -90,6 +90,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cli
       return {
         id: a.id,
         type: a.activity_type,
+        result: a.result ?? null,
         note: a.note,
         metadata: a.metadata,
         createdAt: a.created_at,

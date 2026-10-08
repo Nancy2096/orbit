@@ -5,6 +5,13 @@ import { sendEmail } from "@/lib/email"
 import { generateInvoicePdf, type InvoicePdfItem } from "@/lib/invoice-pdf"
 import { getModulesForPath } from "@/lib/permission-access"
 import {
+  escapeHtml,
+  formatAmountWithSymbol as formatAmount,
+  formatLongDate as formatDueDate,
+  messageParagraphs,
+  wrapEmailDocument,
+} from "@/lib/email-format"
+import {
   MAX_ATTACHMENTS_TOTAL_BYTES,
   MAX_CC_RECIPIENTS,
   MAX_TO_RECIPIENTS,
@@ -78,27 +85,6 @@ function resolveReplyTo(agencyEmail: string | null | undefined, invoiceNumber: s
   return replyTo
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-}
-
-function formatAmount(amount: number | null | undefined, symbol: string): string {
-  const value = typeof amount === "number" && Number.isFinite(amount) ? amount : 0
-  return `${symbol}${value.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-function formatDueDate(value: string | null | undefined): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || "")
-  if (!match) return "Sin fecha"
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  return date.toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })
-}
-
 function buildHtml(params: {
   clientName: string
   agencyName: string
@@ -110,17 +96,13 @@ function buildHtml(params: {
   includesSummary: boolean
 }): string {
   const { clientName, agencyName, period, total, currencyCode, dueDate, message, includesSummary } = params
-  const paragraphs = message
-    .split(/\n+/)
-    .filter(Boolean)
-    .map((line) => `<p style="margin:0 0 12px">${escapeHtml(line)}</p>`)
-    .join("")
+  const paragraphs = messageParagraphs(message)
 
   const periodText = period ? ` correspondiente a <strong>${escapeHtml(period)}</strong>` : ""
   const row = (label: string, value: string) =>
     `<tr><td style="padding:6px 12px 6px 0;color:#6b7280">${label}</td><td style="padding:6px 0;font-weight:bold;color:#111827">${escapeHtml(value)}</td></tr>`
 
-  return `
+  return wrapEmailDocument(`
     <div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;max-width:560px;margin:0 auto">
       <p style="margin:0 0 12px">Estimado(a) ${escapeHtml(clientName)},</p>
       <p style="margin:0 0 16px">Adjuntamos el CFDI (PDF y XML) de la factura de <strong>${escapeHtml(
@@ -140,7 +122,7 @@ function buildHtml(params: {
       <p style="margin:0 0 12px">Quedamos atentos a cualquier duda.</p>
       <p style="margin:24px 0 0;color:#6b7280;font-size:13px">${escapeHtml(agencyName)}</p>
     </div>
-  `
+  `)
 }
 
 export async function POST(

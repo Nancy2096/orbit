@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { AGING_BUCKETS, ACTIVITY_LABELS, SUGGESTED_ACTION_LABELS, type AgingBucket } from "@/lib/collections/rules"
+import { AGING_BUCKETS, SUGGESTED_ACTION_LABELS, activityLabel, type AgingBucket } from "@/lib/collections/rules"
 import { ClientSheet } from "@/components/collections/client-sheet"
 import { CollectionsTable, type RowAction } from "@/components/collections/collections-table"
 import { CallNoteDialog, PauseDialog } from "@/components/collections/note-dialogs"
@@ -97,7 +97,7 @@ function exportCsv(rows: CollectionRow[], currencies: string[]) {
       r.invoiceNumbers.join(" | "),
       Math.max(r.maxDaysOverdue, 0),
       bucketLabel[r.bucket],
-      r.lastActivity ? ACTIVITY_LABELS[r.lastActivity.type] : "",
+      r.lastActivity ? activityLabel(r.lastActivity.type, r.lastActivity.result) : "",
       r.lastActivity ? r.lastActivity.createdAt.slice(0, 10) : "",
       r.promise ? r.promise.promisedDate : "",
       r.promise ? `${r.promise.amount.toFixed(2)} ${r.promise.currency}` : "",

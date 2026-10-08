@@ -20,7 +20,7 @@ import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { ACTIVITY_LABELS, AGING_BUCKETS, agingBucketFor, type ActivityType } from "@/lib/collections/rules"
+import { AGING_BUCKETS, activityLabel, agingBucketFor, type ActivityType } from "@/lib/collections/rules"
 import { PromiseForm } from "@/components/collections/promise-dialog"
 import {
   BUCKET_STYLES,
@@ -242,7 +242,7 @@ export function ClientSheet({ clientId, onOpenChange, onReminder, onPause }: Cli
                     const Icon = ACTIVITY_ICONS[activity.type] ?? NotebookPen
                     const meta = activity.metadata ?? {}
                     const promiseAction = typeof meta.action === "string" ? PROMISE_ACTION_LABELS[meta.action] : null
-                    const title = activity.type === "promise" && promiseAction ? promiseAction : ACTIVITY_LABELS[activity.type]
+                    const title = activity.type === "promise" && promiseAction ? promiseAction : activityLabel(activity.type, activity.result)
                     const recipients = Array.isArray(meta.to) ? (meta.to as string[]).join(", ") : null
                     return (
                       <li key={activity.id} className="relative flex flex-col gap-1">

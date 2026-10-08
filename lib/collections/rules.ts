@@ -68,9 +68,38 @@ export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   resume: "Servicio reactivado",
 }
 
-export const LOGGABLE_ACTIVITY_TYPES: ActivityType[] = ["whatsapp", "call", "note"]
+// WhatsApp se registra en su propia ruta (/whatsapp) para guardar teléfono y resultado.
+export const LOGGABLE_ACTIVITY_TYPES: ActivityType[] = ["call", "note"]
+
+export type ActivityResult = "sent" | "skipped" | "error" | "opened"
+
+export const ACTIVITY_RESULT_LABELS: Record<ActivityResult, string> = {
+  sent: "Enviado",
+  skipped: "Omitido",
+  error: "Error",
+  opened: "Abierto",
+}
+
+export function activityLabel(type: ActivityType, result: ActivityResult | null | undefined): string {
+  if (type === "email" && result === "error") return "Correo con error"
+  if (type === "email" && result === "skipped") return "Correo omitido"
+  if (type === "whatsapp" && result === "opened") return "WhatsApp abierto"
+  return ACTIVITY_LABELS[type]
+}
 
 export const MAX_NOTE_LENGTH = 1000
+
+export const BUSINESS_TIME_ZONE = "America/Mexico_City"
+
+// Fecha de hoy (YYYY-MM-DD) en America/Mexico_City, sin importar la zona del servidor.
+export function todayInBusinessTimeZone(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now)
+}
 
 // Fecha local YYYY-MM-DD (evita desfases de zona horaria con toISOString).
 export function toLocalIsoDate(date: Date): string {

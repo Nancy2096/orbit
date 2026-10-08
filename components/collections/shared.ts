@@ -1,6 +1,6 @@
 import { mutate } from "swr"
 import { parseLocalDate } from "@/lib/utils"
-import type { ActivityType, AgingBucket, SuggestedAction } from "@/lib/collections/rules"
+import type { ActivityResult, ActivityType, AgingBucket, SuggestedAction } from "@/lib/collections/rules"
 
 export type { CollectionRow, CollectionsSummary, CurrencyKpis } from "@/lib/collections/data"
 
@@ -32,6 +32,7 @@ export interface ClientDetail {
   activities: {
     id: string
     type: ActivityType
+    result: ActivityResult | null
     note: string | null
     metadata: Record<string, unknown> | null
     createdAt: string
