@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -17,6 +18,7 @@ import {
   buildWhatsAppWebUrl,
   fillTemplate,
   hasPendingPlaceholders,
+  needsSignature,
   toWhatsAppNumber,
 } from "@/lib/crm/prospect-messages"
 import { MAX_CC_RECIPIENTS, MAX_TO_RECIPIENTS, parseEmailList, validateEmailList } from "@/lib/invoice-email-rules"
@@ -46,11 +48,14 @@ interface TaskMessageDialogProps {
   emailOptions: ContactOption[]
   phoneOptions: ContactOption[]
   onLogged: () => void
+  onTaskCompleted?: (taskId: string) => void
 }
 
 interface SenderInfo {
   senderName: string
   senderEmail: string | null
+  fromName: string
+  canSendEmail: boolean
 }
 
 const fetcher = async (url: string): Promise<SenderInfo> => {
@@ -95,6 +100,8 @@ export function TaskMessageDialog(props: TaskMessageDialogProps) {
             task={task}
             senderName={data?.senderName ?? ""}
             senderEmail={data?.senderEmail ?? null}
+            fromName={data?.fromName ?? ""}
+            canSendEmail={data?.canSendEmail ?? false}
           />
         ) : null}
       </DialogContent>
@@ -111,9 +118,18 @@ function MessageForm({
   phoneOptions,
   onOpenChange,
   onLogged,
+  onTaskCompleted,
   senderName,
   senderEmail,
-}: TaskMessageDialogProps & { task: MessageTask; senderName: string; senderEmail: string | null }) {
+  fromName,
+  canSendEmail,
+}: TaskMessageDialogProps & {
+  task: MessageTask
+  senderName: string
+  senderEmail: string | null
+  fromName: string
+  canSendEmail: boolean
+}) {
   const values = { prospectName, senderName }
   const isEmail = channel === "email"
 
@@ -123,6 +139,8 @@ function MessageForm({
   const [phone, setPhone] = useState(phoneOptions[0]?.value ?? "")
   const [message, setMessage] = useState(fillTemplate(isEmail ? task.email_message : task.whatsapp_message, values))
   const [sending, setSending] = useState(false)
+  const [completeTask, setCompleteTask] = useState(true)
+  const emailBlocked = isEmail && !canSendEmail
 
   const pendingPlaceholders = hasPendingPlaceholders(`${isEmail ? subject : ""} ${message}`)
 
@@ -161,11 +179,22 @@ function MessageForm({
     if (!message.trim()) return toast.error("Escribe el mensaje")
 
     setSending(true)
-    const { ok, data } = await postMessage({ channel: "email", to: toList, cc: ccList, subject: subject.trim() })
+    const { ok, data } = await postMessage({
+      channel: "email",
+      to: toList,
+      cc: ccList,
+      subject: subject.trim(),
+      completeTask,
+    })
     setSending(false)
-    if (!ok) return toast.error(data.error || "No se pudo enviar el correo")
+    if (!ok) {
+      if (data.logged) onLogged()
+      return toast.error(data.error || "No se pudo enviar el correo")
+    }
     if (data.skipped) toast.warning("Los envíos de correo están desactivados; se registró como omitido")
+    else if (data.redirected) toast.success("Correo enviado al correo de prueba y registrado en actividades")
     else toast.success("Correo enviado y registrado en actividades")
+    if (data.taskCompleted) onTaskCompleted?.(task.id)
     onLogged()
     onOpenChange(false)
   }
@@ -179,8 +208,20 @@ function MessageForm({
         else handleWhatsApp()
       }}
     >
+      {emailBlocked && (
+        <p role="alert" className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          Solo el responsable del prospecto o un usuario de Dirección General, Comercial o Superadmin puede enviar
+          correos desde aquí.
+        </p>
+      )}
       {isEmail ? (
         <>
+          {fromName && (
+            <p className="text-xs text-muted-foreground">
+              El prospecto verá como remitente: <span className="font-medium text-foreground">{fromName}</span>
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="msg-to">Para *</Label>
             {emailOptions.length > 1 && (
@@ -264,9 +305,14 @@ function MessageForm({
           </p>
         )}
         {isEmail ? (
-          senderEmail && (
-            <p className="text-xs text-muted-foreground">Las respuestas del prospecto llegarán a {senderEmail}.</p>
-          )
+          <div className="space-y-1 text-xs text-muted-foreground">
+            {senderEmail && (
+              <p>
+                Las respuestas del prospecto llegarán a {senderEmail}, y recibirás una copia oculta del correo.
+              </p>
+            )}
+            {needsSignature(message, senderName) && <p>Se agregará tu nombre ({senderName}) como firma al final.</p>}
+          </div>
         ) : (
           <p className="text-xs text-muted-foreground">
             Se abrirá WhatsApp Web con la sesión que tengas iniciada en este navegador. Allí solo da clic en enviar.
@@ -274,13 +320,26 @@ function MessageForm({
         )}
       </div>
 
+      {isEmail && (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="msg-complete-task"
+            checked={completeTask}
+            onCheckedChange={(checked) => setCompleteTask(checked === true)}
+          />
+          <Label htmlFor="msg-complete-task" className="font-normal">
+            Marcar la tarea como completada al enviar
+          </Label>
+        </div>
+      )}
+
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>
           Cancelar
         </Button>
         <Button
           type="submit"
-          disabled={sending}
+          disabled={sending || emailBlocked}
           className={isEmail ? undefined : "bg-emerald-600 text-white hover:bg-emerald-700"}
         >
           {sending ? <Spinner className="mr-2 h-4 w-4" /> : isEmail ? <Send className="mr-2 h-4 w-4" /> : <MessageCircle className="mr-2 h-4 w-4" />}

@@ -12,16 +12,35 @@ export interface TemplateValues {
 // pueden resolver ([Nombre del Desarrollo], [Nombre del Gerente Comercial]...)
 // se dejan tal cual para que el asesor las complete antes de enviar.
 const SENDER_TOKENS = ["agente", "nombre del asesor", "tu nombre"]
-const PROSPECT_TOKENS = ["nombre"]
+const PROSPECT_FIRST_NAME_TOKENS = ["nombre"]
+const PROSPECT_FULL_NAME_TOKENS = ["nombre completo"]
+
+export function firstName(fullName: string | null | undefined): string {
+  return (fullName || "").trim().split(/\s+/)[0] || ""
+}
 
 export function fillTemplate(text: string | null | undefined, values: TemplateValues): string {
   if (!text) return ""
+  const fullName = values.prospectName.trim()
+  const prospectFirstName = firstName(fullName)
   return text.replace(/\[([^\]]{1,40})\]/g, (match, rawToken: string) => {
     const token = rawToken.trim().toLowerCase()
-    if (PROSPECT_TOKENS.includes(token) && values.prospectName) return values.prospectName
+    if (PROSPECT_FULL_NAME_TOKENS.includes(token) && fullName) return fullName
+    if (PROSPECT_FIRST_NAME_TOKENS.includes(token) && prospectFirstName) return prospectFirstName
     if (SENDER_TOKENS.includes(token) && values.senderName) return values.senderName
     return match
   })
+}
+
+// El asunto es una sola línea: los saltos de línea se convierten en espacios.
+export function cleanSubject(subject: string | null | undefined): string {
+  return (subject || "").replace(/[\r\n]+/g, " ").replace(/\s{2,}/g, " ").trim()
+}
+
+// La firma automática solo se agrega si el mensaje no incluye ya el nombre del usuario.
+export function needsSignature(message: string, senderName: string): boolean {
+  const name = senderName.trim().toLowerCase()
+  return !!name && !message.toLowerCase().includes(name)
 }
 
 export function hasPendingPlaceholders(text: string): boolean {
