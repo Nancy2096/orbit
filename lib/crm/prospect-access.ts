@@ -19,8 +19,19 @@ export interface ProspectAccess {
   userId: string
   userEmail: string | null
   senderName: string
+  agencyName: string
+  /** Responsable del prospecto o rol con permiso para enviar correo por cualquier prospecto de sus agencias. */
+  canSendEmail: boolean
   service: SupabaseClient
   prospect: ProspectRecord
+}
+
+// Roles que, además del responsable (assigned_to), pueden enviar correo por cualquier
+// prospecto de las agencias a las que tienen acceso.
+const EMAIL_SENDER_ROLES = ["superadmin", "direccion_general", "comercial"]
+
+export function senderDisplayName(senderName: string, agencyName: string): string {
+  return [senderName, agencyName].filter((part) => part.trim()).join(" · ") || "Orbit"
 }
 
 // Mismo criterio que el resto de módulos: superadmin tiene acceso total; el resto
@@ -51,7 +62,8 @@ export async function requireProspectAccess(prospectId: string): Promise<Prospec
   if (!userRow || userRow.is_active === false) return forbidden
 
   const role = Array.isArray(userRow.role) ? userRow.role[0] : userRow.role
-  const isSuperadmin = (role as { name?: string } | null)?.name === "superadmin"
+  const roleName = (role as { name?: string } | null)?.name ?? ""
+  const isSuperadmin = roleName === "superadmin"
 
   let hasModule = isSuperadmin
   if (!hasModule && userRow.role_id) {
@@ -89,10 +101,18 @@ export async function requireProspectAccess(prospectId: string): Promise<Prospec
 
   const senderName = [userRow.first_name, userRow.last_name].filter(Boolean).join(" ").trim()
 
+  let agencyName = ""
+  if (prospect.agency_id) {
+    const { data: agency } = await service.from("agencies").select("name").eq("id", prospect.agency_id).maybeSingle()
+    agencyName = (agency?.name as string | null)?.trim() || ""
+  }
+
   return {
     userId: user.id,
     userEmail: (userRow.email as string | null) || user.email || null,
     senderName,
+    agencyName,
+    canSendEmail: prospect.assigned_to === user.id || EMAIL_SENDER_ROLES.includes(roleName),
     service,
     prospect: prospect as ProspectRecord,
   }

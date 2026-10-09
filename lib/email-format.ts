@@ -41,6 +41,18 @@ export function messageParagraphs(message: string): string {
     .join("")
 }
 
+// Texto libre a HTML: una línea en blanco separa párrafos y un salto simple queda como <br>.
+// El texto siempre se escapa. Hoy solo lo usan los correos de prospectos.
+export function messageToHtml(message: string): string {
+  return message
+    .replace(/\r\n?/g, "\n")
+    .split(/\n[ \t]*\n+/)
+    .map((block) => block.replace(/^\n+|\n+$/g, ""))
+    .filter((block) => block.trim().length > 0)
+    .map((block) => `<p style="margin:0 0 12px">${block.split("\n").map(escapeHtml).join("<br>")}</p>`)
+    .join("")
+}
+
 export function wrapEmailDocument(body: string): string {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8" /></head><body>${body}</body></html>`
 }

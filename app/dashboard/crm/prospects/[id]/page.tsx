@@ -2380,7 +2380,7 @@ state_province: prospectData.state_province || "",
                           <div className="flex-1 min-w-0">
                             <div className="font-medium">{activity.subject}</div>
                             {activity.description && (
-                              <p className="text-sm text-muted-foreground mt-1">{activity.description}</p>
+                              <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap break-words">{activity.description}</p>
                             )}
                             {activity.attachment_url && activity.attachment_name && (
                               <a
@@ -3681,6 +3681,9 @@ state_province: prospectData.state_province || "",
         emailOptions={contactOptions("contact_email")}
         phoneOptions={contactOptions("contact_phone")}
         onLogged={reloadActivities}
+        onTaskCompleted={(taskId) =>
+          setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, is_completed: true } : t)))
+        }
       />
     </div>
   )
