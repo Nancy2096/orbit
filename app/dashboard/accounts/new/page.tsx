@@ -125,7 +125,16 @@ payment_terms: "30",
   const router = useRouter()
   const supabase = createClient()
 
+  const [fromProjects, setFromProjects] = useState(false)
+  const backHref = fromProjects ? "/dashboard/projects" : "/dashboard/accounts"
+
   useEffect(() => {
+    // Read from window instead of useSearchParams to avoid needing a Suspense boundary.
+    const isFromProjects = new URLSearchParams(window.location.search).get("from") === "projects"
+    if (isFromProjects) {
+      setFromProjects(true)
+      setFormData((prev) => ({ ...prev, account_type: "project" }))
+    }
     setMounted(true)
   }, [])
 
@@ -541,7 +550,7 @@ function handleServiceSelect(serviceId: string) {
       await supabase.from("account_commissions").insert(commissionsToInsert)
     }
 
-    router.push("/dashboard/accounts")
+    router.push(backHref)
   }
 
   const frequencyLabels: Record<string, string> = {
@@ -563,13 +572,15 @@ function handleServiceSelect(serviceId: string) {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/dashboard/accounts">
+          <Link href={backHref} aria-label="Volver">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Nueva Cuenta</h1>
-          <p className="text-muted-foreground">Crea una relación comercial cliente-agencia</p>
+          <h1 className="text-2xl font-bold text-foreground">{fromProjects ? "Nuevo Proyecto" : "Nueva Cuenta"}</h1>
+          <p className="text-muted-foreground">
+            {fromProjects ? "Crea una cuenta por proyecto cliente-agencia" : "Crea una relación comercial cliente-agencia"}
+          </p>
         </div>
       </div>
 
@@ -1256,7 +1267,7 @@ function handleServiceSelect(serviceId: string) {
 
           <div className="flex justify-end gap-4">
             <Button type="button" variant="outline" asChild>
-              <Link href="/dashboard/accounts">Cancelar</Link>
+              <Link href={backHref}>Cancelar</Link>
             </Button>
             <Button type="submit" disabled={loading}>
               {loading ? (
