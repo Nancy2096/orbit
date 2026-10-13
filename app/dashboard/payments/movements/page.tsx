@@ -28,8 +28,53 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Spinner } from "@/components/ui/spinner"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, ArrowUpRight, ArrowDownRight, Plus, Landmark, Trash2 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  ArrowDownRight,
+  Plus,
+  Landmark,
+  Trash2,
+  Download,
+  FileSpreadsheet,
+  FileCode,
+} from "lucide-react"
 import { toast } from "sonner"
+import * as XLSX from "xlsx"
+
+const SOURCE_LABELS: Record<Movement["source"], string> = {
+  bank: "Movimiento bancario",
+  payment: "Cobro de factura",
+  equity: "Capital",
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;")
+}
+
+function downloadBlob(content: BlobPart, mime: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }))
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
 
 interface BankAccountLite {
   id: string
@@ -330,6 +375,112 @@ function MovementsContent() {
 
   const bankTitle = bankNameParam || "Todos los bancos"
 
+  const buildExportRows = () =>
+    filteredMovements.map((m) => {
+      const acct = accountById.get(m.bank_account_id)
+      const isIngreso = m.movement_type === "ingreso"
+      const amount = Number(m.amount)
+      return {
+        Fecha: m.movement_date,
+        Tipo: isIngreso ? "Ingreso" : "Salida",
+        Categoría: CATEGORY_LABELS[m.category] || m.category,
+        Origen: SOURCE_LABELS[m.source],
+        Banco: acct?.bank_name ?? "",
+        Cuenta: acct?.account_name ?? "",
+        Agencia: acct?.agency?.name ?? "",
+        Moneda: acct?.currency?.code ?? "",
+        Descripción: m.description ?? "",
+        Referencia: m.reference ?? "",
+        Ingreso: isIngreso ? amount : 0,
+        Salida: isIngreso ? 0 : amount,
+        "Monto neto": isIngreso ? amount : -amount,
+      }
+    })
+
+  const exportFileBase = () => {
+    const scope = (bankNameParam || "Todos_los_bancos").replace(/[^\p{L}\p{N}_-]+/gu, "_")
+    const range = dateFrom || dateTo ? `_${dateFrom || "inicio"}_a_${dateTo || "hoy"}` : "_historico"
+    return `Movimientos_${scope}${range}`
+  }
+
+  const selectedAccountLabel =
+    selectedAccountId === "all"
+      ? "Todas las cuentas"
+      : (() => {
+          const a = accountById.get(selectedAccountId)
+          return a ? `${a.bank_name}${a.agency?.name ? ` · ${a.agency.name}` : ""}` : ""
+        })()
+
+  const handleExportExcel = () => {
+    const rows = buildExportRows()
+    if (rows.length === 0) {
+      toast.error("No hay movimientos para exportar con los filtros actuales")
+      return
+    }
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Movimientos")
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet([
+        { Concepto: "Banco", Valor: bankTitle },
+        { Concepto: "Cuenta", Valor: selectedAccountLabel },
+        { Concepto: "Desde", Valor: dateFrom || "Sin límite" },
+        { Concepto: "Hasta", Valor: dateTo || "Sin límite" },
+        { Concepto: "Número de movimientos", Valor: rows.length },
+        { Concepto: "Total ingresos", Valor: totalIngresos },
+        { Concepto: "Total salidas", Valor: totalSalidas },
+        { Concepto: "Neto", Valor: totalIngresos - totalSalidas },
+      ]),
+      "Resumen",
+    )
+    XLSX.writeFile(workbook, `${exportFileBase()}.xlsx`)
+    toast.success(`${rows.length} movimientos exportados a Excel`)
+  }
+
+  const handleExportXml = () => {
+    const rows = buildExportRows()
+    if (rows.length === 0) {
+      toast.error("No hay movimientos para exportar con los filtros actuales")
+      return
+    }
+    const tags: Record<string, string> = {
+      Fecha: "fecha",
+      Tipo: "tipo",
+      Categoría: "categoria",
+      Origen: "origen",
+      Banco: "banco",
+      Cuenta: "cuenta",
+      Agencia: "agencia",
+      Moneda: "moneda",
+      Descripción: "descripcion",
+      Referencia: "referencia",
+      Ingreso: "ingreso",
+      Salida: "salida",
+      "Monto neto": "monto_neto",
+    }
+    const attr = (v: string) => escapeXml(v)
+    const body = rows
+      .map((row) => {
+        const fields = Object.entries(row)
+          .map(([key, value]) => {
+            const tag = tags[key]
+            const text = typeof value === "number" ? value.toFixed(2) : escapeXml(value)
+            return `    <${tag}>${text}</${tag}>`
+          })
+          .join("\n")
+        return `  <movimiento>\n${fields}\n  </movimiento>`
+      })
+      .join("\n")
+    const xml = [
+      `<?xml version="1.0" encoding="UTF-8"?>`,
+      `<movimientos banco="${attr(bankTitle)}" cuenta="${attr(selectedAccountLabel)}" desde="${attr(dateFrom)}" hasta="${attr(dateTo)}" total="${rows.length}" total_ingresos="${totalIngresos.toFixed(2)}" total_salidas="${totalSalidas.toFixed(2)}" neto="${(totalIngresos - totalSalidas).toFixed(2)}">`,
+      body,
+      `</movimientos>`,
+    ].join("\n")
+    downloadBlob(xml, "application/xml;charset=utf-8", `${exportFileBase()}.xml`)
+    toast.success(`${rows.length} movimientos exportados a XML`)
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center gap-3">
@@ -406,6 +557,28 @@ function MovementsContent() {
               Todo
             </Button>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={loading || filteredMovements.length === 0}>
+                <Download className="h-4 w-4" />
+                Descargar
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                {filteredMovements.length} movimientos visibles
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={handleExportExcel}>
+                <FileSpreadsheet className="h-4 w-4" />
+                Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleExportXml}>
+                <FileCode className="h-4 w-4" />
+                XML (.xml)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {accounts.length > 1 && (
             <div className="ml-auto flex flex-col gap-2">
               <Label>Cuenta</Label>
