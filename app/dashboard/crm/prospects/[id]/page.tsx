@@ -263,6 +263,7 @@ export default function ProspectDetailPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [messageDialog, setMessageDialog] = useState<{ task: Task; channel: MessageChannel } | null>(null)
+  const [calendarTaskId, setCalendarTaskId] = useState<string | null>(null)
   const [services, setServices] = useState<Service[]>([])
   const [prospectServices, setProspectServices] = useState<ProspectService[]>([])
   const [quotations, setQuotations] = useState<Quotation[]>([])
@@ -2727,9 +2728,11 @@ state_province: prospectData.state_province || "",
                             </div>
                             <div className="space-y-1">
                               {dayTasks.slice(0, 2).map(task => (
-                                <div
+                                <button
+                                  type="button"
                                   key={task.id}
-                                  className={`text-xs p-1 rounded truncate ${
+                                  onClick={() => setCalendarTaskId(task.id)}
+                                  className={`block w-full cursor-pointer text-left text-xs p-1 rounded truncate transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                                     task.is_completed 
                                       ? 'bg-green-100 text-green-700 line-through' 
                                       : task.priority === 'high' 
@@ -2741,8 +2744,8 @@ state_province: prospectData.state_province || "",
                                   title={task.title}
                                 >
                                   <ListTodo className="h-3 w-3 inline mr-1" />
-                                  {task.title.substring(0, 10)}...
-                                </div>
+                                  {task.title}
+                                </button>
                               ))}
                               {dayAppointments.slice(0, 2).map(apt => (
                                 <div
@@ -3668,6 +3671,106 @@ state_province: prospectData.state_province || "",
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {(() => {
+        const calendarTask = calendarTaskId ? tasks.find((t) => t.id === calendarTaskId) : undefined
+        const isDone = calendarTask ? calendarTask.is_completed || calendarTask.status === "completed" : false
+        return (
+          <Dialog open={!!calendarTask} onOpenChange={(open) => { if (!open) setCalendarTaskId(null) }}>
+            <DialogContent className="sm:max-w-[520px]">
+              {calendarTask && (
+                <>
+                  <DialogHeader>
+                    <DialogTitle className={isDone ? "line-through" : ""}>{calendarTask.title}</DialogTitle>
+                    <DialogDescription>
+                      {new Date(calendarTask.due_date).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {getPriorityBadge(calendarTask.priority)}
+                      <Badge variant="outline" className={getStatusSemaphore(calendarTask).textColor}>
+                        {getStatusSemaphore(calendarTask).label}
+                      </Badge>
+                    </div>
+                    {calendarTask.description && (
+                      <p className="whitespace-pre-wrap text-sm text-muted-foreground">{calendarTask.description}</p>
+                    )}
+                    <div className="space-y-1.5">
+                      <Label>Estado</Label>
+                      <Select
+                        value={calendarTask.status || "pending"}
+                        onValueChange={(value) => updateTaskStatus(calendarTask.id, value)}
+                      >
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Pendiente</SelectItem>
+                          <SelectItem value="in_progress">En Progreso</SelectItem>
+                          <SelectItem value="completed">Completada</SelectItem>
+                          <SelectItem value="cancelled">Cancelada</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {calendarTask.whatsapp_message && (
+                      <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                          <MessageCircle className="h-3.5 w-3.5" />
+                          Mensaje de WhatsApp
+                        </div>
+                        <p className="whitespace-pre-wrap text-sm">{calendarTask.whatsapp_message}</p>
+                      </div>
+                    )}
+                    {(calendarTask.email_subject || calendarTask.email_message) && (
+                      <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700">
+                          <Mail className="h-3.5 w-3.5" />
+                          Correo electrónico
+                        </div>
+                        {calendarTask.email_subject && (
+                          <p className="text-sm"><span className="font-medium">Asunto:</span> {calendarTask.email_subject}</p>
+                        )}
+                        {calendarTask.email_message && (
+                          <p className="whitespace-pre-wrap text-sm">{calendarTask.email_message}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <DialogFooter className="flex-wrap gap-2 sm:justify-end">
+                    <Button
+                      className="bg-emerald-600 text-white hover:bg-emerald-700"
+                      onClick={() => {
+                        setCalendarTaskId(null)
+                        setMessageDialog({ task: calendarTask, channel: "whatsapp" })
+                      }}
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                      Enviar WhatsApp
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setCalendarTaskId(null)
+                        setMessageDialog({ task: calendarTask, channel: "email" })
+                      }}
+                    >
+                      <Mail className="mr-2 h-4 w-4" />
+                      Enviar correo
+                    </Button>
+                    {!isDone && (
+                      <Button onClick={() => updateTaskStatus(calendarTask.id, "completed")}>
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Marcar completada
+                      </Button>
+                    )}
+                  </DialogFooter>
+                </>
+              )}
+            </DialogContent>
+          </Dialog>
+        )
+      })()}
 
       <TaskMessageDialog
         open={messageDialog !== null}
