@@ -88,6 +88,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     agencyName = agency?.name || ""
   }
 
+  let accountNotes: string | null = null
+  let projectNotes: string | null = null
+  if (preInvoice.account_id) {
+    const { data: acc } = await supabase.from("accounts").select("notes").eq("id", preInvoice.account_id).single()
+    accountNotes = acc?.notes?.trim() || null
+  }
+  if (preInvoice.project_id) {
+    const { data: proj } = await supabase.from("projects").select("notes").eq("id", preInvoice.project_id).single()
+    projectNotes = proj?.notes?.trim() || null
+  }
+  const sourceNotes =
+    preInvoice.source_type === "project" ? projectNotes || accountNotes : accountNotes || projectNotes
+
   const currency = preInvoice.currency
   const rows = includedItems
     .map(
@@ -121,6 +134,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       <tr><td style="color:#666;">${preInvoice.tax_enabled !== false ? `IVA (${preInvoice.tax_rate != null ? Number(preInvoice.tax_rate) : 16}%)` : "IVA (exento)"}</td><td style="text-align:right;">${formatCurrency(totals.tax, currency)}</td></tr>
       <tr style="font-weight:bold;border-top:1px solid #333;"><td style="padding-top:8px;">Total</td><td style="padding-top:8px;text-align:right;">${formatCurrency(totals.total, currency)}</td></tr>
     </table>
+    ${sourceNotes ? `<div style="margin-top:24px;"><p style="font-weight:bold;margin:0 0 4px;">Notas</p><p style="margin:0;color:#444;white-space:pre-line;">${escapeHtml(sourceNotes)}</p></div>` : ""}
     ${preInvoice.notes ? `<p style="margin-top:24px;color:#666;">${escapeHtml(preInvoice.notes)}</p>` : ""}
     <p style="margin-top:24px;color:#999;font-size:12px;">Este documento es una prefactura y no tiene validez fiscal.</p>
   </div>`
