@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { createClient } from "@/lib/supabase/client"
+import { TaskMessageDialog, type ContactOption, type MessageChannel } from "@/components/crm/task-message-dialog"
 import { toast } from "sonner"
 import { 
   Calendar as CalendarIcon,
@@ -50,6 +51,8 @@ import {
   Unlink,
   RefreshCw,
   Loader2,
+  MessageCircle,
+  PlayCircle,
 } from "lucide-react"
 
 interface SalesRep {
@@ -62,6 +65,8 @@ interface Prospect {
   id: string
   contact_name: string
   company_name: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
 }
 
 interface Task {
@@ -77,6 +82,9 @@ interface Task {
   assigned_staff: SalesRep | null
   prospect: Prospect | null
   google_event_id?: string | null
+  whatsapp_message?: string | null
+  email_subject?: string | null
+  email_message?: string | null
 }
 
 interface CalendarDay {
@@ -103,6 +111,13 @@ export default function CRMCalendarPage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [messageDialog, setMessageDialog] = useState<{
+    task: Task
+    channel: MessageChannel
+    emailOptions: ContactOption[]
+    phoneOptions: ContactOption[]
+  } | null>(null)
+  const [openingChannel, setOpeningChannel] = useState<MessageChannel | null>(null)
   const [googleConnection, setGoogleConnection] = useState<GoogleCalendarConnection>({
     connected: false,
     syncEnabled: false,
@@ -160,8 +175,9 @@ export default function CRMCalendarPage() {
       .from("crm_tasks")
       .select(`
         id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to,
+        whatsapp_message, email_subject, email_message,
         assigned_staff:staff!crm_tasks_assigned_to_fkey(id, first_name, last_name),
-        prospect:crm_prospects(id, contact_name, company_name)
+        prospect:crm_prospects(id, contact_name, company_name, contact_email, contact_phone)
       `)
       .eq("agency_id", selectedAgencyId)
       .order("due_date", { ascending: true })
@@ -348,6 +364,43 @@ export default function CRMCalendarPage() {
       sync_to_google: true,
     })
     fetchData()
+  }
+
+  const openMessageDialog = async (task: Task, channel: MessageChannel) => {
+    if (!task.prospect) return
+    setOpeningChannel(channel)
+    const { data: extraContacts } = await supabase
+      .from("crm_prospect_contacts")
+      .select("contact_name, contact_email, contact_phone")
+      .eq("prospect_id", task.prospect.id)
+    setOpeningChannel(null)
+
+    const buildOptions = (field: "contact_email" | "contact_phone"): ContactOption[] => {
+      const seen = new Set<string>()
+      const options: ContactOption[] = []
+      const add = (name: string | null | undefined, value: string | null | undefined) => {
+        const v = (value || "").trim()
+        if (!v || seen.has(v.toLowerCase())) return
+        seen.add(v.toLowerCase())
+        options.push({ label: name ? `${name} · ${v}` : v, value: v })
+      }
+      add(task.prospect?.contact_name, task.prospect?.[field])
+      extraContacts?.forEach((c) => add(c.contact_name, c[field]))
+      return options
+    }
+
+    setDetailOpen(false)
+    setMessageDialog({
+      task,
+      channel,
+      emailOptions: buildOptions("contact_email"),
+      phoneOptions: buildOptions("contact_phone"),
+    })
+  }
+
+  const markTaskCompletedLocally = (taskId: string) => {
+    const completedAt = new Date().toISOString()
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, is_completed: true, completed_at: completedAt } : t)))
   }
 
   const toggleTaskComplete = async (task: Task) => {
@@ -813,6 +866,13 @@ export default function CRMCalendarPage() {
                     </Link>
                   </div>
                 )}
+                {selectedTask.prospect && !selectedTask.is_completed && (
+                  <TaskActions
+                    task={selectedTask}
+                    openingChannel={openingChannel}
+                    onOpenMessage={(channel) => openMessageDialog(selectedTask, channel)}
+                  />
+                )}
               </div>
               <DialogFooter className="flex gap-2">
                 <Button variant="outline" onClick={() => setDetailOpen(false)}>
@@ -829,6 +889,23 @@ export default function CRMCalendarPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {messageDialog?.task.prospect && (
+        <TaskMessageDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setMessageDialog(null)
+          }}
+          channel={messageDialog.channel}
+          prospectId={messageDialog.task.prospect.id}
+          prospectName={messageDialog.task.prospect.contact_name}
+          task={messageDialog.task}
+          emailOptions={messageDialog.emailOptions}
+          phoneOptions={messageDialog.phoneOptions}
+          onLogged={() => {}}
+          onTaskCompleted={markTaskCompletedLocally}
+        />
+      )}
 
       {/* New Task Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -986,6 +1063,68 @@ export default function CRMCalendarPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+function TaskActions({
+  task,
+  openingChannel,
+  onOpenMessage,
+}: {
+  task: Task
+  openingChannel: MessageChannel | null
+  onOpenMessage: (channel: MessageChannel) => void
+}) {
+  if (!task.prospect) return null
+  const hasEmail = Boolean(task.email_subject || task.email_message) || task.task_type === "email"
+  const hasWhatsApp = Boolean(task.whatsapp_message)
+  const phone = task.prospect.contact_phone?.trim()
+  const isCall = task.task_type === "call"
+
+  return (
+    <div className="rounded-lg border bg-muted/40 p-3">
+      <Label className="flex items-center gap-1.5 text-muted-foreground">
+        <PlayCircle className="h-4 w-4" />
+        Realizar tarea
+      </Label>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {hasEmail && (
+          <Button size="sm" onClick={() => onOpenMessage("email")} disabled={openingChannel !== null}>
+            {openingChannel === "email" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mail className="mr-1.5 h-4 w-4" />}
+            Enviar correo
+          </Button>
+        )}
+        {hasWhatsApp && (
+          <Button
+            size="sm"
+            variant={hasEmail ? "outline" : "default"}
+            onClick={() => onOpenMessage("whatsapp")}
+            disabled={openingChannel !== null}
+          >
+            {openingChannel === "whatsapp" ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <MessageCircle className="mr-1.5 h-4 w-4" />
+            )}
+            Enviar WhatsApp
+          </Button>
+        )}
+        {isCall && phone && (
+          <Button size="sm" variant={hasEmail || hasWhatsApp ? "outline" : "default"} asChild>
+            <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>
+              <Phone className="mr-1.5 h-4 w-4" />
+              Llamar {phone}
+            </a>
+          </Button>
+        )}
+        <Button size="sm" variant="outline" asChild>
+          <Link href={`/dashboard/crm/prospects/${task.prospect.id}`}>
+            <ExternalLink className="mr-1.5 h-4 w-4" />
+            Abrir prospecto
+          </Link>
+        </Button>
+      </div>
     </div>
   )
 }
