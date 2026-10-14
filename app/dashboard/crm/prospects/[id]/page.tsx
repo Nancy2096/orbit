@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ProspectCompletenessBar } from "@/components/crm/prospect-completeness-bar"
 import {
   Dialog,
   DialogContent,
@@ -1846,6 +1847,22 @@ state_province: prospectData.state_province || "",
 
             {/* Tab: Informacion */}
             <TabsContent value="info" className="mt-4 space-y-6">
+              <Card>
+                <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-medium">Información completada</p>
+                    <p className="text-sm text-muted-foreground">
+                      Porcentaje de los campos del prospecto que ya se han llenado.
+                    </p>
+                  </div>
+                  <ProspectCompletenessBar
+                    prospect={formData as unknown as Record<string, unknown>}
+                    barClassName="w-40 sm:w-56 h-2.5"
+                    showCount
+                  />
+                </CardContent>
+              </Card>
+
               {/* Asesor Comercial */}
               <Card className="border-primary/20 bg-primary/5">
                 <CardHeader>
