@@ -1245,7 +1245,7 @@ function handleServiceSelect(serviceId: string) {
           {/* Notas */}
           <Card>
             <CardHeader>
-              <CardTitle>Notas Adicionales</CardTitle>
+              <CardTitle>Notas</CardTitle>
             </CardHeader>
             <CardContent>
               <Field>

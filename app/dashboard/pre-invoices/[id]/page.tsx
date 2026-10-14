@@ -60,6 +60,7 @@ import {
 interface RelatedInfo {
   accountName: string | null
   projectName: string | null
+  sourceNotes: string | null
   clientName: string | null
   clientEmail: string | null
   agencyName: string | null
@@ -76,6 +77,7 @@ export default function PreInvoiceDetailPage() {
   const [related, setRelated] = useState<RelatedInfo>({
     accountName: null,
     projectName: null,
+    sourceNotes: null,
     clientName: null,
     clientEmail: null,
     agencyName: null,
@@ -117,23 +119,29 @@ export default function PreInvoiceDetailPage() {
     const info: RelatedInfo = {
       accountName: null,
       projectName: null,
+      sourceNotes: null,
       clientName: null,
       clientEmail: null,
       agencyName: null,
     }
 
+    let accountNotes: string | null = null
+    let projectNotes: string | null = null
     if (pi.account_id) {
       const { data: acc } = await supabase
         .from("accounts")
-        .select("account_name")
+        .select("account_name, notes")
         .eq("id", pi.account_id)
         .single()
       info.accountName = acc?.account_name ?? null
+      accountNotes = acc?.notes?.trim() || null
     }
     if (pi.project_id) {
-      const { data: proj } = await supabase.from("projects").select("name").eq("id", pi.project_id).single()
+      const { data: proj } = await supabase.from("projects").select("name, notes").eq("id", pi.project_id).single()
       info.projectName = proj?.name ?? null
+      projectNotes = proj?.notes?.trim() || null
     }
+    info.sourceNotes = (pi.source_type === "project" ? projectNotes || accountNotes : accountNotes || projectNotes) ?? null
     if (pi.client_id) {
       const { data: client } = await supabase
         .from("clients")
@@ -467,6 +475,20 @@ export default function PreInvoiceDetailPage() {
               </Table>
             </CardContent>
           </Card>
+
+          {related.sourceNotes && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Notas</CardTitle>
+                <CardDescription>
+                  Tomadas de {preInvoice.source_type === "project" ? "el proyecto" : "la cuenta"}.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="whitespace-pre-line text-sm">{related.sourceNotes}</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-6">
@@ -624,6 +646,12 @@ export default function PreInvoiceDetailPage() {
                 <span>{formatCurrency(totals.total, preInvoice.currency)}</span>
               </div>
             </div>
+            {related.sourceNotes && (
+              <div>
+                <p className="font-medium">Notas</p>
+                <p className="whitespace-pre-line text-muted-foreground">{related.sourceNotes}</p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => window.print()}>

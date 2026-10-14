@@ -116,7 +116,7 @@ interface Invoice {
   internal_notes: string | null
   created_at: string
   client: { id: string; company_name: string; rfc: string | null; email: string | null; address: string | null } | null
-  account: { id: string; name: string } | null
+  account: { id: string; name: string; notes?: string | null } | null
   agency: { 
     id: string
     name: string
@@ -130,7 +130,11 @@ interface Invoice {
     settings: { branding?: AgencyBranding } | null
   } | null
   currency: { id: string; code: string; symbol: string } | null
-  project: { id: string; name: string } | null
+  project: { id: string; name: string; notes?: string | null } | null
+}
+
+function getSourceNotes(invoice: Pick<Invoice, "account" | "project">): string | null {
+  return invoice.project?.notes?.trim() || invoice.account?.notes?.trim() || null
 }
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ComponentType<{ className?: string }> }> = {
@@ -191,10 +195,10 @@ export default function InvoiceDetailPage() {
       .select(`
         *,
         client:clients(id, company_name, billing_email, primary_contact_email, address, city, state, country, payment_terms, credit_limit),
-        account:accounts(id, account_name),
+        account:accounts(id, account_name, notes),
         agency:agencies(id, name, legal_name, tax_id, address, phone, email, website, logo_url, settings),
         currency:currencies(id, code, symbol),
-        project:projects(id, name)
+        project:projects(id, name, notes)
       `)
       .eq("id", id)
       .single()
@@ -715,12 +719,20 @@ export default function InvoiceDetailPage() {
           </Card>
 
           {/* Notes */}
-          {(invoice.notes || invoice.internal_notes) && (
+          {(getSourceNotes(invoice) || invoice.notes || invoice.internal_notes) && (
             <Card>
               <CardHeader>
                 <CardTitle>Notas</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {getSourceNotes(invoice) && (
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground mb-1">
+                      Notas {invoice.project?.notes?.trim() ? "del proyecto" : "de la cuenta"}
+                    </div>
+                    <p className="text-sm whitespace-pre-line">{getSourceNotes(invoice)}</p>
+                  </div>
+                )}
                 {invoice.notes && (
                   <div>
                     <div className="text-sm font-medium text-muted-foreground mb-1">Notas para el Cliente</div>
@@ -1285,10 +1297,15 @@ export default function InvoiceDetailPage() {
         </div>
 
         {/* Notes */}
-        {invoice.notes && (
+        {(getSourceNotes(invoice) || invoice.notes) && (
           <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: `${branding.accent_color}15` }}>
             <h4 className="font-bold text-sm mb-1" style={{ color: branding.accent_color }}>Notas:</h4>
-            <p className="text-sm" style={{ color: branding.text_color }}>{invoice.notes}</p>
+            {getSourceNotes(invoice) && (
+              <p className="text-sm whitespace-pre-line" style={{ color: branding.text_color }}>{getSourceNotes(invoice)}</p>
+            )}
+            {invoice.notes && (
+              <p className="text-sm whitespace-pre-line mt-2 first:mt-0" style={{ color: branding.text_color }}>{invoice.notes}</p>
+            )}
           </div>
         )}
 

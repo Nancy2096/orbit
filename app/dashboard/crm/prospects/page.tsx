@@ -82,6 +82,8 @@ interface SalesRep {
   last_name: string
 }
 
+import { ProspectCompletenessBar } from "@/components/crm/prospect-completeness-bar"
+
 interface Prospect {
   id: string
   company_name: string | null
@@ -239,6 +241,9 @@ export default function ProspectsPage() {
           id, company_name, contact_name, contact_email, contact_phone, contact_position,
           estimated_value, expected_close_date, probability, status, created_at, assigned_to,
           client_type_id, industry_id,
+          product_id, project_count, website, country, state_province,
+          social_facebook, social_instagram, social_linkedin, social_twitter,
+          currency_id, description, notes,
           updated_at, assigned_at, attended_at, won_date, lost_date,
           stage:crm_pipeline_stages(id, name, color),
           source:crm_lead_sources(id, name)
@@ -587,13 +592,14 @@ export default function ProspectsPage() {
                   <TableHead>Fecha Cierre</TableHead>
                   <TableHead>Última Fecha de Contacto</TableHead>
                   <TableHead>Prob.</TableHead>
+                <TableHead>Información</TableHead>
                 <TableHead className="w-[80px]">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredProspects.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={12} className="h-32 text-center">
+                  <TableCell colSpan={13} className="h-32 text-center">
                     <div className="flex flex-col items-center justify-center text-muted-foreground">
                       <UserPlus className="h-8 w-8 mb-2 opacity-50" />
                       <p>No se encontraron prospectos</p>
@@ -818,6 +824,11 @@ export default function ProspectsPage() {
                         </div>
                         <span className="text-sm text-muted-foreground">{prospect.probability}%</span>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <ProspectCompletenessBar
+                        prospect={prospect as unknown as Record<string, unknown>}
+                      />
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>
