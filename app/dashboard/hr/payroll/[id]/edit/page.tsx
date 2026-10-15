@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "sonner"
+import { logPayrollHistory } from "@/lib/payroll-history"
 import { ArrowLeft, Save } from "lucide-react"
 
 interface PayrollPeriod {
@@ -51,6 +52,7 @@ export default function EditPayrollPeriodPage() {
     payment_date: "",
     agency_id: "",
   })
+  const [originalData, setOriginalData] = useState<typeof formData | null>(null)
   
   const supabase = createClient()
 
@@ -76,7 +78,7 @@ export default function EditPayrollPeriodPage() {
       if (periodRes.error) throw periodRes.error
 
       const period = periodRes.data as PayrollPeriod
-      setFormData({
+      const loaded = {
         period_name: period.period_name,
         period_type: period.period_type,
         start_date: period.start_date,
@@ -84,7 +86,9 @@ export default function EditPayrollPeriodPage() {
         payment_date: period.payment_date || "",
         // agency_id NULL representa nómina global (todas las agencias).
         agency_id: period.agency_id ?? "global",
-      })
+      }
+      setFormData(loaded)
+      setOriginalData(loaded)
 
       if (agenciesRes.data) setAgencies(agenciesRes.data)
     } catch (error) {
@@ -113,6 +117,29 @@ export default function EditPayrollPeriodPage() {
         .eq("id", periodId)
 
       if (error) throw error
+
+      const agencyName = (id: string) =>
+        id === "global" ? "Global (todas)" : agencies.find((a) => a.id === id)?.name || id
+      const fieldLabels: Record<keyof typeof formData, string> = {
+        period_name: "Nombre",
+        period_type: "Tipo",
+        start_date: "Fecha inicio",
+        end_date: "Fecha fin",
+        payment_date: "Fecha de pago",
+        agency_id: "Agencia",
+      }
+      const changes = originalData
+        ? (Object.keys(fieldLabels) as (keyof typeof formData)[])
+            .filter((k) => originalData[k] !== formData[k])
+            .map((k) => ({
+              field: fieldLabels[k],
+              from: k === "agency_id" ? agencyName(originalData[k]) : originalData[k],
+              to: k === "agency_id" ? agencyName(formData[k]) : formData[k],
+            }))
+        : []
+      if (changes.length > 0) {
+        await logPayrollHistory(supabase, periodId, "period_edited", "Datos del periodo editados", { changes })
+      }
 
       toast.success("Periodo actualizado correctamente")
       router.push(`/dashboard/hr/payroll/${periodId}`)

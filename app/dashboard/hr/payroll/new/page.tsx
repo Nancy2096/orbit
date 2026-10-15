@@ -19,6 +19,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { ArrowLeft, Save, Calendar, Wallet } from "lucide-react"
 import { toast } from "sonner"
+import { logPayrollHistory } from "@/lib/payroll-history"
 
 interface Agency {
   id: string
@@ -193,6 +194,12 @@ export default function NewPayrollPeriodPage() {
 
       if (error) throw error
 
+      await logPayrollHistory(
+        supabase,
+        data.id,
+        "period_created",
+        `Periodo de nómina creado: ${formData.period_name} (${formData.start_date} a ${formData.end_date})`,
+      )
       toast.success("Periodo de nómina creado exitosamente")
       router.push(`/dashboard/hr/payroll/${data.id}`)
     } catch (error: any) {
