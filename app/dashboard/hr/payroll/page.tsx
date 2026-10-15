@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -43,7 +44,6 @@ import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "sonner"
 import { Plus, Search, Wallet, Calendar, DollarSign, Users, Eye, CheckCircle, MoreHorizontal, Pencil, Trash2, Download } from "lucide-react"
-import { computePayrollEntries, exportPayrollToXls, fetchPayrollNotes } from "@/lib/payroll-export"
 import { sumByCurrency, type CurrencyTotals, type PaymentEntryLike } from "@/lib/payroll-currency"
 
 interface PayrollPeriod {
@@ -104,29 +104,13 @@ export default function PayrollPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const supabase = createClient()
 
-  // Descarga la tabla del periodo en .xls (solo disponible cuando está aprobada).
-  const handleDownloadXls = async (period: PayrollPeriod) => {
+  const router = useRouter()
+
+  // Abre el detalle del periodo con ?download=xls: el detalle genera el archivo
+  // con su propio botón "Descargar XLS", así ambos descargan exactamente lo mismo.
+  const handleDownloadXls = (period: PayrollPeriod) => {
     setDownloadingId(period.id)
-    try {
-      // El registro se consulta con select("*"), por lo que incluye payment_concept
-      // y agency_id aunque no estén en el tipo local.
-      const p = period as unknown as Parameters<typeof computePayrollEntries>[1]
-      const [entries, notes] = await Promise.all([
-        computePayrollEntries(supabase, p),
-        fetchPayrollNotes(supabase, period.id),
-      ])
-      if (entries.length === 0) {
-        toast.error("No hay colaboradores en este periodo para exportar")
-        return
-      }
-      exportPayrollToXls(p, entries, notes)
-      toast.success("Tabla de nómina descargada")
-    } catch (error) {
-      console.error("Error exporting payroll:", error)
-      toast.error("Error al descargar la tabla de nómina")
-    } finally {
-      setDownloadingId(null)
-    }
+    router.push(`/dashboard/hr/payroll/${period.id}?download=xls`)
   }
 
   useEffect(() => {

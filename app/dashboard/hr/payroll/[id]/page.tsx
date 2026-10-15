@@ -215,8 +215,15 @@ const statusColors: Record<string, "default" | "secondary" | "destructive" | "ou
   cancelled: "destructive",
 }
 
-export default function PayrollDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function PayrollDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ download?: string }>
+}) {
   const resolvedParams = use(params)
+  const autoDownload = use(searchParams).download === "xls"
   const router = useRouter()
   const supabase = createClient()
   // Solo super administrador y director general pueden aprobar nóminas.
@@ -1553,26 +1560,113 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       const staffName = (e: PayrollEntry) =>
         `${e.staff.first_name} ${e.staff.last_name}`.trim()
 
+      const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+      const showReceipts = period.status === "approved" || period.status === "paid"
+
+      // Comprobantes vigentes (se consultan al momento para no depender de que
+      // el estado local ya haya cargado).
+      const { data: receiptRows } = await supabase
+        .from("payroll_payment_receipts")
+        .select("staff_id, file_name")
+        .eq("period_id", period.id)
+      const receiptByStaff = new Map(
+        (receiptRows || []).map((r: { staff_id: string; file_name: string | null }) => [
+          r.staff_id,
+          r.file_name || "Comprobante",
+        ]),
+      )
+
+      const staffTypeLabel = (e: PayrollEntry) => {
+        const labels: string[] = []
+        if (e.staff.agency_id === null) labels.push("Global")
+        if (e.staff.employment_status === "terminated") labels.push("Baja")
+        else labels.push(e.staff.payment_frequency === "monthly" ? "Mensual" : "Quincenal")
+        return labels.join(" / ")
+      }
+
       const wb = XLSX.utils.book_new()
 
-      // 1) Resumen por colaborador
-      const resumen = entries.map((e) => ({
-        Colaborador: staffName(e),
-        Puesto: e.staff.position || "",
-        "Salario base": e.base_salary,
-        Bonos: e.bonuses,
-        Comisiones: e.commissions,
-        Finiquito: e.finiquito,
-        Préstamos: e.loanDeductions,
-        Deducciones: e.deductions,
-        Impuestos: e.taxes,
-        "Pago bruto": e.gross_pay,
-        "Pago neto": e.net_pay,
-        Moneda: getPaymentInfo(e).code,
-        "Monto a pagar": getPaymentInfo(e).amount,
-        "Banco Origen": e.staff.payroll_bank_name || "",
-      }))
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), "Resumen")
+      // 1) Nómina: mismas columnas y renglones que la tabla "Detalle de Nómina".
+      const nomina: Record<string, unknown>[] = entries.map((e) => {
+        const pay = getPaymentInfo(e)
+        const row: Record<string, unknown> = {
+          Empleado: staffName(e),
+          Tipo: staffTypeLabel(e),
+          Puesto: e.staff.position || "",
+          "Salario Base": round2(e.base_salary),
+          Bonos: round2(e.bonuses),
+          "Comisiones Citas": round2(e.commissions),
+          Finiquito: round2(e.finiquito),
+          Préstamos: round2(e.loanDeductions),
+          Deducciones: round2(e.deductions),
+          Impuestos: round2(e.taxes),
+          Bruto: round2(e.gross_pay),
+          Neto: round2(e.net_pay),
+          Moneda: pay.code,
+          "Monto a Pagar": round2(pay.amount),
+          Banco: e.staff.bank_name || "",
+          "CLABE Interbancaria": e.staff.bank_clabe || "",
+          "Banco Origen": e.staff.payroll_bank_name || "",
+          Concepto: period.payment_concept || "",
+        }
+        if (showReceipts) row.Comprobante = receiptByStaff.get(e.staff_id) || ""
+        return row
+      })
+      if (entries.length > 0) {
+        const sum = (fn: (e: PayrollEntry) => number) => round2(entries.reduce((s, e) => s + (Number(fn(e)) || 0), 0))
+        const totalsByCurrency = sumByCurrency(entries, currencyCodeById)
+        const totalRow: Record<string, unknown> = {
+          Empleado: "TOTAL",
+          Tipo: "",
+          Puesto: "",
+          "Salario Base": sum((e) => e.base_salary),
+          Bonos: sum((e) => e.bonuses),
+          "Comisiones Citas": sum((e) => e.commissions),
+          Finiquito: sum((e) => e.finiquito),
+          Préstamos: sum((e) => e.loanDeductions),
+          Deducciones: sum((e) => e.deductions),
+          Impuestos: sum((e) => e.taxes),
+          Bruto: sum((e) => e.gross_pay),
+          Neto: sum((e) => e.net_pay),
+          Moneda: Object.keys(totalsByCurrency).join(" / "),
+          "Monto a Pagar": Object.entries(totalsByCurrency)
+            .map(([code, t]) => formatMoneyCode(t.net, code))
+            .join(" / "),
+          Banco: "",
+          "CLABE Interbancaria": "",
+          "Banco Origen": "",
+          Concepto: "",
+        }
+        if (showReceipts) totalRow.Comprobante = ""
+        nomina.push(totalRow)
+      }
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(nomina.length ? nomina : [{ Aviso: "Sin colaboradores en el periodo" }]),
+        "Nómina",
+      )
+
+      // 2) Datos generales del periodo.
+      const periodoInfo = [
+        { Campo: "Periodo", Valor: period.period_name || "" },
+        { Campo: "Agencia", Valor: period.agency?.name || "Global" },
+        { Campo: "Tipo de periodo", Valor: period.period_type || "" },
+        { Campo: "Fecha inicio", Valor: fmtDay(period.start_date) },
+        { Campo: "Fecha fin", Valor: fmtDay(period.end_date) },
+        { Campo: "Fecha de pago", Valor: fmtDay(period.payment_date) },
+        { Campo: "Estado", Valor: statusLabels[period.status] || period.status },
+        { Campo: "Concepto de pago", Valor: period.payment_concept || "" },
+        { Campo: "Colaboradores", Valor: entries.length },
+        { Campo: "Total bruto", Valor: round2(entries.reduce((s, e) => s + e.gross_pay, 0)) },
+        {
+          Campo: "Total deducciones",
+          Valor: round2(entries.reduce((s, e) => s + e.deductions + e.loanDeductions + e.taxes, 0)),
+        },
+        { Campo: "Total neto", Valor: round2(entries.reduce((s, e) => s + e.net_pay, 0)) },
+        { Campo: "Calculada el", Valor: fmtDateTime(period.calculated_at) },
+        { Campo: "Aprobada el", Valor: fmtDateTime(period.approved_at) },
+      ]
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(periodoInfo), "Periodo")
 
       // 2) Comisiones (citas y demás) con el desglose de cómo se calcularon
       const comisiones: Record<string, unknown>[] = []
@@ -1647,6 +1741,38 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         "Bonos",
       )
 
+      // Préstamos descontados en el periodo (mismo detalle del diálogo).
+      const prestamos: Record<string, unknown>[] = []
+      for (const e of entries) {
+        for (const l of e.loanItems || []) {
+          prestamos.push({
+            Colaborador: staffName(e),
+            "No. préstamo": l.loan_number || "",
+            Tipo: l.loan_type || "",
+            Parcialidad: `${l.payment_number} de ${l.number_of_payments}`,
+            "Descuento del periodo": round2(l.amount),
+            "Pagado a la fecha": round2(l.amount_paid),
+            "Saldo pendiente": round2(l.remaining_balance),
+          })
+        }
+        if ((e.loanItems || []).length === 0 && Number(e.loanDeductions) > 0) {
+          prestamos.push({
+            Colaborador: staffName(e),
+            "No. préstamo": "",
+            Tipo: "",
+            Parcialidad: "",
+            "Descuento del periodo": round2(e.loanDeductions),
+            "Pagado a la fecha": "",
+            "Saldo pendiente": "",
+          })
+        }
+      }
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.json_to_sheet(prestamos.length ? prestamos : [{ Aviso: "Sin préstamos en el periodo" }]),
+        "Préstamos",
+      )
+
       // 4) Notas del periodo (con su registro de autor/fecha de creación,
       //    edición y eliminación).
       const { data: notesData } = await supabase
@@ -1692,6 +1818,19 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       setDownloadingXls(false)
     }
   }
+
+  // "Descargar XLS" desde la lista de periodos abre este detalle con
+  // ?download=xls para generar exactamente el mismo archivo que este botón.
+  const autoDownloadDone = useRef(false)
+  useEffect(() => {
+    if (!autoDownload || autoDownloadDone.current) return
+    if (loading || !period || currencies.length === 0) return
+    autoDownloadDone.current = true
+    void handleDownloadXls().finally(() => {
+      router.replace(`/dashboard/hr/payroll/${resolvedParams.id}`)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDownload, loading, period, currencies.length])
 
   if (loading) {
     return (
