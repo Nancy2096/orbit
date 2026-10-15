@@ -7,6 +7,8 @@ import { upload } from "@vercel/blob/client"
 import { createClient } from "@/lib/supabase/client"
 import { getEntryPayment, isActiveDuringPeriod, sumByCurrency } from "@/lib/payroll-currency"
 import { PayrollNotes } from "@/components/hr/payroll-notes"
+import { PayrollHistory } from "@/components/hr/payroll-history"
+import { logPayrollHistory } from "@/lib/payroll-history"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -292,6 +294,16 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       })
   }, [supabase])
 
+  const staffNameById = (staffId: string) => {
+    const staff = entries.find((e) => e.staff_id === staffId)?.staff
+    return staff ? `${staff.first_name} ${staff.last_name}`.trim() : "colaborador"
+  }
+
+  const statusLabel = (status: string) => statusLabels[status] || status
+
+  const money = (amount: number) =>
+    new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount || 0)
+
   // Abre el selector de archivos para el empleado indicado.
   const openReceiptPicker = (staffId: string) => {
     setReceiptTargetStaffId(staffId)
@@ -322,6 +334,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       if (error) throw error
       setReceipts((prev) => ({ ...prev, [staffId]: { file_path: pathname, file_name: file.name } }))
       toast.success("Comprobante adjuntado")
+      logPayrollHistory(
+        supabase,
+        resolvedParams.id,
+        "receipt_attached",
+        `Comprobante de pago adjuntado para ${staffNameById(staffId)} (${file.name})`,
+      )
     } catch (error) {
       console.error("Error uploading payroll receipt:", error)
       toast.error("Error al subir el comprobante. Verifica que sea PDF o imagen (máx 25MB).")
@@ -334,6 +352,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
   // Elimina el comprobante adjunto de un empleado.
   const handleRemoveReceipt = async (staffId: string) => {
+    const removedFileName = receipts[staffId]?.file_name
     try {
       const { error } = await supabase
         .from("payroll_payment_receipts")
@@ -347,6 +366,12 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         return next
       })
       toast.success("Comprobante eliminado")
+      logPayrollHistory(
+        supabase,
+        resolvedParams.id,
+        "receipt_removed",
+        `Comprobante de pago eliminado para ${staffNameById(staffId)}${removedFileName ? ` (${removedFileName})` : ""}`,
+      )
     } catch (error) {
       console.error("Error removing payroll receipt:", error)
       toast.error("Error al eliminar el comprobante")
@@ -784,9 +809,26 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         .update({ tax_config: payrollConfig })
         .eq("id", period.id)
       if (error) throw error
+      const previousConfig = (period.tax_config ?? {}) as Partial<typeof payrollConfig>
+      const configLabels: Record<keyof typeof payrollConfig, string> = {
+        taxRate: "Impuesto (%)",
+        imssRate: "IMSS (%)",
+        isrRate: "ISR (%)",
+        otherDeductions: "Otras deducciones",
+      }
+      const configChanges = (Object.keys(configLabels) as (keyof typeof payrollConfig)[])
+        .filter((k) => previousConfig[k] !== payrollConfig[k])
+        .map((k) => ({
+          field: configLabels[k],
+          from: previousConfig[k] === undefined ? "" : String(previousConfig[k]),
+          to: String(payrollConfig[k]),
+        }))
       setPeriod({ ...period, tax_config: payrollConfig })
       setShowConfigDialog(false)
       toast.success("Configuración guardada. Recalcula la nómina para aplicar los cambios.")
+      logPayrollHistory(supabase, period.id, "config_updated", "Configuración de impuestos y deducciones actualizada", {
+        changes: configChanges,
+      })
     } catch (error) {
       console.error("Error saving payroll config:", error)
       toast.error("Error al guardar la configuración")
@@ -873,6 +915,22 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       setModifyMode(false)
 
       toast.success("Nómina calculada exitosamente")
+      logPayrollHistory(
+        supabase,
+        period.id,
+        "calculated",
+        `${period.calculated_at ? "Nómina recalculada" : "Nómina calculada"} · ${updatedEntries.length} colaborador(es) · Neto ${money(totalNet)}`,
+        {
+          changes: [
+            { field: "Total bruto", from: money(period.total_gross), to: money(totalGross) },
+            { field: "Total deducciones", from: money(period.total_deductions), to: money(totalDeductions) },
+            { field: "Total neto", from: money(period.total_net), to: money(totalNet) },
+            ...(period.status !== nextStatus
+              ? [{ field: "Estado", from: statusLabel(period.status), to: statusLabel(nextStatus) }]
+              : []),
+          ],
+        },
+      )
     } catch (error) {
       console.error("Error calculating payroll:", error)
       toast.error("Error al calcular la nómina")
@@ -913,6 +971,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       setModifyMode(false)
       setPeriod({ ...period, status: "approved", approved_at: approvedAt })
       toast.success("Nómina aprobada")
+      logPayrollHistory(supabase, period.id, "approved", `Nómina aprobada · Neto ${money(period.total_net)}`, {
+        changes: [{ field: "Estado", from: statusLabel(period.status), to: statusLabel("approved") }],
+      })
     } catch (error) {
       console.error("Error approving payroll:", error)
       toast.error("Error al aprobar la nómina")
@@ -1125,6 +1186,19 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       setUsdMovements([])
       setUsdCorrectionOpen(false)
       toast.success("Pagos en dólares corregidos. Los bancos reflejan el monto real.")
+      logPayrollHistory(
+        supabase,
+        period.id,
+        "usd_corrected",
+        `Pagos en moneda extranjera corregidos para ${corrections.size} colaborador(es)`,
+        {
+          changes: Array.from(corrections.entries()).map(([staffId, c]) => ({
+            field: staffNameById(staffId),
+            from: "",
+            to: `${c.amount.toFixed(2)} ${c.code}`,
+          })),
+        },
+      )
     } catch (error) {
       console.error("Error corrigiendo pagos en dólares:", error)
       toast.error("No se pudo completar la corrección. Puedes intentarlo de nuevo.")
@@ -1293,7 +1367,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       )
 
       const extras = [
-        paidCommissionsCount > 0 ? `${paidCommissionsCount} comisión(es)` : null,
+        paidCommissionsCount > 0 ? `${paidCommissionsCount} comisi��n(es)` : null,
         paidBonusesCount > 0 ? `${paidBonusesCount} bono(s)` : null,
         paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
         paidLoansCount > 0 ? `${paidLoansCount} pago(s) de préstamo` : null,
@@ -1305,6 +1379,20 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         extras.length > 0
           ? `Nómina marcada como pagada · ${extras.join(" y ")} registrada(s)`
           : "Nómina marcada como pagada",
+      )
+      logPayrollHistory(
+        supabase,
+        period.id,
+        "paid",
+        extras.length > 0
+          ? `Nómina marcada como pagada · ${extras.join(", ")}`
+          : "Nómina marcada como pagada",
+        {
+          changes: [
+            { field: "Estado", from: statusLabel(period.status), to: statusLabel("paid") },
+            { field: "Total neto pagado", from: "", to: money(period.total_net) },
+          ],
+        },
       )
       // Avisar de bancos de empleados que no tienen cuenta bancaria registrada.
       if (bankMovementsResult.unmatched.length > 0) {
@@ -1382,6 +1470,31 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
         total_deductions: totalDeductions,
         total_net: totalNet,
       })
+
+      const original = entries.find((e) => e.staff_id === updatedEntry.staff_id)
+      const entryFields: [keyof PayrollEntry, string][] = [
+        ["base_salary", "Salario base"],
+        ["bonuses", "Bonos"],
+        ["commissions", "Comisiones"],
+        ["finiquito", "Finiquito"],
+        ["deductions", "Deducciones"],
+        ["taxes", "Impuestos"],
+        ["net_pay", "Neto"],
+      ]
+      const entryChanges = entryFields
+        .filter(([key]) => Number(original?.[key] ?? 0) !== Number(updatedEntry[key] ?? 0))
+        .map(([key, label]) => ({
+          field: label,
+          from: money(Number(original?.[key] ?? 0)),
+          to: money(Number(updatedEntry[key] ?? 0)),
+        }))
+      logPayrollHistory(
+        supabase,
+        period.id,
+        "entry_edited",
+        `Renglón modificado: ${updatedEntry.staff.first_name} ${updatedEntry.staff.last_name}`,
+        { changes: entryChanges },
+      )
     }
 
     setShowEditDialog(false)
@@ -1571,6 +1684,7 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
       const safeName = (period.period_name || "nomina").replace(/[^\w\-]+/g, "_")
       XLSX.writeFile(wb, `${safeName}.xlsx`)
       toast.success("Nómina descargada en Excel")
+      logPayrollHistory(supabase, period.id, "exported", `Nómina descargada en Excel (${safeName}.xlsx)`)
     } catch (error) {
       console.error("Error exporting payroll xls:", error)
       toast.error("Error al descargar la nómina")
@@ -1707,7 +1821,18 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
             <>
               {/* Nómina Calculada o Aprobada: bloqueada por defecto. Para cambiar
                   algo hay que activar explícitamente el modo de modificación. */}
-              <Button variant="outline" onClick={() => setModifyMode(true)}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setModifyMode(true)
+                  logPayrollHistory(
+                    supabase,
+                    period.id,
+                    "modify_enabled",
+                    `Modo de modificación activado (nómina ${statusLabel(period.status).toLowerCase()})`,
+                  )
+                }}
+              >
                 <Pencil className="mr-2 h-4 w-4" />
                 Modificar
               </Button>
@@ -2167,6 +2292,9 @@ export default function PayrollDetailPage({ params }: { params: Promise<{ id: st
 
       {/* Notas del periodo de nómina, al mismo nivel que el Detalle de Nómina */}
       <PayrollNotes periodId={period.id} />
+
+      {/* Histórico de movimientos del periodo (auditoría: qué, quién y cuándo) */}
+      <PayrollHistory periodId={period.id} />
 
       {/* Input oculto para adjuntar comprobantes de pago (PDF o imagen) */}
       <input

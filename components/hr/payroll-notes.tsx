@@ -18,6 +18,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { StickyNote, Pencil, Trash2, Check, X } from "lucide-react"
 import { toast } from "sonner"
+import { logPayrollHistory } from "@/lib/payroll-history"
+
+const truncate = (text: string, max = 120) => (text.length > max ? `${text.slice(0, max)}…` : text)
 
 interface NoteUser {
   first_name: string | null
@@ -111,6 +114,7 @@ export function PayrollNotes({ periodId }: { periodId: string }) {
     } else {
       setNewNote("")
       toast.success("Nota agregada")
+      logPayrollHistory(supabase, periodId, "note_added", `Nota agregada: "${truncate(content)}"`)
       await fetchNotes()
     }
     setSaving(false)
@@ -143,6 +147,9 @@ export function PayrollNotes({ periodId }: { periodId: string }) {
       toast.error("No se pudo editar la nota")
     } else {
       toast.success("Nota editada")
+      logPayrollHistory(supabase, periodId, "note_edited", "Nota editada", {
+        changes: [{ field: "Nota", from: truncate(note.content), to: truncate(content) }],
+      })
       cancelEdit()
       await fetchNotes()
     }
@@ -163,6 +170,7 @@ export function PayrollNotes({ periodId }: { periodId: string }) {
       toast.error("No se pudo eliminar la nota")
     } else {
       toast.success("Nota eliminada")
+      logPayrollHistory(supabase, periodId, "note_deleted", `Nota eliminada: "${truncate(noteToDelete.content)}"`)
       await fetchNotes()
     }
     setNoteToDelete(null)
