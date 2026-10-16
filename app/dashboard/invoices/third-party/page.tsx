@@ -334,7 +334,7 @@ export default function ThirdPartyPaymentsPage() {
         project:projects(id, name),
         agency:agencies(id, name),
         currency:currencies(id, code, symbol),
-        invoice:invoices(id, invoice_number, status)
+        invoice:invoices!third_party_payments_invoice_id_fkey(id, invoice_number, status)
       `)
       .order("payment_date", { ascending: false })
 
