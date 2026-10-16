@@ -795,7 +795,16 @@ const resetForm = () => {
 
       // Create expense in "Gastos" - Monto Original para proceder con el pago al proveedor
       const EXPENSE_CATEGORY_ID = "d906cfc8-f85c-44a1-99a4-c4d8cfe5428a" // Pagos por Cuenta de Clientes
-      
+
+      const { data: expenseFolio, error: folioError } = await supabase.rpc("next_expense_folio", {
+        p_agency_id: payment.agency_id,
+      })
+      if (folioError) console.error("Expense folio error:", folioError)
+      const expenseNumber =
+        expenseFolio != null
+          ? `GAS-${new Date().getFullYear()}-${String(Number(expenseFolio)).padStart(5, "0")}`
+          : null
+
       const { error: expenseError } = await supabase
         .from("expenses")
         .insert({
@@ -814,13 +823,15 @@ const resetForm = () => {
           is_reimbursable: true,
           status: "pending",
           approval_status: "approved",
+          account_id: payment.account_id || null,
+          expense_number: expenseNumber,
           third_party_payment_id: payment.id,
           notes: `Referencia: ${payment.payment_number}\nFactura generada: ${invoiceNumber}\nRFC Proveedor: ${payment.third_party_rfc || "N/A"}\nCliente: ${payment.client?.company_name || "N/A"}\nComisión cobrada: ${payment.commission_percentage}% ($${payment.commission_amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })})`,
         })
 
     if (expenseError) {
         console.error("Expense error:", expenseError)
-        toast.error("Advertencia: Error al registrar el gasto en la sección de Gastos")
+        toast.error(`No se pudo registrar el gasto en Gastos: ${expenseError.message}`)
       }
 
       // Update third party payment - mark as invoiced (desaparece de la lista activa)
