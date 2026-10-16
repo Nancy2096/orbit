@@ -540,12 +540,64 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
     setChangeStatusModalOpen(true)
   }
 
+  // Borra la factura generada por un pago por cuenta de cliente con todos sus
+  // registros (items, pagos, cobranza, promesas, correos) y el gasto generado.
+  const deleteGeneratedInvoiceAndExpense = async (payment: ThirdPartyPayment) => {
+    const { error: expenseByIdError } = await supabase
+      .from("expenses")
+      .delete()
+      .eq("third_party_payment_id", payment.id)
+    const { error: expenseByNotesError } = await supabase
+      .from("expenses")
+      .delete()
+      .ilike("notes", `%Referencia: ${payment.payment_number}%`)
+    if (expenseByIdError || expenseByNotesError) {
+      console.error("Error deleting related expense:", expenseByIdError || expenseByNotesError)
+      throw new Error("No se pudo eliminar el gasto relacionado")
+    }
+
+    const { data: linkedInvoices } = await supabase
+      .from("invoices")
+      .select("id")
+      .eq("third_party_payment_id", payment.id)
+    const invoiceIds = Array.from(
+      new Set([...(linkedInvoices || []).map((i) => i.id as string), ...(payment.invoice_id ? [payment.invoice_id] : [])]),
+    )
+    if (invoiceIds.length === 0) return
+
+    for (const table of ["payments", "collection_activities", "payment_promises", "invoice_emails", "invoice_items"]) {
+      const { error } = await supabase.from(table).delete().in("invoice_id", invoiceIds)
+      if (error) {
+        console.error(`Error deleting ${table}:`, error)
+        throw new Error("No se pudieron eliminar los registros de la factura")
+      }
+    }
+    const { error: invoiceError } = await supabase.from("invoices").delete().in("id", invoiceIds)
+    if (invoiceError) {
+      console.error("Error deleting related invoice:", invoiceError)
+      throw new Error("No se pudo eliminar la factura relacionada")
+    }
+  }
+
   const handleChangeStatus = async () => {
     if (!changeStatusPayment || !newStatus) return
 
     const updates: Record<string, unknown> = {
       status: newStatus,
       updated_at: new Date().toISOString(),
+    }
+
+    const revertsInvoice =
+      changeStatusPayment.status === "invoiced" && ["draft", "validated", "pending"].includes(newStatus)
+
+    if (revertsInvoice) {
+      try {
+        await deleteGeneratedInvoiceAndExpense(changeStatusPayment)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Error al eliminar la factura")
+        return
+      }
+      updates.invoice_id = null
     }
 
     // Add validation timestamps if changing to validated
@@ -564,7 +616,11 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
       return
     }
 
-    toast.success(`Estado cambiado a ${statusConfig[newStatus]?.label || newStatus}`)
+    toast.success(
+      revertsInvoice
+        ? `Estado cambiado a ${statusConfig[newStatus]?.label || newStatus}. Se eliminaron la factura y el gasto generados.`
+        : `Estado cambiado a ${statusConfig[newStatus]?.label || newStatus}`,
+    )
 
     // Notificar solo si el estado realmente cambió a uno con evento asociado.
     // El servidor valida que el estado real coincida con el evento.
@@ -690,6 +746,7 @@ const resetForm = () => {
           balance_due: payment.total_amount,
           currency_id: payment.currency_id || null,
           payment_terms: paymentTerms,
+          third_party_payment_id: payment.id,
           notes: `Pago por cuenta de cliente: ${payment.payment_number}\nProveedor: ${payment.third_party_name}${payment.third_party_rfc ? ` (RFC: ${payment.third_party_rfc})` : ""}\nConcepto: ${payment.third_party_concept || payment.description || "Pago a proveedor"}\n\nMonto original: $${payment.original_amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}\nComisión (${payment.commission_percentage}%): $${payment.commission_amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`,
         })
         .select()
@@ -757,6 +814,7 @@ const resetForm = () => {
           is_reimbursable: true,
           status: "pending",
           approval_status: "approved",
+          third_party_payment_id: payment.id,
           notes: `Referencia: ${payment.payment_number}\nFactura generada: ${invoiceNumber}\nRFC Proveedor: ${payment.third_party_rfc || "N/A"}\nCliente: ${payment.client?.company_name || "N/A"}\nComisión cobrada: ${payment.commission_percentage}% ($${payment.commission_amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })})`,
         })
 
@@ -2058,6 +2116,16 @@ const filteredPayments = payments.filter((payment) => {
                   <p className="text-sm text-blue-800">
                     El estado cambiará de <strong>{statusConfig[changeStatusPayment.status]?.label}</strong> a{" "}
                     <strong>{statusConfig[newStatus]?.label}</strong>
+                  </p>
+                </div>
+              )}
+
+              {changeStatusPayment.status === "invoiced" && ["draft", "validated", "pending"].includes(newStatus) && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
+                  <p className="text-sm text-red-800">
+                    Al regresar este pago a <strong>{statusConfig[newStatus]?.label}</strong> se eliminarán
+                    permanentemente la factura generada (con sus partidas, pagos y registros de cobranza) y el gasto
+                    asociado.
                   </p>
                 </div>
               )}
