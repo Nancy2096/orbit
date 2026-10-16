@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { FinanceHistory } from "@/components/finance/finance-history"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -1984,6 +1985,10 @@ const filteredPayments = payments.filter((payment) => {
                   )}
                 </div>
               )}
+
+              <div className="border-t pt-4">
+                <FinanceHistory entityType="third_party_payment" entityId={detailPayment.id} bare />
+              </div>
 
               {/* Actions */}
               <div className="flex justify-between border-t pt-4">

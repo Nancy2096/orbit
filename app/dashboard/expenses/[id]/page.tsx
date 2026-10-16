@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
+import { FinanceHistory, refreshFinanceHistory } from "@/components/finance/finance-history"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -194,6 +195,7 @@ export default function ExpenseDetailPage() {
       .order("created_at", { ascending: false })
 
     setHistory((hist as ApprovalHistory[]) || [])
+    refreshFinanceHistory("expense", id)
     return data as ExpenseDetail | null
   }
 
@@ -735,6 +737,8 @@ export default function ExpenseDetailPage() {
           )}
         </div>
       </div>
+
+      <FinanceHistory entityType="expense" entityId={id} />
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { FinanceHistory, refreshFinanceHistory } from "@/components/finance/finance-history"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -158,6 +159,7 @@ export default function PreInvoiceDetailPage() {
     setRelated(info)
     setRecipient((prev) => prev || info.clientEmail || pi.sent_to || "")
     setLoading(false)
+    refreshFinanceHistory("pre_invoice", id)
   }, [id, supabase])
 
   useEffect(() => {
@@ -588,6 +590,8 @@ export default function PreInvoiceDetailPage() {
           </Card>
         </div>
       </div>
+
+      <FinanceHistory entityType="pre_invoice" entityId={id as string} />
 
       {/* Vista previa */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
