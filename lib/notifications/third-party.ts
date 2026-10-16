@@ -331,7 +331,7 @@ export async function buildThirdPartyNotification(
       project:projects(id, name),
       agency:agencies(id, name),
       currency:currencies(id, code, symbol),
-      invoice:invoices(id, invoice_number, due_date)
+      invoice:invoices!third_party_payments_invoice_id_fkey(id, invoice_number, due_date)
     `,
     )
     .eq("id", id)

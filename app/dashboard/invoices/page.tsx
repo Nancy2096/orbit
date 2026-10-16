@@ -73,6 +73,7 @@ import { toast } from "sonner"
 interface Invoice {
   id: string
   invoice_number: string
+  third_party_payment_id?: string | null
   invoice_type: string
   status: string
   issue_date: string
@@ -1331,6 +1332,11 @@ if (agencyId) {
                         >
                           {invoice.invoice_number}
                         </Link>
+                        {invoice.third_party_payment_id && (
+                          <Badge variant="outline" className="ml-2 border-amber-300 bg-amber-50 text-amber-800">
+                            Pago de Tercero
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div>

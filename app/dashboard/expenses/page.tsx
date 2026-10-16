@@ -91,6 +91,7 @@ interface ExpenseCategory {
 interface Expense {
   id: string
   expense_number: string
+  third_party_payment_id?: string | null
   expense_date: string
   start_date: string | null
   end_date: string | null
@@ -1700,6 +1701,11 @@ const resetExpenseForm = () => {
                             <div>
                               <div className="font-medium flex items-center gap-2">
                                 {expense.description}
+                                {expense.third_party_payment_id && (
+                                  <Badge variant="outline" className="shrink-0 border-amber-300 bg-amber-50 text-amber-800">
+                                    Gastos de Terceros
+                                  </Badge>
+                                )}
                                 {expense.receipt_url && (
                                   <a
                                     href={`/api/file?pathname=${encodeURIComponent(expense.receipt_url)}`}
