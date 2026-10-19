@@ -212,7 +212,6 @@ export default function CRMCalendarPage() {
           .select(`
             id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to,
             whatsapp_message, email_subject, email_message,
-            assigned_staff:staff!crm_tasks_assigned_to_fkey(id, first_name, last_name),
             prospect:crm_prospects(id, contact_name, company_name, contact_email, contact_phone, assigned_to)
           `)
           .eq("agency_id", selectedAgencyId)
@@ -234,7 +233,6 @@ export default function CRMCalendarPage() {
       ),
     ])
 
-    setTasks(tasksData)
     setAppointments(appointmentsData)
 
     // El filtro incluye a todo asesor, gerente o director con prospectos o tareas
@@ -257,6 +255,13 @@ export default function CRMCalendarPage() {
         .in("id", missingIds)
       for (const s of extraStaff ?? []) repsById.set(s.id, s)
     }
+    // crm_tasks no tiene relación declarada con staff, así que el responsable se resuelve aquí.
+    setTasks(
+      tasksData.map((t) => ({
+        ...t,
+        assigned_staff: t.assigned_to ? repsById.get(t.assigned_to) ?? null : null,
+      })),
+    )
     setSalesReps(
       [...repsById.values()].sort((a, b) =>
         `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`, "es"),
