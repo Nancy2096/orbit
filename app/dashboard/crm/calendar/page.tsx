@@ -67,6 +67,23 @@ interface Prospect {
   company_name: string | null
   contact_email?: string | null
   contact_phone?: string | null
+  assigned_to?: string | null
+}
+
+interface Appointment {
+  id: string
+  title: string
+  appointment_type: string | null
+  start_datetime: string
+  status: string | null
+  prospect: Prospect | null
+}
+
+const PAGE_SIZE = 1000
+
+const toLocalDateKey = (value: string | Date) => {
+  const d = typeof value === "string" ? new Date(value) : value
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
 interface Task {
@@ -92,6 +109,7 @@ interface CalendarDay {
   isCurrentMonth: boolean
   isToday: boolean
   tasks: Task[]
+  appointments: Appointment[]
 }
 
 interface GoogleCalendarConnection {
@@ -104,6 +122,7 @@ export default function CRMCalendarPage() {
   const { selectedAgencyId, loading: agencyLoading } = useAgency()
   const [loading, setLoading] = useState(true)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [appointments, setAppointments] = useState<Appointment[]>([])
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [salesReps, setSalesReps] = useState<SalesRep[]>([])
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -168,23 +187,81 @@ export default function CRMCalendarPage() {
       .in("department_id", deptIds.length > 0 ? deptIds : ["00000000-0000-0000-0000-000000000000"])
       .order("first_name")
 
-    if (salesRepsData) setSalesReps(salesRepsData)
-
-    // Fetch tasks
-    const { data: tasksData } = await supabase
-      .from("crm_tasks")
-      .select(`
-        id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to,
-        whatsapp_message, email_subject, email_message,
-        assigned_staff:staff!crm_tasks_assigned_to_fkey(id, first_name, last_name),
-        prospect:crm_prospects(id, contact_name, company_name, contact_email, contact_phone)
-      `)
-      .eq("agency_id", selectedAgencyId)
-      .order("due_date", { ascending: true })
-
-    if (tasksData) {
-      setTasks(tasksData as Task[])
+    // Supabase limita cada consulta a 1000 filas, así que se pagina para traer
+    // todas las tareas y citas de todos los prospectos de la agencia.
+    const fetchAll = async <T,>(
+      build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+    ): Promise<T[]> => {
+      const rows: T[] = []
+      for (let from = 0; ; from += PAGE_SIZE) {
+        const { data, error } = await build(from, from + PAGE_SIZE - 1)
+        if (error) {
+          console.error("[calendar] fetch error:", error.message)
+          break
+        }
+        rows.push(...((data ?? []) as T[]))
+        if (!data || data.length < PAGE_SIZE) break
+      }
+      return rows
     }
+
+    const [tasksData, appointmentsData] = await Promise.all([
+      fetchAll<Task>((from, to) =>
+        supabase
+          .from("crm_tasks")
+          .select(`
+            id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to,
+            whatsapp_message, email_subject, email_message,
+            assigned_staff:staff!crm_tasks_assigned_to_fkey(id, first_name, last_name),
+            prospect:crm_prospects(id, contact_name, company_name, contact_email, contact_phone, assigned_to)
+          `)
+          .eq("agency_id", selectedAgencyId)
+          .order("due_date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+      fetchAll<Appointment>((from, to) =>
+        supabase
+          .from("crm_appointments")
+          .select(`
+            id, title, appointment_type, start_datetime, status,
+            prospect:crm_prospects(id, contact_name, company_name, assigned_to)
+          `)
+          .eq("agency_id", selectedAgencyId)
+          .order("start_datetime", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      ),
+    ])
+
+    setTasks(tasksData)
+    setAppointments(appointmentsData)
+
+    // El filtro incluye a todo asesor, gerente o director con prospectos o tareas
+    // asignadas, aunque no pertenezca a los departamentos Comercial/Dirección.
+    const repsById = new Map<string, SalesRep>()
+    for (const rep of salesRepsData ?? []) repsById.set(rep.id, rep)
+    const ownerIds = new Set<string>()
+    for (const t of tasksData) {
+      if (t.prospect?.assigned_to) ownerIds.add(t.prospect.assigned_to)
+      if (t.assigned_to) ownerIds.add(t.assigned_to)
+    }
+    for (const a of appointmentsData) {
+      if (a.prospect?.assigned_to) ownerIds.add(a.prospect.assigned_to)
+    }
+    const missingIds = [...ownerIds].filter((id) => !repsById.has(id))
+    if (missingIds.length > 0) {
+      const { data: extraStaff } = await supabase
+        .from("staff")
+        .select("id, first_name, last_name")
+        .in("id", missingIds)
+      for (const s of extraStaff ?? []) repsById.set(s.id, s)
+    }
+    setSalesReps(
+      [...repsById.values()].sort((a, b) =>
+        `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`, "es"),
+      ),
+    )
 
     // Fetch prospects
     const { data: prospectsData } = await supabase
@@ -247,6 +324,44 @@ export default function CRMCalendarPage() {
     setSyncingGoogle(false)
   }
 
+  // Una tarea o cita pertenece al asesor dueño del prospecto; si la tarea no
+  // tiene prospecto (o se asignó a otra persona), también cuenta para su responsable.
+  const filteredTasks = useMemo(() => {
+    if (filterSalesRep === "all") return tasks
+    return tasks.filter(
+      (t) => t.prospect?.assigned_to === filterSalesRep || t.assigned_to === filterSalesRep,
+    )
+  }, [tasks, filterSalesRep])
+
+  const filteredAppointments = useMemo(() => {
+    if (filterSalesRep === "all") return appointments
+    return appointments.filter((a) => a.prospect?.assigned_to === filterSalesRep)
+  }, [appointments, filterSalesRep])
+
+  const tasksByDay = useMemo(() => {
+    const map = new Map<string, Task[]>()
+    for (const t of filteredTasks) {
+      if (!t.due_date) continue
+      const key = toLocalDateKey(t.due_date)
+      const list = map.get(key)
+      if (list) list.push(t)
+      else map.set(key, [t])
+    }
+    return map
+  }, [filteredTasks])
+
+  const appointmentsByDay = useMemo(() => {
+    const map = new Map<string, Appointment[]>()
+    for (const a of filteredAppointments) {
+      if (!a.start_datetime) continue
+      const key = toLocalDateKey(a.start_datetime)
+      const list = map.get(key)
+      if (list) list.push(a)
+      else map.set(key, [a])
+    }
+    return map
+  }, [filteredAppointments])
+
   // Calendar calculations
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear()
@@ -269,26 +384,21 @@ export default function CRMCalendarPage() {
         isCurrentMonth: false,
         isToday: false,
         tasks: [],
+        appointments: [],
       })
     }
     
     // Current month days
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day)
-      const dateStr = date.toISOString().split('T')[0]
-      const dayTasks = tasks.filter(t => {
-        if (!t.due_date) return false
-        const taskDate = new Date(t.due_date).toISOString().split('T')[0]
-        if (taskDate !== dateStr) return false
-        if (filterSalesRep !== "all" && t.assigned_to !== filterSalesRep) return false
-        return true
-      })
-      
+      const dateStr = toLocalDateKey(date)
+
       days.push({
         date,
         isCurrentMonth: true,
         isToday: date.getTime() === today.getTime(),
-        tasks: dayTasks,
+        tasks: tasksByDay.get(dateStr) ?? [],
+        appointments: appointmentsByDay.get(dateStr) ?? [],
       })
     }
     
@@ -301,11 +411,12 @@ export default function CRMCalendarPage() {
         isCurrentMonth: false,
         isToday: false,
         tasks: [],
+        appointments: [],
       })
     }
     
     return days
-  }, [currentDate, tasks, filterSalesRep])
+  }, [currentDate, tasksByDay, appointmentsByDay])
 
   const goToPreviousMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))
@@ -469,7 +580,7 @@ export default function CRMCalendarPage() {
   const monthStats = useMemo(() => {
     const year = currentDate.getFullYear()
     const month = currentDate.getMonth()
-    const monthTasks = tasks.filter(t => {
+    const monthTasks = filteredTasks.filter(t => {
       if (!t.due_date) return false
       const date = new Date(t.due_date)
       return date.getFullYear() === year && date.getMonth() === month
@@ -481,7 +592,7 @@ export default function CRMCalendarPage() {
       completed: monthTasks.filter(t => t.is_completed).length,
       overdue: monthTasks.filter(t => !t.is_completed && new Date(t.due_date) < new Date()).length,
     }
-  }, [currentDate, tasks])
+  }, [currentDate, filteredTasks])
 
   if (loading || agencyLoading) {
     return (
@@ -753,9 +864,49 @@ export default function CRMCalendarPage() {
                         </TooltipContent>
                       </Tooltip>
                     ))}
-                    {day.tasks.length > 3 && (
+                    {day.appointments.slice(0, Math.max(0, 3 - day.tasks.length)).map(apt => (
+                      <Tooltip key={apt.id}>
+                        <TooltipTrigger asChild>
+                          {apt.prospect ? (
+                            <Link
+                              href={`/dashboard/crm/prospects/${apt.prospect.id}`}
+                              className="w-full flex items-center gap-1 p-1 rounded text-xs bg-purple-100 text-purple-700 hover:opacity-80 transition-opacity"
+                            >
+                              <Users className="h-3 w-3 shrink-0" />
+                              <span className="truncate flex-1">{apt.title}</span>
+                            </Link>
+                          ) : (
+                            <div className="w-full flex items-center gap-1 p-1 rounded text-xs bg-purple-100 text-purple-700">
+                              <Users className="h-3 w-3 shrink-0" />
+                              <span className="truncate flex-1">{apt.title}</span>
+                            </div>
+                          )}
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-[250px]">
+                          <div className="space-y-1">
+                            <p className="font-medium">{apt.title}</p>
+                            <p className="text-xs text-muted-foreground">Cita</p>
+                            {apt.prospect && (
+                              <p className="text-xs">Prospecto: {apt.prospect.contact_name}</p>
+                            )}
+                            {apt.prospect?.assigned_to && (
+                              <p className="text-xs">
+                                Asesor: {(() => {
+                                  const rep = salesReps.find(r => r.id === apt.prospect?.assigned_to)
+                                  return rep ? `${rep.first_name} ${rep.last_name}` : "—"
+                                })()}
+                              </p>
+                            )}
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(apt.start_datetime).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ))}
+                    {day.tasks.length + day.appointments.length > 3 && (
                       <div className="text-xs text-muted-foreground text-center">
-                        +{day.tasks.length - 3} más
+                        +{day.tasks.length + day.appointments.length - 3} más
                       </div>
                     )}
                   </div>
