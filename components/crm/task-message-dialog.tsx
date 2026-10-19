@@ -160,10 +160,15 @@ function MessageForm({
     window.open(buildWhatsAppWebUrl(waNumber, message.trim()), "_blank", "noopener,noreferrer")
 
     setSending(true)
-    const { ok, data } = await postMessage({ channel: "whatsapp", phone })
+    const { ok, data } = await postMessage({ channel: "whatsapp", phone, completeTask })
     setSending(false)
+    if (data.taskCompleted) onTaskCompleted?.(task.id)
     if (!ok) return toast.error(data.error || "No se pudo registrar el WhatsApp")
-    toast.success("WhatsApp Web abierto y registrado en actividades")
+    toast.success(
+      data.taskCompleted
+        ? "WhatsApp Web abierto, tarea realizada y registrada en actividades"
+        : "WhatsApp Web abierto y registrado en actividades",
+    )
     onLogged()
     onOpenChange(false)
   }
@@ -320,18 +325,16 @@ function MessageForm({
         )}
       </div>
 
-      {isEmail && (
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id="msg-complete-task"
-            checked={completeTask}
-            onCheckedChange={(checked) => setCompleteTask(checked === true)}
-          />
-          <Label htmlFor="msg-complete-task" className="font-normal">
-            Marcar la tarea como completada al enviar
-          </Label>
-        </div>
-      )}
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="msg-complete-task"
+          checked={completeTask}
+          onCheckedChange={(checked) => setCompleteTask(checked === true)}
+        />
+        <Label htmlFor="msg-complete-task" className="font-normal">
+          Marcar la tarea como realizada al enviar
+        </Label>
+      </div>
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>

@@ -71,21 +71,37 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       created_by: userId,
     })
 
+  const markTaskCompleted = async (id: string) => {
+    const now = new Date().toISOString()
+    const { error: taskError } = await service
+      .from("crm_tasks")
+      .update({ status: "completed", is_completed: true, completed_at: now, completed_by: userId, updated_at: now })
+      .eq("id", id)
+      .eq("prospect_id", prospect.id)
+    if (taskError) console.error("[crm/messages] No se pudo completar la tarea:", taskError)
+    return !taskError
+  }
+
   if (channel === "whatsapp") {
     const phone = typeof body?.phone === "string" ? body.phone.trim() : ""
     const waNumber = toWhatsAppNumber(phone)
     if (!waNumber) return NextResponse.json({ error: "El teléfono no es válido" }, { status: 400 })
 
+    const waTaskCompleted = completeTask && taskId ? await markTaskCompleted(taskId) : false
+
     const { error } = await logActivity(
       "whatsapp",
       `WhatsApp enviado${taskTitle ? `: ${taskTitle}` : ""}`,
-      `Se abrió WhatsApp Web para enviar el mensaje al +${waNumber}.\n\n${message}`,
+      `Se abrió WhatsApp Web para enviar el mensaje al +${waNumber}.${waTaskCompleted ? "\nLa tarea se marcó como realizada." : ""}\n\n${message}`,
     )
     if (error) {
       console.error("[crm/messages] No se pudo registrar el WhatsApp:", error)
-      return NextResponse.json({ error: "WhatsApp se abrió, pero no se pudo registrar en actividades" }, { status: 500 })
+      return NextResponse.json(
+        { error: "WhatsApp se abrió, pero no se pudo registrar en actividades", taskCompleted: waTaskCompleted },
+        { status: 500 },
+      )
     }
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, taskCompleted: waTaskCompleted })
   }
 
   if (channel !== "email") return NextResponse.json({ error: "Canal inválido" }, { status: 400 })
@@ -157,17 +173,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     )
   }
 
-  let taskCompleted = false
-  if (completeTask && taskId && !skipped) {
-    const now = new Date().toISOString()
-    const { error: taskError } = await service
-      .from("crm_tasks")
-      .update({ status: "completed", is_completed: true, completed_at: now, completed_by: userId, updated_at: now })
-      .eq("id", taskId)
-      .eq("prospect_id", prospect.id)
-    if (taskError) console.error("[crm/messages] No se pudo completar la tarea:", taskError)
-    taskCompleted = !taskError
-  }
+  const taskCompleted = completeTask && taskId && !skipped ? await markTaskCompleted(taskId) : false
 
   const title = skipped
     ? `Correo omitido (envíos desactivados): ${subject}`
@@ -176,7 +182,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       : `Correo enviado: ${subject}`
   const notes = [
     redirectedTo ? `Se desvió al correo de prueba ${redirectedTo}; los destinatarios reales no lo recibieron.` : "",
-    taskCompleted ? "La tarea se marcó como completada." : "",
+    taskCompleted ? "La tarea se marcó como realizada." : "",
   ].filter(Boolean)
 
   const { error: logError } = await logActivity(

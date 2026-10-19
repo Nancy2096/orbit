@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { FinanceHistory, refreshFinanceHistory } from "@/components/finance/finance-history"
 import { parseLocalDate } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -223,6 +224,7 @@ export default function InvoiceDetailPage() {
       }
     }
     setLoading(false)
+    refreshFinanceHistory("invoice", id)
   }
 
   const fetchItems = async () => {
@@ -919,6 +921,10 @@ export default function InvoiceDetailPage() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      <div className="print:hidden">
+        <FinanceHistory entityType="invoice" entityId={id} />
       </div>
 
       {/* Payment Dialog */}

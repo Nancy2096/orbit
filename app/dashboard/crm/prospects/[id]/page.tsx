@@ -3802,7 +3802,11 @@ state_province: prospectData.state_province || "",
         phoneOptions={contactOptions("contact_phone")}
         onLogged={reloadActivities}
         onTaskCompleted={(taskId) =>
-          setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, is_completed: true } : t)))
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === taskId ? { ...t, is_completed: true, status: "completed", completed_at: new Date().toISOString() } : t,
+            ),
+          )
         }
       />
     </div>
