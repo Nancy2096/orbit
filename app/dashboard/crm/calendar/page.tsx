@@ -520,11 +520,20 @@ export default function CRMCalendarPage() {
   }
 
   const toggleTaskComplete = async (task: Task) => {
+    const completing = !task.is_completed
+    const now = new Date().toISOString()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
     const { error } = await supabase
       .from("crm_tasks")
       .update({
-        is_completed: !task.is_completed,
-        completed_at: !task.is_completed ? new Date().toISOString() : null,
+        status: completing ? "completed" : "pending",
+        is_completed: completing,
+        completed_at: completing ? now : null,
+        completed_by: completing ? user?.id ?? null : null,
+        updated_at: now,
       })
       .eq("id", task.id)
 
@@ -533,11 +542,29 @@ export default function CRMCalendarPage() {
       return
     }
 
+    if (task.prospect) {
+      const { error: activityError } = await supabase.from("crm_activities").insert({
+        prospect_id: task.prospect.id,
+        task_id: task.id,
+        activity_type: "task",
+        subject: `${completing ? "Tarea realizada" : "Tarea reabierta"}: ${task.title}`.slice(0, 250),
+        description: completing
+          ? `La tarea "${task.title}" se marcó como realizada desde el calendario.`
+          : `La tarea "${task.title}" se reabrió desde el calendario y volvió a pendiente.`,
+        activity_date: now,
+        is_completed: completing,
+        completed_at: completing ? now : null,
+        completed_by: completing ? user?.id ?? null : null,
+        created_by: user?.id ?? null,
+      })
+      if (activityError) console.error("No se pudo registrar la actividad:", activityError)
+    }
+
     setTasks(prev => prev.map(t =>
-      t.id === task.id ? { ...t, is_completed: !task.is_completed, completed_at: !task.is_completed ? new Date().toISOString() : null } : t
+      t.id === task.id ? { ...t, is_completed: completing, completed_at: completing ? now : null } : t
     ))
 
-    toast.success(!task.is_completed ? "Tarea completada" : "Tarea reabierta")
+    toast.success(completing ? "Tarea realizada y registrada en actividades" : "Tarea reabierta")
     setDetailOpen(false)
   }
 
@@ -739,7 +766,7 @@ export default function CRMCalendarPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completadas</CardTitle>
+            <CardTitle className="text-sm font-medium">Realizadas</CardTitle>
             <CheckCircle2 className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
@@ -835,15 +862,19 @@ export default function CRMCalendarPage() {
                               setDetailOpen(true)
                             }}
                             className={`w-full flex items-center gap-1 p-1 rounded text-xs cursor-pointer hover:opacity-80 transition-opacity text-left ${
-                              task.is_completed ? 'opacity-50 line-through' : ''
+                              task.is_completed ? 'bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200' : ''
                             }`}
-                            style={{ 
-                              backgroundColor: task.is_completed ? 'hsl(var(--muted))' : `hsl(var(--primary) / 0.1)`,
-                            }}
+                            style={task.is_completed ? undefined : { backgroundColor: `hsl(var(--primary) / 0.1)` }}
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${getPriorityColor(task.priority)}`} />
+                            {task.is_completed ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" aria-label="Realizada" />
+                            ) : (
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${getPriorityColor(task.priority)}`} />
+                            )}
                             {getTaskTypeIcon(task.task_type)}
-                            <span className="truncate flex-1">{task.title.substring(0, 12)}</span>
+                            <span className={`truncate flex-1 ${task.is_completed ? 'line-through opacity-70' : ''}`}>
+                              {task.title.substring(0, 12)}
+                            </span>
                           </button>
                         </TooltipTrigger>
                         <TooltipContent side="right" className="max-w-[250px]">
@@ -992,7 +1023,12 @@ export default function CRMCalendarPage() {
                     <Label className="text-muted-foreground">Estado</Label>
                     <div className="mt-1">
                       {selectedTask.is_completed ? (
-                        <Badge variant="secondary">Completada</Badge>
+                        <Badge className="gap-1 bg-green-600 text-white hover:bg-green-600">
+                          <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                          Realizada
+                          {selectedTask.completed_at &&
+                            ` · ${new Date(selectedTask.completed_at).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}`}
+                        </Badge>
                       ) : new Date(selectedTask.due_date) < new Date() ? (
                         <Badge variant="destructive">Vencida</Badge>
                       ) : (
@@ -1038,7 +1074,7 @@ export default function CRMCalendarPage() {
                   onClick={() => toggleTaskComplete(selectedTask)}
                   variant={selectedTask.is_completed ? "secondary" : "default"}
                 >
-                  {selectedTask.is_completed ? "Reabrir Tarea" : "Marcar Completada"}
+                  {selectedTask.is_completed ? "Reabrir Tarea" : "Marcar Realizada"}
                 </Button>
               </DialogFooter>
             </>
