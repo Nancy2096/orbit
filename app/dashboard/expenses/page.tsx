@@ -44,6 +44,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
 import * as XLSX from "xlsx"
+import { syncExpenseBankMovement, EXPENSE_MOVEMENT_SOURCE } from "@/lib/expense-bank-movement"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1165,25 +1166,11 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     }
 
     const amount = Number(expense.total_amount || 0)
-    const previousBalance = Number(bank.current_balance || 0)
-    const newBalance = previousBalance - amount
 
     // Quién realiza la acción: el staff del usuario autenticado.
     const performedById = currentUserStaff?.id || expense.approved_by_id || null
 
-    // 1) Descontar el monto del saldo del banco de salida.
-    const { error: bankError } = await supabase
-      .from("bank_accounts")
-      .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
-      .eq("id", bank.id)
-
-    if (bankError) {
-      console.error("Error updating bank balance:", bankError)
-      setSaving(false)
-      return
-    }
-
-    // 2) Marcar el gasto como pagado y guardar el banco de salida y la fecha.
+    // 1) Marcar el gasto como pagado y guardar el banco de salida y la fecha.
     const { error } = await supabase
       .from("expenses")
       .update({
@@ -1199,11 +1186,19 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
 
     if (error) {
       console.error("Error marking expense as paid:", error)
-      // Revertir el descuento del banco si falla la actualización del gasto.
+      setSaving(false)
+      return
+    }
+
+    // 2) Registrar la salida en el banco (Bancos e Ingresos / Movimientos).
+    try {
+      await syncExpenseBankMovement(supabase, expense.id)
+    } catch (movementError) {
+      console.error("Error registrando la salida bancaria:", movementError)
       await supabase
-        .from("bank_accounts")
-        .update({ current_balance: previousBalance })
-        .eq("id", bank.id)
+        .from("expenses")
+        .update({ status: expense.status, payment_date: expense.payment_date ?? null })
+        .eq("id", expense.id)
       setSaving(false)
       return
     }
@@ -1216,8 +1211,8 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
       performed_by_id: performedById,
       comments:
         `Gasto marcado como pagado. Banco de salida: ${bank.bank_name} - ${bank.account_name}. ` +
-        `Se descontaron ${currencySymbol}${amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })} ` +
-        `del saldo (nuevo saldo: ${currencySymbol}${newBalance.toLocaleString("es-MX", { minimumFractionDigits: 2 })}).`,
+        `Se registró una salida de ${currencySymbol}${amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })} ` +
+        `en los movimientos del banco.`,
     })
 
     // Notificar tras guardar con éxito.
@@ -1351,6 +1346,11 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
 
   const handleDeleteExpense = async (id: string) => {
     if (!confirm("¿Estás seguro de eliminar este gasto?")) return
+    await supabase
+      .from("bank_movements")
+      .delete()
+      .eq("source_type", EXPENSE_MOVEMENT_SOURCE)
+      .eq("source_id", id)
     await supabase.from("expenses").delete().eq("id", id)
     fetchExpenses()
   }

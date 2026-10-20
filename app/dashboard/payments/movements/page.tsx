@@ -102,6 +102,7 @@ interface Movement {
 
 const CATEGORY_LABELS: Record<string, string> = {
   nomina: "Nómina",
+  gasto: "Gasto",
   manual: "Manual",
   transferencia: "Transferencia",
   cobro: "Cobro de factura",
@@ -221,7 +222,7 @@ function MovementsContent() {
       reference: (m.reference as string) ?? null,
       movement_date: m.movement_date as string,
       source: "bank",
-      deletable: (m.category as string) !== "nomina",
+      deletable: (m.category as string) !== "nomina" && (m.source_type as string) !== "expense",
     }))
 
     const paymentMovs: Movement[] = ((payRes.data as Record<string, unknown>[]) || []).map((p) => {
@@ -335,6 +336,10 @@ function MovementsContent() {
     }
     if (movement.source === "equity") {
       toast.error("Los movimientos de capital se administran desde Capital / Aportaciones.")
+      return
+    }
+    if (movement.category === "gasto") {
+      toast.error("Las salidas por gastos se revierten desde el gasto en Finanzas > Gastos.")
       return
     }
     if (movement.category === "nomina") {
