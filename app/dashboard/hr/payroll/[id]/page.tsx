@@ -52,6 +52,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import * as XLSX from "xlsx"
+import { snapToPayday } from "@/lib/loan-schedule"
 
 interface PayrollPeriod {
   id: string
@@ -1308,24 +1309,46 @@ export default function PayrollDetailPage({
       const loanItemsToPay = entries.flatMap((e) => e.loanItems).filter((l) => l.amount > 0)
       let paidLoansCount = 0
       if (loanItemsToPay.length > 0) {
-        const today = new Date().toISOString().split("T")[0]
+        const payrollPayday = snapToPayday(period.end_date)
         for (const l of loanItemsToPay) {
-          const newPaymentsMade = l.payments_made + 1
-          const newRemaining = Math.max(0, l.remaining_balance - l.amount)
-          const isSettled = newRemaining <= 0 || newPaymentsMade >= l.number_of_payments
+          // El snapshot de la nómina puede tener saldos desactualizados: se usa
+          // siempre el estado actual del préstamo para no perder parcialidades.
+          const { data: current } = await supabase
+            .from("loans")
+            .select("payments_made, amount_paid, remaining_balance, number_of_payments, total_amount")
+            .eq("id", l.loan_id)
+            .maybeSingle()
+          if (!current) continue
+
+          const { data: existing } = await supabase
+            .from("loan_payments")
+            .select("id")
+            .eq("loan_id", l.loan_id)
+            .eq("payroll_period_id", period.id)
+            .maybeSingle()
+          if (existing) continue
+
+          const paymentsMade = Number(current.payments_made || 0)
+          const amountPaid = Number(current.amount_paid || 0)
+          const newPaymentsMade = paymentsMade + 1
+          const newAmountPaid = amountPaid + l.amount
+          const newRemaining = Math.max(0, Number(current.total_amount || 0) - newAmountPaid)
+          const isSettled = newRemaining <= 0 || newPaymentsMade >= Number(current.number_of_payments || 0)
 
           const { error: payError } = await supabase.from("loan_payments").insert({
             loan_id: l.loan_id,
-            payment_number: l.payment_number,
-            payment_date: today,
-            scheduled_date: today,
+            payroll_period_id: period.id,
+            payment_number: newPaymentsMade,
+            payment_date: payrollPayday,
+            scheduled_date: payrollPayday,
             amount: l.amount,
             principal_amount: l.amount,
             status: "paid",
             notes: `Descontado en nómina ${period.period_name}`,
           })
           if (payError) {
-            console.error("Error inserting loan_payment:", payError)
+            // 23505 = ya registrado para esta nómina (doble clic / reintento).
+            if (payError.code !== "23505") console.error("Error inserting loan_payment:", payError)
             continue
           }
 
@@ -1333,7 +1356,7 @@ export default function PayrollDetailPage({
             .from("loans")
             .update({
               payments_made: newPaymentsMade,
-              amount_paid: l.amount_paid + l.amount,
+              amount_paid: newAmountPaid,
               remaining_balance: newRemaining,
               status: isSettled ? "paid" : "active",
               updated_at: new Date().toISOString(),
@@ -1374,7 +1397,7 @@ export default function PayrollDetailPage({
       )
 
       const extras = [
-        paidCommissionsCount > 0 ? `${paidCommissionsCount} comisi��n(es)` : null,
+        paidCommissionsCount > 0 ? `${paidCommissionsCount} comisión(es)` : null,
         paidBonusesCount > 0 ? `${paidBonusesCount} bono(s)` : null,
         paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
         paidLoansCount > 0 ? `${paidLoansCount} pago(s) de préstamo` : null,

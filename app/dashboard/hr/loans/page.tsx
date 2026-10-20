@@ -401,9 +401,12 @@ export default function LoansPage() {
                     return (
                       <TableRow key={loan.id}>
                         <TableCell>
-                          <div className="font-medium">
-                            {loan.staff?.first_name} {loan.staff?.last_name}
-                          </div>
+  <Link
+  href={`/dashboard/hr/loans/${loan.id}`}
+  className="font-medium text-primary underline-offset-4 hover:underline"
+  >
+  {loan.staff?.first_name} {loan.staff?.last_name}
+  </Link>
                           {loan.loan_number && (
                             <div className="text-xs text-muted-foreground">
                               #{loan.loan_number}

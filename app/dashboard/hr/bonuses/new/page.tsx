@@ -346,7 +346,7 @@ export default function NewBonusPage() {
                 <Textarea
                   value={formData.agency_impact}
                   onChange={(e) => setFormData((prev) => ({ ...prev, agency_impact: e.target.value }))}
-                  placeholder="¿Cómo aplicar�� lo aprendido y qué beneficio traerá a la agencia?"
+                  placeholder="¿Cómo aplicarás lo aprendido y qué beneficio traerá a la agencia?"
                   rows={4}
                 />
                 <FieldDescription>

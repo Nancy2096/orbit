@@ -726,7 +726,7 @@ export default function TrainingPage() {
   }
 
   // Auto-inscripción del usuario actual desde la tarjeta del curso. Queda
-  // registrado en Equipo con la fecha de inscripci��n y en estado "en progreso".
+  // registrado en Equipo con la fecha de inscripción y en estado "en progreso".
   const handleSelfEnroll = async (course: Course) => {
     if (!currentStaffId) {
       alert("Tu usuario no está vinculado a un registro de personal, por lo que no puedes inscribirte.")
@@ -1324,7 +1324,7 @@ export default function TrainingPage() {
                 </p>
               ) : enrollments.filter((e) => e.staff_id === currentStaffId).length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Aún no estás inscrito en ningún curso. Inscr��bete desde la pestaña Cursos.
+                  Aún no estás inscrito en ningún curso. Inscríbete desde la pestaña Cursos.
                 </p>
               ) : (
                 <div className="space-y-3">

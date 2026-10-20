@@ -405,7 +405,7 @@ export default function NewLoanPage() {
                   <span className="font-bold text-lg">{formatCurrency(totalAmount)}</span>
                 </div>
                 <div className="flex justify-between py-2 border-b">
-                  <span className="text-muted-foreground">N��mero de Pagos</span>
+                  <span className="text-muted-foreground">Número de Pagos</span>
                   <span className="font-medium">{formData.number_of_payments}</span>
                 </div>
                 <div className="flex justify-between py-2">

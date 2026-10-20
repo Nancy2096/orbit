@@ -801,7 +801,7 @@ export default function VacationsPage() {
           )
         : []
 
-  // Saldos por empleado calculados con datos reales: los d��as otorgados provienen
+  // Saldos por empleado calculados con datos reales: los días otorgados provienen
   // de la configuración de permisos de la agencia (days_per_year) o de un balance
   // asignado manualmente; los tomados/pendientes se derivan de las solicitudes del año.
   const getStaffBalance = (staffId: string): LeaveBalance[] => {

@@ -376,7 +376,7 @@ const mockProject = {
       status: "en_revision",
       priority: "media",
       type: "adicional",
-      requestedBy: { name: "Laura Mart����nez", position: "Brand Manager" },
+      requestedBy: { name: "Laura Martínez", position: "Brand Manager" },
       createdAt: "2024-04-03T14:15:00",
       dueDate: "2024-04-10",
       attachments: 0,

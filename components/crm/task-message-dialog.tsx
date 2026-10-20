@@ -75,7 +75,7 @@ export function TaskMessageDialog(props: TaskMessageDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[95vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isEmail ? <Mail className="h-5 w-5 text-blue-600" /> : <MessageCircle className="h-5 w-5 text-emerald-600" />}
@@ -227,6 +227,7 @@ function MessageForm({
               El prospecto verá como remitente: <span className="font-medium text-foreground">{fromName}</span>
             </p>
           )}
+          <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="msg-to">Para *</Label>
             {emailOptions.length > 1 && (
@@ -256,6 +257,7 @@ function MessageForm({
           <div className="space-y-1.5">
             <Label htmlFor="msg-cc">CC</Label>
             <Input id="msg-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Opcional" />
+          </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="msg-subject">Asunto *</Label>
@@ -301,7 +303,7 @@ function MessageForm({
           value={message}
           maxLength={MAX_MESSAGE_LENGTH}
           onChange={(e) => setMessage(e.target.value)}
-          className="min-h-48"
+          className="max-h-[45vh] min-h-48 overflow-y-auto"
         />
         {pendingPlaceholders && (
           <p className="flex items-start gap-1.5 text-xs text-amber-700">
