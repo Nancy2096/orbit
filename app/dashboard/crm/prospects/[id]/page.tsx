@@ -483,7 +483,7 @@ state_province: prospectData.state_province || "",
     const deptIds = commercialDepts?.map(d => d.id) || []
 
     // Cargar las tareas predefinidas también en prospectos existentes (idempotente):
-    // si el prospecto a��n no tiene las tareas de las plantillas configuradas en
+    // si el prospecto aún no tiene las tareas de las plantillas configuradas en
     // "Ajustar Tareas", se crean ahora. Luego se pausan/reanudan según su etapa.
     try {
       const { data: authData } = await supabase.auth.getUser()
@@ -3654,7 +3654,7 @@ state_province: prospectData.state_province || "",
 
             {prospectServices.length > 0 && (
               <div className="rounded-lg border p-4 space-y-2">
-                <p className="text-sm font-medium">Al convertir se crearán autom��ticamente:</p>
+                <p className="text-sm font-medium">Al convertir se crearán automáticamente:</p>
                 <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
                   {prospectServices.some((s) => s.billing_type === "retainer") && (
                     <li>

@@ -1397,7 +1397,7 @@ export default function PayrollDetailPage({
       )
 
       const extras = [
-        paidCommissionsCount > 0 ? `${paidCommissionsCount} comisi��n(es)` : null,
+        paidCommissionsCount > 0 ? `${paidCommissionsCount} comisión(es)` : null,
         paidBonusesCount > 0 ? `${paidBonusesCount} bono(s)` : null,
         paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
         paidLoansCount > 0 ? `${paidLoansCount} pago(s) de préstamo` : null,

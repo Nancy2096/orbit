@@ -498,7 +498,7 @@ const evaluationTemplates = [
     scope: "permanence" as const,
     questions: 40, 
     time: 30,
-    description: "Evaluación integral de desempe����o con retroalimentación de supervisores, pares, subordinados y autoevaluación.",
+    description: "Evaluación integral de desempeño con retroalimentación de supervisores, pares, subordinados y autoevaluación.",
     sampleQuestions: [
       // Liderazgo (8 preguntas)
       { type: "scale", question: "Demuestra habilidades efectivas de comunicación", scale: "1-5" },
@@ -522,7 +522,7 @@ const evaluationTemplates = [
       { type: "scale", question: "Se expresa de manera clara y concisa", scale: "1-5" },
       { type: "scale", question: "Escucha activamente a los demás", scale: "1-5" },
       { type: "scale", question: "Proporciona retroalimentación constructiva", scale: "1-5" },
-      { type: "scale", question: "Adapta su comunicación seg��n la audiencia", scale: "1-5" },
+      { type: "scale", question: "Adapta su comunicación según la audiencia", scale: "1-5" },
       { type: "scale", question: "Mantiene informados a los stakeholders relevantes", scale: "1-5" },
       { type: "scale", question: "Maneja conversaciones difíciles con profesionalismo", scale: "1-5" },
       { type: "scale", question: "Presenta ideas de manera convincente", scale: "1-5" },

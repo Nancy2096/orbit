@@ -242,7 +242,7 @@ const getTaskById = (id: string) => {
       comments: [
         { 
           id: "c1", 
-          author: { id: "user-2", name: "Eduardo M����ndez", initials: "EM" }, 
+          author: { id: "user-2", name: "Eduardo Méndez", initials: "EM" }, 
           text: "Revisemos los requerimientos antes de empezar. @Diana García por favor revisa el brandbook actualizado.", 
           date: "2026-05-02T09:00:00",
           mentions: [{ id: "user-1", name: "Diana García" }],
