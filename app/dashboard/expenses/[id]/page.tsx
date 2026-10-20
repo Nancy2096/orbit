@@ -33,6 +33,7 @@ import {
   Pencil,
 } from "lucide-react"
 import { toast } from "sonner"
+import { syncExpenseBankMovement } from "@/lib/expense-bank-movement"
 
 // Dispara la notificación de correo del gasto sin bloquear la UI (fire-and-forget).
 // Los destinatarios y la validación del evento se resuelven en el servidor.
@@ -288,6 +289,11 @@ export default function ExpenseDetailPage() {
 
       const { error } = await supabase.from("expenses").update(updates).eq("id", expense.id)
       if (error) throw error
+
+      // Pagado registra la salida del banco; salir de pagado la revierte.
+      if (newStatus === "paid" || expense.status === "paid") {
+        await syncExpenseBankMovement(supabase, expense.id)
+      }
 
       if (currentStaffId) {
         const comments =
