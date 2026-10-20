@@ -43,7 +43,7 @@ import {
   ListChecks,
 } from "lucide-react"
 import { toast } from "sonner"
-import { addPaydays, nextPayday } from "@/lib/loan-schedule"
+import { addPaydays, nextPayday, pastPaydays, snapToPayday } from "@/lib/loan-schedule"
 
 type LoanPayment = {
   id: string
@@ -213,10 +213,95 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
     if (error) {
       toast.error("Error al autorizar el préstamo")
     } else {
-      toast.success("Préstamo autorizado y registrado")
+      const backfilled = await registerPastPaydays(loan)
+      toast.success(
+        backfilled > 0
+          ? `Préstamo autorizado. Se registraron ${backfilled} descuento(s) de quincenas ya pagadas.`
+          : "Préstamo autorizado y registrado",
+      )
       fetchLoan()
     }
     setUpdating(false)
+  }
+
+  // Si el préstamo inicia en una fecha pasada, registra como pagadas las quincenas
+  // (15/30) ya transcurridas. Las nóminas aún abiertas se omiten: al marcarse como
+  // pagadas registran su propio descuento.
+  const registerPastPaydays = async (target: Loan): Promise<number> => {
+    if (!target.start_date) return 0
+    const today = new Date().toISOString().split("T")[0]
+    const dates = pastPaydays(
+      target.start_date,
+      target.payment_frequency ?? null,
+      today,
+      Number(target.number_of_payments || 0),
+    )
+    if (dates.length === 0) return 0
+
+    const [{ data: periods }, { data: existing }] = await Promise.all([
+      supabase
+        .from("payroll_periods")
+        .select("id, period_name, end_date, status")
+        .gte("end_date", dates[0])
+        .lte("end_date", `${dates[dates.length - 1].slice(0, 8)}31`),
+      supabase.from("loan_payments").select("scheduled_date").eq("loan_id", target.id),
+    ])
+    const taken = new Set((existing || []).map((p) => String(p.scheduled_date).slice(0, 10)))
+    const paymentAmount = Number(target.payment_amount || 0)
+    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+    const rows = dates.flatMap((date) => {
+      if (taken.has(date)) return []
+      const period = (periods || []).find((p) => snapToPayday(String(p.end_date)) === date)
+      if (period && period.status !== "paid") return []
+      const [y, m, d] = date.split("-").map(Number)
+      const label = period
+        ? `Descontado en nómina ${period.period_name}`
+        : `Descontado en nómina ${d <= 15 ? "1ra" : "2nda"} Quincena ${monthNames[m - 1]} ${y}`
+      return [{
+        loan_id: target.id,
+        payroll_period_id: period?.id ?? null,
+        payment_number: 0,
+        payment_date: date,
+        scheduled_date: date,
+        amount: paymentAmount,
+        principal_amount: paymentAmount,
+        status: "paid",
+        notes: label,
+      }]
+    })
+    if (rows.length === 0) return 0
+
+    const { error: insertError } = await supabase.from("loan_payments").insert(rows)
+    if (insertError) {
+      console.error("[v0] Error registrando quincenas pasadas:", insertError)
+      toast.error("No se pudieron registrar los descuentos de quincenas pasadas")
+      return 0
+    }
+
+    const { data: all } = await supabase
+      .from("loan_payments")
+      .select("id, amount, scheduled_date")
+      .eq("loan_id", target.id)
+      .eq("status", "paid")
+      .order("scheduled_date", { ascending: true })
+    const paid = all || []
+    await Promise.all(
+      paid.map((p, i) => supabase.from("loan_payments").update({ payment_number: i + 1 }).eq("id", p.id)),
+    )
+    const amountPaid = paid.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    const remaining = Math.max(0, Number(target.total_amount || 0) - amountPaid)
+    await supabase
+      .from("loans")
+      .update({
+        payments_made: paid.length,
+        amount_paid: amountPaid,
+        remaining_balance: remaining,
+        status: remaining <= 0 ? "paid" : "active",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", target.id)
+    return rows.length
   }
 
   const rejectLoan = async () => {

@@ -23,6 +23,18 @@ export function nextPayday(dateISO: string): string {
   return toISO(payday(m === 11 ? y + 1 : y, (m + 1) % 12, 1))
 }
 
+/** Fechas de pago (15/30) desde el inicio del préstamo que ya ocurrieron antes de `beforeISO`. */
+export function pastPaydays(startISO: string, frequency: string | null, beforeISO: string, max: number): string[] {
+  const dates: string[] = []
+  let date = snapToPayday(startISO)
+  const step = frequency === "monthly" ? 2 : 1
+  while (date < beforeISO.slice(0, 10) && dates.length < max) {
+    dates.push(date)
+    for (let i = 0; i < step; i++) date = nextPayday(date)
+  }
+  return dates
+}
+
 /** Avanza `periods` pagos según la frecuencia, siempre cayendo en 15 o 30. */
 export function addPaydays(startISO: string, frequency: string | null, periods: number): string {
   let date = snapToPayday(startISO)
