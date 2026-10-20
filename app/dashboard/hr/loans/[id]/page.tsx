@@ -43,6 +43,17 @@ import {
   ListChecks,
 } from "lucide-react"
 import { toast } from "sonner"
+import { addPaydays, nextPayday } from "@/lib/loan-schedule"
+
+type LoanPayment = {
+  id: string
+  payment_number: number
+  scheduled_date: string | null
+  payment_date: string | null
+  amount: number
+  status: string
+  notes: string | null
+}
 
 interface Loan {
   id: string
@@ -121,6 +132,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   const canAuthorize = fullAccess || roleName === "superadmin" || roleName === "direccion_general"
 
   const [loan, setLoan] = useState<Loan | null>(null)
+  const [payments, setPayments] = useState<LoanPayment[]>([])
   // Nombre de la persona que autorizó (resuelto desde la tabla users).
   const [approverName, setApproverName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -151,6 +163,14 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
       return
     }
     setLoan(data as Loan)
+
+    const { data: paymentRows } = await supabase
+      .from("loan_payments")
+      .select("id, payment_number, scheduled_date, payment_date, amount, status, notes")
+      .eq("loan_id", id)
+      .eq("status", "paid")
+      .order("scheduled_date", { ascending: true })
+    setPayments((paymentRows as LoanPayment[]) || [])
 
     // Resolver el nombre de quien autorizó (approved_by -> users.id).
     if (data.approved_by) {
@@ -250,40 +270,43 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount)
 
-  // Suma un número de periodos a la fecha inicial según la frecuencia de pago.
-  const addInterval = (base: Date, frequency: string | null, periods: number) => {
-    const d = new Date(base)
-    if (frequency === "weekly") {
-      d.setUTCDate(d.getUTCDate() + 7 * periods)
-    } else if (frequency === "biweekly") {
-      d.setUTCDate(d.getUTCDate() + 15 * periods)
-    } else {
-      // mensual por defecto
-      d.setUTCMonth(d.getUTCMonth() + periods)
-    }
-    return d
-  }
-
-  // Genera el desglose de pagos a partir de la fecha inicial de pago (start_date).
-  const buildSchedule = (l: Loan) => {
-    if (!l.start_date || !l.number_of_payments) return []
-    const start = new Date(`${l.start_date}T00:00:00Z`)
+  // Desglose: los pagos ya descontados en nómina (loan_payments) y después las
+  // parcialidades pendientes proyectadas en las siguientes fechas de nómina (15 y 30).
+  const buildSchedule = (l: Loan, paid: LoanPayment[]) => {
+    if (!l.number_of_payments || (!l.start_date && paid.length === 0)) return []
     const perPayment = Number(l.payment_amount || 0)
     const total = Number(l.total_amount || 0)
-    const paidCount = Number(l.payments_made || 0)
-    const rows = []
+    const rows: { number: number; date: Date; amount: number; paid: boolean; note: string | null }[] = []
     let accumulated = 0
-    for (let i = 0; i < l.number_of_payments; i++) {
-      const isLast = i === l.number_of_payments - 1
-      // El último pago ajusta el redondeo para cuadrar con el total.
-      const amount = isLast ? Math.round((total - accumulated) * 100) / 100 : perPayment
-      accumulated += perPayment
-      const date = addInterval(start, l.payment_frequency, i)
+
+    paid.forEach((p, i) => {
+      const date = p.scheduled_date || p.payment_date || l.start_date!
+      const amount = Number(p.amount || 0)
+      accumulated += amount
       rows.push({
         number: i + 1,
-        date,
+        date: new Date(`${date.slice(0, 10)}T00:00:00Z`),
         amount,
-        paid: i < paidCount,
+        paid: true,
+        note: p.notes?.replace(/^Descontado en nómina\s*/i, "") || null,
+      })
+    })
+
+    const remainingCount = Math.max(0, l.number_of_payments - paid.length)
+    const lastPaid = paid.length > 0 ? rows[rows.length - 1].date.toISOString().slice(0, 10) : null
+    const firstPending = lastPaid ? nextPayday(lastPaid) : addPaydays(l.start_date!.slice(0, 10), l.payment_frequency, 0)
+    for (let i = 0; i < remainingCount; i++) {
+      const isLast = i === remainingCount - 1
+      // El último pago ajusta el redondeo para cuadrar con el total.
+      const amount = isLast ? Math.round((total - accumulated) * 100) / 100 : perPayment
+      if (!isLast) accumulated += perPayment
+      if (amount <= 0) break
+      rows.push({
+        number: paid.length + i + 1,
+        date: new Date(`${addPaydays(firstPending, l.payment_frequency, i)}T00:00:00Z`),
+        amount,
+        paid: false,
+        note: null,
       })
     }
     return rows
@@ -312,7 +335,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   const isPending = loan.status === "pending"
-  const schedule = buildSchedule(loan)
+  const schedule = buildSchedule(loan, payments)
   const formatScheduleDate = (d: Date) => {
     const day = d.getUTCDate()
     const month = d.toLocaleString("es-MX", { month: "short", timeZone: "UTC" })
@@ -533,7 +556,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
           </div>
           <CardDescription>
             {loan.start_date
-              ? `Calendario a partir de la fecha inicial de pago (${formatDate(loan.start_date)}). ${loan.payments_made} de ${loan.number_of_payments} pagos realizados.`
+              ? `Pagos descontados en nómina y parcialidades pendientes en las fechas de pago (15 y 30 de cada mes). ${payments.length} de ${loan.number_of_payments} pagos realizados.`
               : "Define una fecha inicial de pago en el préstamo para generar el desglose."}
           </CardDescription>
         </CardHeader>
@@ -548,6 +571,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
                 <TableRow>
                   <TableHead className="w-16">#</TableHead>
                   <TableHead>Fecha programada</TableHead>
+                  <TableHead>Nómina</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
                   <TableHead>Estado</TableHead>
                 </TableRow>
@@ -557,6 +581,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
                   <TableRow key={row.number}>
                     <TableCell className="font-medium">{row.number}</TableCell>
                     <TableCell>{formatScheduleDate(row.date)}</TableCell>
+                    <TableCell className="text-muted-foreground">{row.note ?? "-"}</TableCell>
                     <TableCell className="text-right">{formatCurrency(row.amount)}</TableCell>
                     <TableCell>
                       {row.paid ? (
