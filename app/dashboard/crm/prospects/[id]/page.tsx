@@ -33,7 +33,12 @@ import {
 } from "@/components/ui/select"
 import { createClient } from "@/lib/supabase/client"
 import { applyTaskTemplatesToProspect, syncAutomaticTasksWithStage } from "@/lib/crm-task-templates"
-import { TaskMessageDialog, type ContactOption, type MessageChannel } from "@/components/crm/task-message-dialog"
+import {
+  TaskMessageDialog,
+  buildContactOptions,
+  type ContactOption,
+  type MessageChannel,
+} from "@/components/crm/task-message-dialog"
 import { toast } from "sonner"
 import { useAgency } from "@/contexts/agency-context"
 import { 
@@ -1267,19 +1272,8 @@ state_province: prospectData.state_province || "",
     if (data) setActivities(data)
   }
 
-  const contactOptions = (field: "contact_email" | "contact_phone"): ContactOption[] => {
-    const seen = new Set<string>()
-    const options: ContactOption[] = []
-    const add = (name: string, value: string | null | undefined) => {
-      const v = (value || "").trim()
-      if (!v || seen.has(v.toLowerCase())) return
-      seen.add(v.toLowerCase())
-      options.push({ label: name ? `${name} · ${v}` : v, value: v })
-    }
-    add(formData.contact_name, formData[field])
-    additionalContacts.forEach((c) => add(c.contact_name, c[field]))
-    return options
-  }
+  const contactOptions = (field: "contact_email" | "contact_phone"): ContactOption[] =>
+    buildContactOptions(formData, additionalContacts, field)
 
   const toggleTaskDetail = (taskId: string) => {
     setExpandedTasks((prev) => {

@@ -33,7 +33,14 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { createClient } from "@/lib/supabase/client"
-import { TaskMessageDialog, type ContactOption, type MessageChannel } from "@/components/crm/task-message-dialog"
+import {
+  EMAIL_PERMISSION_NOTICE,
+  TaskMessageDialog,
+  buildContactOptions,
+  useMessageSender,
+  type ContactOption,
+  type MessageChannel,
+} from "@/components/crm/task-message-dialog"
 import { toast } from "sonner"
 import { 
   Calendar as CalendarIcon,
@@ -491,32 +498,25 @@ export default function CRMCalendarPage() {
       .eq("prospect_id", task.prospect.id)
     setOpeningChannel(null)
 
-    const buildOptions = (field: "contact_email" | "contact_phone"): ContactOption[] => {
-      const seen = new Set<string>()
-      const options: ContactOption[] = []
-      const add = (name: string | null | undefined, value: string | null | undefined) => {
-        const v = (value || "").trim()
-        if (!v || seen.has(v.toLowerCase())) return
-        seen.add(v.toLowerCase())
-        options.push({ label: name ? `${name} · ${v}` : v, value: v })
-      }
-      add(task.prospect?.contact_name, task.prospect?.[field])
-      extraContacts?.forEach((c) => add(c.contact_name, c[field]))
-      return options
-    }
-
     setDetailOpen(false)
     setMessageDialog({
       task,
       channel,
-      emailOptions: buildOptions("contact_email"),
-      phoneOptions: buildOptions("contact_phone"),
+      emailOptions: buildContactOptions(task.prospect, extraContacts, "contact_email"),
+      phoneOptions: buildContactOptions(task.prospect, extraContacts, "contact_phone"),
     })
+  }
+
+  const closeMessageDialog = () => {
+    setMessageDialog(null)
+    setDetailOpen(true)
   }
 
   const markTaskCompletedLocally = (taskId: string) => {
     const completedAt = new Date().toISOString()
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, is_completed: true, completed_at: completedAt } : t)))
+    const complete = (t: Task): Task => ({ ...t, is_completed: true, completed_at: completedAt })
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? complete(t) : t)))
+    setSelectedTask((prev) => (prev?.id === taskId ? complete(prev) : prev))
   }
 
   const toggleTaskComplete = async (task: Task) => {
@@ -1086,7 +1086,7 @@ export default function CRMCalendarPage() {
         <TaskMessageDialog
           open
           onOpenChange={(open) => {
-            if (!open) setMessageDialog(null)
+            if (!open) closeMessageDialog()
           }}
           channel={messageDialog.channel}
           prospectId={messageDialog.task.prospect.id}
@@ -1268,11 +1268,18 @@ function TaskActions({
   openingChannel: MessageChannel | null
   onOpenMessage: (channel: MessageChannel) => void
 }) {
+  const { data: sender, isLoading: senderLoading } = useMessageSender(task.prospect?.id)
   if (!task.prospect) return null
-  const hasEmail = Boolean(task.email_subject || task.email_message) || task.task_type === "email"
-  const hasWhatsApp = Boolean(task.whatsapp_message)
+  const hasEmail = Boolean(task.email_subject?.trim() || task.email_message?.trim())
+  const hasWhatsApp = Boolean(task.whatsapp_message?.trim())
+  const emailNotAllowed = hasEmail && sender !== undefined && !sender.canSendEmail
   const phone = task.prospect.contact_phone?.trim()
   const isCall = task.task_type === "call"
+
+  const notices: string[] = []
+  if (!hasEmail) notices.push("Correo: esta tarea no tiene mensaje de correo.")
+  else if (emailNotAllowed) notices.push(EMAIL_PERMISSION_NOTICE)
+  if (!hasWhatsApp) notices.push("WhatsApp: esta tarea no tiene mensaje de WhatsApp.")
 
   return (
     <div className="rounded-lg border bg-muted/40 p-3">
@@ -1281,29 +1288,35 @@ function TaskActions({
         Realizar tarea
       </Label>
       <div className="mt-2 flex flex-wrap gap-2">
-        {hasEmail && (
-          <Button size="sm" onClick={() => onOpenMessage("email")} disabled={openingChannel !== null}>
-            {openingChannel === "email" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mail className="mr-1.5 h-4 w-4" />}
-            Enviar correo
-          </Button>
-        )}
-        {hasWhatsApp && (
-          <Button
-            size="sm"
-            variant={hasEmail ? "outline" : "default"}
-            onClick={() => onOpenMessage("whatsapp")}
-            disabled={openingChannel !== null}
-          >
-            {openingChannel === "whatsapp" ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <MessageCircle className="mr-1.5 h-4 w-4" />
-            )}
-            Enviar WhatsApp
-          </Button>
-        )}
+        <Button
+          size="sm"
+          onClick={() => onOpenMessage("email")}
+          disabled={openingChannel !== null || !hasEmail || emailNotAllowed || senderLoading}
+          title={!hasEmail ? "Esta tarea no tiene mensaje de correo" : emailNotAllowed ? EMAIL_PERMISSION_NOTICE : undefined}
+        >
+          {openingChannel === "email" || (hasEmail && senderLoading) ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <Mail className="mr-1.5 h-4 w-4" />
+          )}
+          Enviar correo
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onOpenMessage("whatsapp")}
+          disabled={openingChannel !== null || !hasWhatsApp}
+          title={hasWhatsApp ? undefined : "Esta tarea no tiene mensaje de WhatsApp"}
+        >
+          {openingChannel === "whatsapp" ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <MessageCircle className="mr-1.5 h-4 w-4" />
+          )}
+          Enviar WhatsApp
+        </Button>
         {isCall && phone && (
-          <Button size="sm" variant={hasEmail || hasWhatsApp ? "outline" : "default"} asChild>
+          <Button size="sm" variant="outline" asChild>
             <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>
               <Phone className="mr-1.5 h-4 w-4" />
               Llamar {phone}
@@ -1317,6 +1330,16 @@ function TaskActions({
           </Link>
         </Button>
       </div>
+      {notices.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+          {notices.map((notice) => (
+            <li key={notice} className="flex items-start gap-1.5">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
+              {notice}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
