@@ -65,11 +65,42 @@ const fetcher = async (url: string): Promise<SenderInfo> => {
   return data
 }
 
-export function TaskMessageDialog(props: TaskMessageDialogProps) {
-  const { open, onOpenChange, channel, prospectId, task } = props
-  const { data, error, isLoading } = useSWR(open ? `/api/crm/prospects/${prospectId}/messages` : null, fetcher, {
+export const EMAIL_PERMISSION_NOTICE =
+  "Solo el responsable del prospecto o un usuario de Dirección General, Comercial o Superadmin puede enviar correos desde aquí."
+
+export function useMessageSender(prospectId: string | null | undefined) {
+  return useSWR(prospectId ? `/api/crm/prospects/${prospectId}/messages` : null, fetcher, {
     revalidateOnFocus: false,
   })
+}
+
+interface ContactSource {
+  contact_name?: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
+}
+
+export function buildContactOptions(
+  primary: ContactSource | null | undefined,
+  extra: ContactSource[] | null | undefined,
+  field: "contact_email" | "contact_phone",
+): ContactOption[] {
+  const seen = new Set<string>()
+  const options: ContactOption[] = []
+  const add = (contact: ContactSource | null | undefined) => {
+    const v = (contact?.[field] || "").trim()
+    if (!v || seen.has(v.toLowerCase())) return
+    seen.add(v.toLowerCase())
+    options.push({ label: contact?.contact_name ? `${contact.contact_name} · ${v}` : v, value: v })
+  }
+  add(primary)
+  extra?.forEach(add)
+  return options
+}
+
+export function TaskMessageDialog(props: TaskMessageDialogProps) {
+  const { open, onOpenChange, channel, prospectId, task } = props
+  const { data, error, isLoading } = useMessageSender(open ? prospectId : null)
 
   const isEmail = channel === "email"
 
@@ -216,8 +247,7 @@ function MessageForm({
       {emailBlocked && (
         <p role="alert" className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          Solo el responsable del prospecto o un usuario de Dirección General, Comercial o Superadmin puede enviar
-          correos desde aquí.
+          {EMAIL_PERMISSION_NOTICE}
         </p>
       )}
       {isEmail ? (
