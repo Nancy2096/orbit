@@ -466,7 +466,7 @@ export default function ExpensesPage() {
     const { data } = await supabase
       .from("vendors")
       .select("id, name")
-      .eq("agency_id", agencyId)
+      .or(`agency_id.is.null,agency_id.eq.${agencyId}`)
       .eq("is_active", true)
       .order("name")
     if (data) setVendors(data)
@@ -1391,11 +1391,10 @@ const resetExpenseForm = () => {
       status: "pending",
       receipt_url: "",
     })
-    setFormCategories([])
-    setClients([])
-    setProjects([])
-    setAccounts([])
-    setVendors([])
+    // Las listas dependientes de la agencia NO se vacían aquí: si la agencia
+    // prellenada es la misma que antes, el efecto de agency_id no se vuelve a
+    // disparar y Categoría/Proveedor quedarían vacíos. El efecto se encarga de
+    // recargarlas o limpiarlas cuando la agencia cambia.
     setApproversList([])
   }
 
