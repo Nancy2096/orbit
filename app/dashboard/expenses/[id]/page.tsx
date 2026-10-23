@@ -85,6 +85,7 @@ interface ExpenseDetail {
   rejection_reason: string | null
   created_at: string | null
   bank_account_id: string | null
+  third_party_payment_id: string | null
   payment_receipt_url: string | null
   payment_receipt_uploaded_at: string | null
   category: { id: string; name: string; expense_type?: string | null } | null
@@ -227,7 +228,8 @@ export default function ExpenseDetailPage() {
   // (aprobado -> banco de salida; pagado -> mostrar el banco elegido).
   useEffect(() => {
     const agencyId = expense?.agency?.id
-    if (!agencyId || (expense?.status !== "approved" && expense?.status !== "paid")) return
+    const isThirdPartyPending = !!expense?.third_party_payment_id && expense?.status === "pending"
+    if (!agencyId || (expense?.status !== "approved" && expense?.status !== "paid" && !isThirdPartyPending)) return
     const loadBanks = async () => {
       const { data } = await supabase
         .from("bank_accounts")
@@ -266,6 +268,10 @@ export default function ExpenseDetailPage() {
   // Cambia el estado del gasto y registra el movimiento en el historial.
   const handleChangeStatus = async (newStatus: string) => {
     if (!expense || newStatus === expense.status) return
+    if (newStatus === "paid" && expense.third_party_payment_id && !expense.bank_account_id) {
+      toast.error("Selecciona el banco de salida antes de marcar el gasto como pagado")
+      return
+    }
     setSavingStatus(true)
     try {
       const updates: Record<string, unknown> = {
@@ -333,6 +339,11 @@ export default function ExpenseDetailPage() {
         .update({ bank_account_id: bankId, updated_at: new Date().toISOString() })
         .eq("id", expense.id)
       if (error) throw error
+
+      // Si el gasto ya está pagado, registra (o mueve) la salida en el banco elegido.
+      if (expense.status === "paid") {
+        await syncExpenseBankMovement(supabase, expense.id)
+      }
 
       if (currentStaffId) {
         const bank = banks.find((b) => b.id === bankId)
@@ -581,8 +592,11 @@ export default function ExpenseDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Banco de salida: visible cuando el gasto está Aprobado. */}
-          {expense.status === "approved" && (
+          {/* Banco de salida: visible cuando el gasto está Aprobado, cuando es un gasto
+              por cuenta de tercero pendiente, o cuando está pagado sin banco asignado. */}
+          {(expense.status === "approved" ||
+            (!!expense.third_party_payment_id && expense.status === "pending") ||
+            (expense.status === "paid" && !expense.bank_account_id)) && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
