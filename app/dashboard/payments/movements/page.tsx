@@ -48,6 +48,7 @@ import {
   FileCode,
 } from "lucide-react"
 import { toast } from "sonner"
+import { PayrollMovementDialog, type PayrollMovementTarget } from "@/components/finance/payroll-movement-dialog"
 import * as XLSX from "xlsx"
 
 const SOURCE_LABELS: Record<Movement["source"], string> = {
@@ -98,6 +99,7 @@ interface Movement {
   movement_date: string
   source: "bank" | "payment" | "equity"
   deletable: boolean
+  payrollPeriodId?: string | null
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -139,6 +141,7 @@ function MovementsContent() {
   const [dateFrom, setDateFrom] = useState<string>(() => getMonthRange().from)
   const [dateTo, setDateTo] = useState<string>(() => getMonthRange().to)
   const [showDialog, setShowDialog] = useState(false)
+  const [payrollTarget, setPayrollTarget] = useState<PayrollMovementTarget | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     bank_account_id: "",
@@ -223,6 +226,8 @@ function MovementsContent() {
       movement_date: m.movement_date as string,
       source: "bank",
       deletable: (m.category as string) !== "nomina" && (m.source_type as string) !== "expense",
+      payrollPeriodId:
+        (m.source_type as string) === "payroll_period" ? ((m.source_id as string) ?? null) : null,
     }))
 
     const paymentMovs: Movement[] = ((payRes.data as Record<string, unknown>[]) || []).map((p) => {
@@ -712,7 +717,25 @@ function MovementsContent() {
                         ) : null}
                       </TableCell>
                       <TableCell className="max-w-xs">
-                        {m.description || <span className="text-muted-foreground">—</span>}
+                        {m.payrollPeriodId ? (
+                          <button
+                            type="button"
+                            className="text-left font-medium text-primary underline-offset-4 hover:underline"
+                            onClick={() =>
+                              setPayrollTarget({
+                                periodId: m.payrollPeriodId as string,
+                                bankName: acct?.bank_name || "",
+                                bankCurrencyCode: acct?.currency?.code || "MXN",
+                                movementAmount: Number(m.amount),
+                              })
+                            }
+                            title="Ver integración de la nómina"
+                          >
+                            {m.description || "Pago de nómina"}
+                          </button>
+                        ) : (
+                          m.description || <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {m.reference || <span className="text-muted-foreground">—</span>}
@@ -861,6 +884,13 @@ function MovementsContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PayrollMovementDialog
+        target={payrollTarget}
+        onOpenChange={(open) => {
+          if (!open) setPayrollTarget(null)
+        }}
+      />
     </div>
   )
 }
