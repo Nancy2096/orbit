@@ -723,6 +723,8 @@ function MovementsContent() {
                             className="text-left font-medium text-primary underline-offset-4 hover:underline"
                             onClick={() =>
                               setPayrollTarget({
+                                movementId: String(m.id),
+                                movementDate: m.movement_date ?? null,
                                 periodId: m.payrollPeriodId as string,
                                 bankName: acct?.bank_name || "",
                                 bankCurrencyCode: acct?.currency?.code || "MXN",

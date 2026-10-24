@@ -6,6 +6,7 @@ import Link from "next/link"
 import { upload } from "@vercel/blob/client"
 import { createClient } from "@/lib/supabase/client"
 import { getEntryPayment, isActiveDuringPeriod, sumByCurrency } from "@/lib/payroll-currency"
+import { buildPayrollBreakdownItems, sumBreakdown } from "@/lib/payroll-bank-breakdown"
 import { PayrollNotes } from "@/components/hr/payroll-notes"
 import { PayrollHistory } from "@/components/hr/payroll-history"
 import { logPayrollHistory } from "@/lib/payroll-history"
@@ -1014,17 +1015,6 @@ export default function PayrollDetailPage({
       .select("id, bank_name, agency_id, is_primary, is_active, currency_id")
       .eq("is_active", true)
 
-    // Monto en la moneda del BANCO: si el colaborador cobra en la misma moneda
-    // del banco se usa su monto de pago (p. ej. USD); si el banco es en pesos se
-    // usa el neto en pesos, aunque el colaborador tenga otra moneda de pago.
-    const amountForBank = (bankEntries: PayrollEntry[], bankCode: string) =>
-      bankEntries.reduce((sum, e) => {
-        const pay = getPaymentInfo(e)
-        if (pay.code === bankCode) return sum + pay.amount
-        if (bankCode === "MXN") return sum + (Number(e.net_pay) || 0)
-        return sum + pay.amount
-      }, 0)
-
     // Elige la cuenta de un banco por nombre: prioriza la primaria, si no la
     // primera cuenta activa con ese nombre.
     const pickAccount = (bankName: string) => {
@@ -1048,7 +1038,9 @@ export default function PayrollDetailPage({
         unmatched.push(bankName)
         continue
       }
-      const amount = Math.round(amountForBank(bankEntries, currencyCodeById(acct.currency_id as string | null)) * 100) / 100
+      const bankCode = currencyCodeById(acct.currency_id as string | null)
+      const items = buildPayrollBreakdownItems(bankEntries, bankCode, currencyCodeById)
+      const amount = sumBreakdown(items)
       if (amount <= 0) continue
       rows.push({
         bank_account_id: acct.id,
@@ -1062,6 +1054,7 @@ export default function PayrollDetailPage({
         source_type: "payroll_period",
         source_id: periodId,
         created_by: user?.id ?? null,
+        breakdown: { source: "registro", bank_code: bankCode, items },
       })
     }
 
@@ -1156,14 +1149,17 @@ export default function PayrollDetailPage({
     setSavingUsdCorrection(true)
     try {
       for (const m of usdMovements) {
-        const total =
-          Math.round(
-            entriesForBank(m.bank_name).reduce((sum, e) => sum + (corrections.get(e.staff_id)?.amount || 0), 0) * 100,
-          ) / 100
+        const correctedEntries = entriesForBank(m.bank_name).map((e) => {
+          const c = corrections.get(e.staff_id)
+          return c ? { ...e, paid_currency_code: c.code, paid_amount: c.amount } : e
+        })
+        const items = buildPayrollBreakdownItems(correctedEntries, m.currency_code, currencyCodeById)
+        const total = sumBreakdown(items)
         const { error } = await supabase
           .from("bank_movements")
           .update({
             amount: total,
+            breakdown: { source: "registro", bank_code: m.currency_code, items },
             description: `Pago de nómina ${period.period_name} · ${m.bank_name} (corregido a ${m.currency_code})`,
           })
           .eq("id", m.id)
