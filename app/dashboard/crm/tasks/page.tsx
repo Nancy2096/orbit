@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -39,7 +39,17 @@ import {
   AlertTriangle,
   Filter,
   MessageCircle,
+  ExternalLink,
+  Loader2,
 } from "lucide-react"
+import {
+  EMAIL_PERMISSION_NOTICE,
+  TaskMessageDialog,
+  buildContactOptions,
+  useMessageSender,
+  type ContactOption,
+  type MessageChannel,
+} from "@/components/crm/task-message-dialog"
 
 interface SalesRep {
   id: string
@@ -51,8 +61,17 @@ interface Prospect {
   id: string
   contact_name: string
   company_name: string | null
-  assigned_to: SalesRep | null
+  contact_email?: string | null
+  contact_phone?: string | null
+  assigned_to?: SalesRep | null
+  stage?: { name: string | null; is_lost: boolean | null } | null
 }
+
+const PAGE_SIZE = 200
+
+const isClosedStage = (stage?: Prospect["stage"]) =>
+  !!stage &&
+  (stage.is_lost === true || /no\s*interes|no\s*contactad|perdid/i.test(stage.name || ""))
 
 interface Task {
   id: string
@@ -64,6 +83,10 @@ interface Task {
   is_completed: boolean
   completed_at: string | null
   assigned_to: string | null
+  is_paused?: boolean | null
+  email_subject?: string | null
+  email_message?: string | null
+  whatsapp_message?: string | null
   assigned_staff: SalesRep | null
   prospect: Prospect | null
 }
@@ -79,6 +102,18 @@ export default function TasksPage() {
   const [filterPriority, setFilterPriority] = useState<string>("all")
   const [filterSalesRep, setFilterSalesRep] = useState<string>("all")
   const [modalOpen, setModalOpen] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [messageDialog, setMessageDialog] = useState<{
+    task: Task
+    channel: MessageChannel
+    emailOptions: ContactOption[]
+    phoneOptions: ContactOption[]
+  } | null>(null)
+  const [opening, setOpening] = useState<{ taskId: string; channel: MessageChannel } | null>(null)
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [searchTerm, filterStatus, filterPriority, filterSalesRep])
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
@@ -113,32 +148,66 @@ export default function TasksPage() {
       .in("name", ["Comercial", "Dirección"])
     
     const deptIds = commercialDepts?.map(d => d.id) || []
-    
+
+    // Los departamentos ya pertenecen a la agencia; no se filtra staff.agency_id
+    // porque la Dirección (p. ej. el Director General) tiene agency_id vacío.
     const { data: salesRepsData } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, department_id")
-      .eq("agency_id", selectedAgencyId)
+      .select("id, first_name, last_name")
       .eq("is_active", true)
       .in("department_id", deptIds.length > 0 ? deptIds : ["00000000-0000-0000-0000-000000000000"])
       .order("first_name")
 
-    if (salesRepsData) setSalesReps(salesRepsData)
-
-    // Fetch tasks for this agency with assigned_to info
-    const { data: tasksData } = await supabase
-      .from("crm_tasks")
-      .select(`
-        id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to,
-        assigned_staff:staff!crm_tasks_assigned_to_fkey(id, first_name, last_name),
-        prospect:crm_prospects(id, contact_name, company_name)
-      `)
-      .eq("agency_id", selectedAgencyId)
-      .eq("is_paused", false)
-      .order("due_date", { ascending: true })
-
-    if (tasksData) {
-      setTasks(tasksData as Task[])
+    // Supabase devuelve máximo 1000 filas por consulta, así que se pagina.
+    const tasksData: Omit<Task, "assigned_staff">[] = []
+    const pageSize = 1000
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("crm_tasks")
+        .select(`
+          id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to, is_paused,
+          email_subject, email_message, whatsapp_message,
+          prospect:crm_prospects(id, contact_name, company_name, contact_email, contact_phone, stage:crm_pipeline_stages(name, is_lost))
+        `)
+        .eq("agency_id", selectedAgencyId)
+        .eq("is_completed", false)
+        .not("assigned_to", "is", null)
+        .order("due_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1)
+      if (error) {
+        console.error("Error al cargar tareas:", error)
+        toast.error("Error al cargar las tareas")
+        break
+      }
+      tasksData.push(
+        ...((data || []) as unknown as Omit<Task, "assigned_staff">[]).filter(
+          t => !isClosedStage(t.prospect?.stage),
+        ),
+      )
+      if (!data || data.length < pageSize) break
     }
+
+    // crm_tasks no tiene relación declarada con staff: el responsable se resuelve aquí,
+    // incluyendo a quien tenga tareas aunque no esté en Comercial/Dirección.
+    const repsById = new Map<string, SalesRep>((salesRepsData || []).map(r => [r.id, r]))
+    const missingIds = [...new Set(tasksData.map(t => t.assigned_to).filter((id): id is string => !!id && !repsById.has(id)))]
+    if (missingIds.length > 0) {
+      const { data: extraStaff } = await supabase
+        .from("staff")
+        .select("id, first_name, last_name")
+        .in("id", missingIds)
+      extraStaff?.forEach(s => repsById.set(s.id, s))
+    }
+
+    const assigneeIds = new Set(tasksData.map(t => t.assigned_to).filter(Boolean))
+    setSalesReps(
+      [...repsById.values()]
+        .filter(r => (salesRepsData || []).some(s => s.id === r.id) || assigneeIds.has(r.id))
+        .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`, "es")),
+    )
+
+    setTasks(tasksData.map(t => ({ ...t, assigned_staff: t.assigned_to ? repsById.get(t.assigned_to) ?? null : null })))
 
     // Fetch prospects for dropdown (filtered by agency)
     const { data: prospectsData } = await supabase
@@ -178,12 +247,45 @@ export default function TasksPage() {
     return matchesSearch && matchesStatus && matchesPriority && matchesSalesRep
   })
 
+  const openMessageDialog = async (task: Task, channel: MessageChannel) => {
+    if (!task.prospect) return
+    setOpening({ taskId: task.id, channel })
+    const { data: extraContacts } = await supabase
+      .from("crm_prospect_contacts")
+      .select("contact_name, contact_email, contact_phone")
+      .eq("prospect_id", task.prospect.id)
+    setOpening(null)
+    setMessageDialog({
+      task,
+      channel,
+      emailOptions: buildContactOptions(task.prospect, extraContacts, "contact_email"),
+      phoneOptions: buildContactOptions(task.prospect, extraContacts, "contact_phone"),
+    })
+  }
+
+  const markTaskCompletedLocally = (taskId: string) => {
+    const completedAt = new Date().toISOString()
+    setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, is_completed: true, completed_at: completedAt } : t)))
+  }
+
   const toggleTaskComplete = async (taskId: string, isCompleted: boolean) => {
+    const task = tasks.find(t => t.id === taskId)
+    const completing = !isCompleted
+    const now = new Date().toISOString()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    // Mismos campos que usan el detalle del prospecto y el calendario, para que
+    // la tarea aparezca realizada (con su fecha) en todos lados sin duplicarse.
     const { error } = await supabase
       .from("crm_tasks")
       .update({
-        is_completed: !isCompleted,
-        completed_at: !isCompleted ? new Date().toISOString() : null,
+        status: completing ? "completed" : "pending",
+        is_completed: completing,
+        completed_at: completing ? now : null,
+        completed_by: completing ? user?.id ?? null : null,
+        updated_at: now,
       })
       .eq("id", taskId)
 
@@ -192,8 +294,26 @@ export default function TasksPage() {
       return
     }
 
+    if (task?.prospect) {
+      const { error: activityError } = await supabase.from("crm_activities").insert({
+        prospect_id: task.prospect.id,
+        task_id: task.id,
+        activity_type: "task",
+        subject: `${completing ? "Tarea realizada" : "Tarea reabierta"}: ${task.title}`.slice(0, 250),
+        description: completing
+          ? `La tarea "${task.title}" se marcó como realizada desde Comercial > Tareas.`
+          : `La tarea "${task.title}" se reabrió desde Comercial > Tareas y volvió a pendiente.`,
+        activity_date: now,
+        is_completed: completing,
+        completed_at: completing ? now : null,
+        completed_by: completing ? user?.id ?? null : null,
+        created_by: user?.id ?? null,
+      })
+      if (activityError) console.error("No se pudo registrar la actividad:", activityError)
+    }
+
     setTasks(prev => prev.map(t =>
-      t.id === taskId ? { ...t, is_completed: !isCompleted, completed_at: !isCompleted ? new Date().toISOString() : null } : t
+      t.id === taskId ? { ...t, is_completed: completing, completed_at: completing ? now : null } : t
     ))
 
     toast.success(!isCompleted ? "Tarea completada" : "Tarea reabierta")
@@ -460,15 +580,14 @@ export default function TasksPage() {
             </div>
           ) : (
             <div className="divide-y">
-              {filteredTasks.map((task) => {
+              {filteredTasks.slice(0, visibleCount).map((task) => {
                 const dateInfo = formatDate(task.due_date)
                 return (
                   <div
                     key={task.id}
-                    className={`flex items-start gap-4 p-4 hover:bg-muted/50 transition-colors ${
-                      task.is_completed ? "opacity-60" : ""
-                    }`}
+                    className="flex flex-col gap-3 p-4 hover:bg-muted/50 transition-colors"
                   >
+                  <div className={`flex items-start gap-4 ${task.is_completed ? "opacity-60" : ""}`}>
                     <Checkbox
                       checked={task.is_completed}
                       onCheckedChange={() => toggleTaskComplete(task.id, task.is_completed)}
@@ -498,7 +617,15 @@ export default function TasksPage() {
                         ) : (
                           <span className="text-sm text-muted-foreground italic">Sin prospecto</span>
                         )}
+                        {task.is_paused && !task.is_completed && (
+                          <Badge variant="outline" className="text-xs text-muted-foreground">Pausada por etapa</Badge>
+                        )}
                       </div>
+                      {task.is_completed && task.completed_at && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Realizada el {new Date(task.completed_at).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}
+                        </p>
+                      )}
                       {task.description && (
                         <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
                           {task.description}
@@ -522,12 +649,46 @@ export default function TasksPage() {
                       ) : null}
                     </div>
                   </div>
+                  <TaskActionsBar
+                    task={task}
+                    openingChannel={opening?.taskId === task.id ? opening.channel : null}
+                    onOpenMessage={(channel) => openMessageDialog(task, channel)}
+                    onToggleComplete={() => toggleTaskComplete(task.id, task.is_completed)}
+                  />
+                  </div>
                 )
               })}
+              {filteredTasks.length > visibleCount && (
+                <div className="flex flex-col items-center gap-2 p-4">
+                  <span className="text-sm text-muted-foreground">
+                    Mostrando {visibleCount} de {filteredTasks.length} tareas
+                  </span>
+                  <Button variant="outline" onClick={() => setVisibleCount(c => c + PAGE_SIZE)}>
+                    Mostrar más
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {messageDialog?.task.prospect && (
+        <TaskMessageDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setMessageDialog(null)
+          }}
+          channel={messageDialog.channel}
+          prospectId={messageDialog.task.prospect.id}
+          prospectName={messageDialog.task.prospect.contact_name}
+          task={messageDialog.task}
+          emailOptions={messageDialog.emailOptions}
+          phoneOptions={messageDialog.phoneOptions}
+          onLogged={() => {}}
+          onTaskCompleted={markTaskCompletedLocally}
+        />
+      )}
 
       {/* New Task Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -677,6 +838,128 @@ export default function TasksPage() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+// Consulta el permiso de correo solo cuando la fila entra en pantalla, para no
+// disparar una petición por cada una de las tareas cargadas.
+function useIsVisible<T extends Element>() {
+  const ref = useRef<T>(null)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const node = ref.current
+    if (!node || visible) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: "200px" },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [visible])
+  return { ref, visible }
+}
+
+function TaskActionsBar({
+  task,
+  openingChannel,
+  onOpenMessage,
+  onToggleComplete,
+}: {
+  task: Task
+  openingChannel: MessageChannel | null
+  onOpenMessage: (channel: MessageChannel) => void
+  onToggleComplete: () => void
+}) {
+  const { ref, visible } = useIsVisible<HTMLDivElement>()
+  const hasEmail = Boolean(task.email_subject?.trim() || task.email_message?.trim())
+  const hasWhatsApp = Boolean(task.whatsapp_message?.trim())
+  const { data: sender, isLoading: senderLoading } = useMessageSender(
+    visible && hasEmail ? task.prospect?.id : null,
+  )
+  const emailNotAllowed = hasEmail && sender !== undefined && !sender.canSendEmail
+  const checkingEmail = hasEmail && (!visible || senderLoading)
+  const phone = task.prospect?.contact_phone?.trim()
+  const busy = openingChannel !== null
+
+  const notices: string[] = []
+  if (task.prospect) {
+    if (!hasEmail) notices.push("Correo: esta tarea no tiene mensaje de correo.")
+    else if (emailNotAllowed) notices.push(EMAIL_PERMISSION_NOTICE)
+    if (!hasWhatsApp) notices.push("WhatsApp: esta tarea no tiene mensaje de WhatsApp.")
+  }
+
+  return (
+    <div ref={ref} className="flex flex-col gap-2 sm:pl-20">
+      <div className="flex flex-wrap items-center gap-2">
+        {task.prospect && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasEmail || emailNotAllowed || checkingEmail || busy}
+              title={!hasEmail ? "Esta tarea no tiene mensaje de correo" : emailNotAllowed ? EMAIL_PERMISSION_NOTICE : undefined}
+              onClick={() => onOpenMessage("email")}
+            >
+              {openingChannel === "email" || checkingEmail ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Mail className="h-4 w-4" aria-hidden="true" />
+              )}
+              Enviar correo
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasWhatsApp || busy}
+              title={!hasWhatsApp ? "Esta tarea no tiene mensaje de WhatsApp" : undefined}
+              onClick={() => onOpenMessage("whatsapp")}
+            >
+              {openingChannel === "whatsapp" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              )}
+              Enviar WhatsApp
+            </Button>
+            {phone && (
+              <Button size="sm" variant="outline" asChild>
+                <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>
+                  <Phone className="h-4 w-4" aria-hidden="true" />
+                  Llamar {phone}
+                </a>
+              </Button>
+            )}
+          </>
+        )}
+        <Button size="sm" variant={task.is_completed ? "outline" : "default"} onClick={onToggleComplete}>
+          <CheckCircle className="h-4 w-4" aria-hidden="true" />
+          {task.is_completed ? "Reabrir tarea" : "Marcar realizada"}
+        </Button>
+        {task.prospect && (
+          <Button size="sm" variant="ghost" asChild>
+            <Link href={`/dashboard/crm/prospects/${task.prospect.id}`}>
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              Abrir prospecto
+            </Link>
+          </Button>
+        )}
+      </div>
+      {notices.length > 0 && !task.is_completed && (
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {notices.map((notice) => (
+            <li key={notice} className="flex items-start gap-1.5">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
+              {notice}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
