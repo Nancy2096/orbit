@@ -161,6 +161,7 @@ interface Task {
   due_date: string
   priority: string
   is_completed: boolean
+  completed_at?: string | null
   is_paused?: boolean
   status?: string
   template_id?: string | null
@@ -1231,6 +1232,7 @@ state_province: prospectData.state_province || "",
     const { error } = await supabase
       .from("crm_tasks")
       .update({
+        status: !isCompleted ? "completed" : "pending",
         is_completed: !isCompleted,
         completed_at: !isCompleted ? new Date().toISOString() : null,
       })
@@ -1254,7 +1256,14 @@ state_province: prospectData.state_province || "",
     }
 
     setTasks(prev => prev.map(t =>
-      t.id === taskId ? { ...t, is_completed: !isCompleted } : t
+      t.id === taskId
+        ? {
+            ...t,
+            is_completed: !isCompleted,
+            status: !isCompleted ? "completed" : "pending",
+            completed_at: !isCompleted ? new Date().toISOString() : null,
+          }
+        : t
     ))
     
     if (!isCompleted) {
@@ -2254,6 +2263,12 @@ state_province: prospectData.state_province || "",
                                   <Calendar className="h-3 w-3" />
                                   {new Date(task.due_date).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                                 </span>
+                                {(task.is_completed || task.status === "completed") && task.completed_at && (
+                                  <span className="flex items-center gap-1 font-medium text-green-700">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    Realizada el {new Date(task.completed_at).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}
+                                  </span>
+                                )}
                               </div>
                               
                               {/* Acciones de estado */}
