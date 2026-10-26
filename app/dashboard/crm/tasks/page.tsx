@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -39,18 +39,9 @@ import {
   AlertTriangle,
   Filter,
   MessageCircle,
-  PlayCircle,
   ExternalLink,
   Loader2,
 } from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   EMAIL_PERMISSION_NOTICE,
   TaskMessageDialog,
@@ -594,10 +585,9 @@ export default function TasksPage() {
                 return (
                   <div
                     key={task.id}
-                    className={`flex items-start gap-4 p-4 hover:bg-muted/50 transition-colors ${
-                      task.is_completed ? "opacity-60" : ""
-                    }`}
+                    className="flex flex-col gap-3 p-4 hover:bg-muted/50 transition-colors"
                   >
+                  <div className={`flex items-start gap-4 ${task.is_completed ? "opacity-60" : ""}`}>
                     <Checkbox
                       checked={task.is_completed}
                       onCheckedChange={() => toggleTaskComplete(task.id, task.is_completed)}
@@ -657,13 +647,14 @@ export default function TasksPage() {
                       ) : dateInfo.isOverdue ? (
                         <Badge variant="destructive" className="text-xs">Vencida</Badge>
                       ) : null}
-                      <TaskActionsMenu
-                        task={task}
-                        openingChannel={opening?.taskId === task.id ? opening.channel : null}
-                        onOpenMessage={(channel) => openMessageDialog(task, channel)}
-                        onToggleComplete={() => toggleTaskComplete(task.id, task.is_completed)}
-                      />
                     </div>
+                  </div>
+                  <TaskActionsBar
+                    task={task}
+                    openingChannel={opening?.taskId === task.id ? opening.channel : null}
+                    onOpenMessage={(channel) => openMessageDialog(task, channel)}
+                    onToggleComplete={() => toggleTaskComplete(task.id, task.is_completed)}
+                  />
                   </div>
                 )
               })}
@@ -851,7 +842,30 @@ export default function TasksPage() {
   )
 }
 
-function TaskActionsMenu({
+// Consulta el permiso de correo solo cuando la fila entra en pantalla, para no
+// disparar una petición por cada una de las tareas cargadas.
+function useIsVisible<T extends Element>() {
+  const ref = useRef<T>(null)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const node = ref.current
+    if (!node || visible) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: "200px" },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [visible])
+  return { ref, visible }
+}
+
+function TaskActionsBar({
   task,
   openingChannel,
   onOpenMessage,
@@ -862,40 +876,16 @@ function TaskActionsMenu({
   onOpenMessage: (channel: MessageChannel) => void
   onToggleComplete: () => void
 }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="outline" disabled={openingChannel !== null}>
-          {openingChannel ? (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          ) : (
-            <PlayCircle className="mr-1.5 h-4 w-4" />
-          )}
-          Realizar tarea
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
-        <TaskActionsMenuItems task={task} onOpenMessage={onOpenMessage} onToggleComplete={onToggleComplete} />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-// Se monta solo al abrir el menú, para consultar el permiso de correo de ese prospecto bajo demanda.
-function TaskActionsMenuItems({
-  task,
-  onOpenMessage,
-  onToggleComplete,
-}: {
-  task: Task
-  onOpenMessage: (channel: MessageChannel) => void
-  onToggleComplete: () => void
-}) {
-  const { data: sender, isLoading: senderLoading } = useMessageSender(task.prospect?.id)
+  const { ref, visible } = useIsVisible<HTMLDivElement>()
   const hasEmail = Boolean(task.email_subject?.trim() || task.email_message?.trim())
   const hasWhatsApp = Boolean(task.whatsapp_message?.trim())
+  const { data: sender, isLoading: senderLoading } = useMessageSender(
+    visible && hasEmail ? task.prospect?.id : null,
+  )
   const emailNotAllowed = hasEmail && sender !== undefined && !sender.canSendEmail
+  const checkingEmail = hasEmail && (!visible || senderLoading)
   const phone = task.prospect?.contact_phone?.trim()
+  const busy = openingChannel !== null
 
   const notices: string[] = []
   if (task.prospect) {
@@ -905,57 +895,71 @@ function TaskActionsMenuItems({
   }
 
   return (
-    <>
-      <DropdownMenuLabel className="truncate">{task.title}</DropdownMenuLabel>
-      <DropdownMenuSeparator />
-      {task.prospect && (
-        <>
-          <DropdownMenuItem
-            disabled={!hasEmail || emailNotAllowed || senderLoading}
-            onSelect={() => onOpenMessage("email")}
-          >
-            {hasEmail && senderLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-            Enviar correo
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!hasWhatsApp} onSelect={() => onOpenMessage("whatsapp")}>
-            <MessageCircle className="h-4 w-4" />
-            Enviar WhatsApp
-          </DropdownMenuItem>
-          {phone && (
-            <DropdownMenuItem asChild>
-              <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>
-                <Phone className="h-4 w-4" />
-                Llamar {phone}
-              </a>
-            </DropdownMenuItem>
-          )}
-        </>
+    <div ref={ref} className="flex flex-col gap-2 sm:pl-20">
+      <div className="flex flex-wrap items-center gap-2">
+        {task.prospect && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasEmail || emailNotAllowed || checkingEmail || busy}
+              title={!hasEmail ? "Esta tarea no tiene mensaje de correo" : emailNotAllowed ? EMAIL_PERMISSION_NOTICE : undefined}
+              onClick={() => onOpenMessage("email")}
+            >
+              {openingChannel === "email" || checkingEmail ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Mail className="h-4 w-4" aria-hidden="true" />
+              )}
+              Enviar correo
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasWhatsApp || busy}
+              title={!hasWhatsApp ? "Esta tarea no tiene mensaje de WhatsApp" : undefined}
+              onClick={() => onOpenMessage("whatsapp")}
+            >
+              {openingChannel === "whatsapp" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              )}
+              Enviar WhatsApp
+            </Button>
+            {phone && (
+              <Button size="sm" variant="outline" asChild>
+                <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>
+                  <Phone className="h-4 w-4" aria-hidden="true" />
+                  Llamar {phone}
+                </a>
+              </Button>
+            )}
+          </>
+        )}
+        <Button size="sm" variant={task.is_completed ? "outline" : "default"} onClick={onToggleComplete}>
+          <CheckCircle className="h-4 w-4" aria-hidden="true" />
+          {task.is_completed ? "Reabrir tarea" : "Marcar realizada"}
+        </Button>
+        {task.prospect && (
+          <Button size="sm" variant="ghost" asChild>
+            <Link href={`/dashboard/crm/prospects/${task.prospect.id}`}>
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              Abrir prospecto
+            </Link>
+          </Button>
+        )}
+      </div>
+      {notices.length > 0 && !task.is_completed && (
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {notices.map((notice) => (
+            <li key={notice} className="flex items-start gap-1.5">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
+              {notice}
+            </li>
+          ))}
+        </ul>
       )}
-      <DropdownMenuItem onSelect={onToggleComplete}>
-        <CheckCircle className="h-4 w-4" />
-        {task.is_completed ? "Reabrir tarea" : "Marcar realizada"}
-      </DropdownMenuItem>
-      {task.prospect && (
-        <DropdownMenuItem asChild>
-          <Link href={`/dashboard/crm/prospects/${task.prospect.id}`}>
-            <ExternalLink className="h-4 w-4" />
-            Abrir prospecto
-          </Link>
-        </DropdownMenuItem>
-      )}
-      {notices.length > 0 && (
-        <>
-          <DropdownMenuSeparator />
-          <ul className="space-y-1 px-2 py-1.5 text-xs text-muted-foreground">
-            {notices.map(notice => (
-              <li key={notice} className="flex items-start gap-1.5">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
-                {notice}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </>
+    </div>
   )
 }
