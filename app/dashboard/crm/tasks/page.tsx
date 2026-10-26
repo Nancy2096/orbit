@@ -39,7 +39,26 @@ import {
   AlertTriangle,
   Filter,
   MessageCircle,
+  PlayCircle,
+  ExternalLink,
+  Loader2,
 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  EMAIL_PERMISSION_NOTICE,
+  TaskMessageDialog,
+  buildContactOptions,
+  useMessageSender,
+  type ContactOption,
+  type MessageChannel,
+} from "@/components/crm/task-message-dialog"
 
 interface SalesRep {
   id: string
@@ -51,6 +70,8 @@ interface Prospect {
   id: string
   contact_name: string
   company_name: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
   assigned_to?: SalesRep | null
   stage?: { name: string | null; is_lost: boolean | null } | null
 }
@@ -72,6 +93,9 @@ interface Task {
   completed_at: string | null
   assigned_to: string | null
   is_paused?: boolean | null
+  email_subject?: string | null
+  email_message?: string | null
+  whatsapp_message?: string | null
   assigned_staff: SalesRep | null
   prospect: Prospect | null
 }
@@ -88,6 +112,13 @@ export default function TasksPage() {
   const [filterSalesRep, setFilterSalesRep] = useState<string>("all")
   const [modalOpen, setModalOpen] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [messageDialog, setMessageDialog] = useState<{
+    task: Task
+    channel: MessageChannel
+    emailOptions: ContactOption[]
+    phoneOptions: ContactOption[]
+  } | null>(null)
+  const [opening, setOpening] = useState<{ taskId: string; channel: MessageChannel } | null>(null)
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE)
@@ -144,7 +175,8 @@ export default function TasksPage() {
         .from("crm_tasks")
         .select(`
           id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to, is_paused,
-          prospect:crm_prospects(id, contact_name, company_name, stage:crm_pipeline_stages(name, is_lost))
+          email_subject, email_message, whatsapp_message,
+          prospect:crm_prospects(id, contact_name, company_name, contact_email, contact_phone, stage:crm_pipeline_stages(name, is_lost))
         `)
         .eq("agency_id", selectedAgencyId)
         .eq("is_completed", false)
@@ -159,7 +191,7 @@ export default function TasksPage() {
       }
       tasksData.push(
         ...((data || []) as unknown as Omit<Task, "assigned_staff">[]).filter(
-          t => !/perdid/i.test(t.prospect?.stage?.name || ""),
+          t => !isClosedStage(t.prospect?.stage),
         ),
       )
       if (!data || data.length < pageSize) break
@@ -223,6 +255,27 @@ export default function TasksPage() {
 
     return matchesSearch && matchesStatus && matchesPriority && matchesSalesRep
   })
+
+  const openMessageDialog = async (task: Task, channel: MessageChannel) => {
+    if (!task.prospect) return
+    setOpening({ taskId: task.id, channel })
+    const { data: extraContacts } = await supabase
+      .from("crm_prospect_contacts")
+      .select("contact_name, contact_email, contact_phone")
+      .eq("prospect_id", task.prospect.id)
+    setOpening(null)
+    setMessageDialog({
+      task,
+      channel,
+      emailOptions: buildContactOptions(task.prospect, extraContacts, "contact_email"),
+      phoneOptions: buildContactOptions(task.prospect, extraContacts, "contact_phone"),
+    })
+  }
+
+  const markTaskCompletedLocally = (taskId: string) => {
+    const completedAt = new Date().toISOString()
+    setTasks(prev => prev.map(t => (t.id === taskId ? { ...t, is_completed: true, completed_at: completedAt } : t)))
+  }
 
   const toggleTaskComplete = async (taskId: string, isCompleted: boolean) => {
     const task = tasks.find(t => t.id === taskId)
@@ -574,9 +627,6 @@ export default function TasksPage() {
                         ) : (
                           <span className="text-sm text-muted-foreground italic">Sin prospecto</span>
                         )}
-                        {isClosedStage(task.prospect?.stage) && task.prospect?.stage?.name && (
-                          <Badge variant="secondary" className="text-xs">{task.prospect.stage.name}</Badge>
-                        )}
                         {task.is_paused && !task.is_completed && (
                           <Badge variant="outline" className="text-xs text-muted-foreground">Pausada por etapa</Badge>
                         )}
@@ -607,6 +657,12 @@ export default function TasksPage() {
                       ) : dateInfo.isOverdue ? (
                         <Badge variant="destructive" className="text-xs">Vencida</Badge>
                       ) : null}
+                      <TaskActionsMenu
+                        task={task}
+                        openingChannel={opening?.taskId === task.id ? opening.channel : null}
+                        onOpenMessage={(channel) => openMessageDialog(task, channel)}
+                        onToggleComplete={() => toggleTaskComplete(task.id, task.is_completed)}
+                      />
                     </div>
                   </div>
                 )
@@ -625,6 +681,23 @@ export default function TasksPage() {
           )}
         </CardContent>
       </Card>
+
+      {messageDialog?.task.prospect && (
+        <TaskMessageDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setMessageDialog(null)
+          }}
+          channel={messageDialog.channel}
+          prospectId={messageDialog.task.prospect.id}
+          prospectName={messageDialog.task.prospect.contact_name}
+          task={messageDialog.task}
+          emailOptions={messageDialog.emailOptions}
+          phoneOptions={messageDialog.phoneOptions}
+          onLogged={() => {}}
+          onTaskCompleted={markTaskCompletedLocally}
+        />
+      )}
 
       {/* New Task Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -775,5 +848,114 @@ export default function TasksPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+function TaskActionsMenu({
+  task,
+  openingChannel,
+  onOpenMessage,
+  onToggleComplete,
+}: {
+  task: Task
+  openingChannel: MessageChannel | null
+  onOpenMessage: (channel: MessageChannel) => void
+  onToggleComplete: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="outline" disabled={openingChannel !== null}>
+          {openingChannel ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <PlayCircle className="mr-1.5 h-4 w-4" />
+          )}
+          Realizar tarea
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <TaskActionsMenuItems task={task} onOpenMessage={onOpenMessage} onToggleComplete={onToggleComplete} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// Se monta solo al abrir el menú, para consultar el permiso de correo de ese prospecto bajo demanda.
+function TaskActionsMenuItems({
+  task,
+  onOpenMessage,
+  onToggleComplete,
+}: {
+  task: Task
+  onOpenMessage: (channel: MessageChannel) => void
+  onToggleComplete: () => void
+}) {
+  const { data: sender, isLoading: senderLoading } = useMessageSender(task.prospect?.id)
+  const hasEmail = Boolean(task.email_subject?.trim() || task.email_message?.trim())
+  const hasWhatsApp = Boolean(task.whatsapp_message?.trim())
+  const emailNotAllowed = hasEmail && sender !== undefined && !sender.canSendEmail
+  const phone = task.prospect?.contact_phone?.trim()
+
+  const notices: string[] = []
+  if (task.prospect) {
+    if (!hasEmail) notices.push("Correo: esta tarea no tiene mensaje de correo.")
+    else if (emailNotAllowed) notices.push(EMAIL_PERMISSION_NOTICE)
+    if (!hasWhatsApp) notices.push("WhatsApp: esta tarea no tiene mensaje de WhatsApp.")
+  }
+
+  return (
+    <>
+      <DropdownMenuLabel className="truncate">{task.title}</DropdownMenuLabel>
+      <DropdownMenuSeparator />
+      {task.prospect && (
+        <>
+          <DropdownMenuItem
+            disabled={!hasEmail || emailNotAllowed || senderLoading}
+            onSelect={() => onOpenMessage("email")}
+          >
+            {hasEmail && senderLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+            Enviar correo
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={!hasWhatsApp} onSelect={() => onOpenMessage("whatsapp")}>
+            <MessageCircle className="h-4 w-4" />
+            Enviar WhatsApp
+          </DropdownMenuItem>
+          {phone && (
+            <DropdownMenuItem asChild>
+              <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>
+                <Phone className="h-4 w-4" />
+                Llamar {phone}
+              </a>
+            </DropdownMenuItem>
+          )}
+        </>
+      )}
+      <DropdownMenuItem onSelect={onToggleComplete}>
+        <CheckCircle className="h-4 w-4" />
+        {task.is_completed ? "Reabrir tarea" : "Marcar realizada"}
+      </DropdownMenuItem>
+      {task.prospect && (
+        <DropdownMenuItem asChild>
+          <Link href={`/dashboard/crm/prospects/${task.prospect.id}`}>
+            <ExternalLink className="h-4 w-4" />
+            Abrir prospecto
+          </Link>
+        </DropdownMenuItem>
+      )}
+      {notices.length > 0 && (
+        <>
+          <DropdownMenuSeparator />
+          <ul className="space-y-1 px-2 py-1.5 text-xs text-muted-foreground">
+            {notices.map(notice => (
+              <li key={notice} className="flex items-start gap-1.5">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
+                {notice}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
   )
 }
