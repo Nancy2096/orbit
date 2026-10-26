@@ -51,8 +51,15 @@ interface Prospect {
   id: string
   contact_name: string
   company_name: string | null
-  assigned_to: SalesRep | null
+  assigned_to?: SalesRep | null
+  stage?: { name: string | null; is_lost: boolean | null } | null
 }
+
+const PAGE_SIZE = 200
+
+const isClosedStage = (stage?: Prospect["stage"]) =>
+  !!stage &&
+  (stage.is_lost === true || /no\s*interes|no\s*contactad|perdid/i.test(stage.name || ""))
 
 interface Task {
   id: string
@@ -64,6 +71,7 @@ interface Task {
   is_completed: boolean
   completed_at: string | null
   assigned_to: string | null
+  is_paused?: boolean | null
   assigned_staff: SalesRep | null
   prospect: Prospect | null
 }
@@ -79,6 +87,11 @@ export default function TasksPage() {
   const [filterPriority, setFilterPriority] = useState<string>("all")
   const [filterSalesRep, setFilterSalesRep] = useState<string>("all")
   const [modalOpen, setModalOpen] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [searchTerm, filterStatus, filterPriority, filterSalesRep])
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
@@ -113,32 +126,59 @@ export default function TasksPage() {
       .in("name", ["Comercial", "Dirección"])
     
     const deptIds = commercialDepts?.map(d => d.id) || []
-    
+
+    // Los departamentos ya pertenecen a la agencia; no se filtra staff.agency_id
+    // porque la Dirección (p. ej. el Director General) tiene agency_id vacío.
     const { data: salesRepsData } = await supabase
       .from("staff")
-      .select("id, first_name, last_name, department_id")
-      .eq("agency_id", selectedAgencyId)
+      .select("id, first_name, last_name")
       .eq("is_active", true)
       .in("department_id", deptIds.length > 0 ? deptIds : ["00000000-0000-0000-0000-000000000000"])
       .order("first_name")
 
-    if (salesRepsData) setSalesReps(salesRepsData)
-
-    // Fetch tasks for this agency with assigned_to info
-    const { data: tasksData } = await supabase
-      .from("crm_tasks")
-      .select(`
-        id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to,
-        assigned_staff:staff!crm_tasks_assigned_to_fkey(id, first_name, last_name),
-        prospect:crm_prospects(id, contact_name, company_name)
-      `)
-      .eq("agency_id", selectedAgencyId)
-      .eq("is_paused", false)
-      .order("due_date", { ascending: true })
-
-    if (tasksData) {
-      setTasks(tasksData as Task[])
+    // Supabase devuelve máximo 1000 filas por consulta, así que se pagina.
+    const tasksData: Omit<Task, "assigned_staff">[] = []
+    const pageSize = 1000
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("crm_tasks")
+        .select(`
+          id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to, is_paused,
+          prospect:crm_prospects(id, contact_name, company_name, stage:crm_pipeline_stages(name, is_lost))
+        `)
+        .eq("agency_id", selectedAgencyId)
+        .order("due_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1)
+      if (error) {
+        console.error("Error al cargar tareas:", error)
+        toast.error("Error al cargar las tareas")
+        break
+      }
+      tasksData.push(...((data || []) as unknown as Omit<Task, "assigned_staff">[]))
+      if (!data || data.length < pageSize) break
     }
+
+    // crm_tasks no tiene relación declarada con staff: el responsable se resuelve aquí,
+    // incluyendo a quien tenga tareas aunque no esté en Comercial/Dirección.
+    const repsById = new Map<string, SalesRep>((salesRepsData || []).map(r => [r.id, r]))
+    const missingIds = [...new Set(tasksData.map(t => t.assigned_to).filter((id): id is string => !!id && !repsById.has(id)))]
+    if (missingIds.length > 0) {
+      const { data: extraStaff } = await supabase
+        .from("staff")
+        .select("id, first_name, last_name")
+        .in("id", missingIds)
+      extraStaff?.forEach(s => repsById.set(s.id, s))
+    }
+
+    const assigneeIds = new Set(tasksData.map(t => t.assigned_to).filter(Boolean))
+    setSalesReps(
+      [...repsById.values()]
+        .filter(r => (salesRepsData || []).some(s => s.id === r.id) || assigneeIds.has(r.id))
+        .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`, "es")),
+    )
+
+    setTasks(tasksData.map(t => ({ ...t, assigned_staff: t.assigned_to ? repsById.get(t.assigned_to) ?? null : null })))
 
     // Fetch prospects for dropdown (filtered by agency)
     const { data: prospectsData } = await supabase
@@ -179,11 +219,23 @@ export default function TasksPage() {
   })
 
   const toggleTaskComplete = async (taskId: string, isCompleted: boolean) => {
+    const task = tasks.find(t => t.id === taskId)
+    const completing = !isCompleted
+    const now = new Date().toISOString()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    // Mismos campos que usan el detalle del prospecto y el calendario, para que
+    // la tarea aparezca realizada (con su fecha) en todos lados sin duplicarse.
     const { error } = await supabase
       .from("crm_tasks")
       .update({
-        is_completed: !isCompleted,
-        completed_at: !isCompleted ? new Date().toISOString() : null,
+        status: completing ? "completed" : "pending",
+        is_completed: completing,
+        completed_at: completing ? now : null,
+        completed_by: completing ? user?.id ?? null : null,
+        updated_at: now,
       })
       .eq("id", taskId)
 
@@ -192,8 +244,26 @@ export default function TasksPage() {
       return
     }
 
+    if (task?.prospect) {
+      const { error: activityError } = await supabase.from("crm_activities").insert({
+        prospect_id: task.prospect.id,
+        task_id: task.id,
+        activity_type: "task",
+        subject: `${completing ? "Tarea realizada" : "Tarea reabierta"}: ${task.title}`.slice(0, 250),
+        description: completing
+          ? `La tarea "${task.title}" se marcó como realizada desde Comercial > Tareas.`
+          : `La tarea "${task.title}" se reabrió desde Comercial > Tareas y volvió a pendiente.`,
+        activity_date: now,
+        is_completed: completing,
+        completed_at: completing ? now : null,
+        completed_by: completing ? user?.id ?? null : null,
+        created_by: user?.id ?? null,
+      })
+      if (activityError) console.error("No se pudo registrar la actividad:", activityError)
+    }
+
     setTasks(prev => prev.map(t =>
-      t.id === taskId ? { ...t, is_completed: !isCompleted, completed_at: !isCompleted ? new Date().toISOString() : null } : t
+      t.id === taskId ? { ...t, is_completed: completing, completed_at: completing ? now : null } : t
     ))
 
     toast.success(!isCompleted ? "Tarea completada" : "Tarea reabierta")
@@ -460,7 +530,7 @@ export default function TasksPage() {
             </div>
           ) : (
             <div className="divide-y">
-              {filteredTasks.map((task) => {
+              {filteredTasks.slice(0, visibleCount).map((task) => {
                 const dateInfo = formatDate(task.due_date)
                 return (
                   <div
@@ -498,7 +568,18 @@ export default function TasksPage() {
                         ) : (
                           <span className="text-sm text-muted-foreground italic">Sin prospecto</span>
                         )}
+                        {isClosedStage(task.prospect?.stage) && task.prospect?.stage?.name && (
+                          <Badge variant="secondary" className="text-xs">{task.prospect.stage.name}</Badge>
+                        )}
+                        {task.is_paused && !task.is_completed && (
+                          <Badge variant="outline" className="text-xs text-muted-foreground">Pausada por etapa</Badge>
+                        )}
                       </div>
+                      {task.is_completed && task.completed_at && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Realizada el {new Date(task.completed_at).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}
+                        </p>
+                      )}
                       {task.description && (
                         <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
                           {task.description}
@@ -524,6 +605,16 @@ export default function TasksPage() {
                   </div>
                 )
               })}
+              {filteredTasks.length > visibleCount && (
+                <div className="flex flex-col items-center gap-2 p-4">
+                  <span className="text-sm text-muted-foreground">
+                    Mostrando {visibleCount} de {filteredTasks.length} tareas
+                  </span>
+                  <Button variant="outline" onClick={() => setVisibleCount(c => c + PAGE_SIZE)}>
+                    Mostrar más
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
