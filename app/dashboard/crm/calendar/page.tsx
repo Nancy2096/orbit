@@ -75,7 +75,14 @@ interface Prospect {
   contact_email?: string | null
   contact_phone?: string | null
   assigned_to?: string | null
+  stage?: { name: string | null; is_lost: boolean | null } | null
 }
+
+// Etapas cerradas (Perdido, No interesado, No contactado): el prospecto ya no
+// debe generar tareas pendientes en el calendario.
+const isClosedStage = (stage?: Prospect["stage"]) =>
+  !!stage &&
+  (stage.is_lost === true || /no\s*interes|no\s*contactad|perdid/i.test(stage.name || ""))
 
 interface Appointment {
   id: string
@@ -137,6 +144,8 @@ export default function CRMCalendarPage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [dayDetailKey, setDayDetailKey] = useState<string | null>(null)
+  const [togglingTaskId, setTogglingTaskId] = useState<string | null>(null)
   const [messageDialog, setMessageDialog] = useState<{
     task: Task
     channel: MessageChannel
@@ -219,7 +228,8 @@ export default function CRMCalendarPage() {
           .select(`
             id, title, description, task_type, due_date, priority, is_completed, completed_at, assigned_to,
             whatsapp_message, email_subject, email_message,
-            prospect:crm_prospects(id, contact_name, company_name, contact_email, contact_phone, assigned_to)
+            prospect:crm_prospects(id, contact_name, company_name, contact_email, contact_phone, assigned_to,
+              stage:crm_pipeline_stages(name, is_lost))
           `)
           .eq("agency_id", selectedAgencyId)
           .order("due_date", { ascending: true })
@@ -264,7 +274,9 @@ export default function CRMCalendarPage() {
     }
     // crm_tasks no tiene relación declarada con staff, así que el responsable se resuelve aquí.
     setTasks(
-      tasksData.map((t) => ({
+      tasksData
+        .filter((t) => t.is_completed || !isClosedStage(t.prospect?.stage))
+        .map((t) => ({
         ...t,
         assigned_staff: t.assigned_to ? repsById.get(t.assigned_to) ?? null : null,
       })),
@@ -654,6 +666,10 @@ export default function CRMCalendarPage() {
     )
   }
 
+  const dayDetail = dayDetailKey
+    ? calendarDays.find((d) => toLocalDateKey(d.date) === dayDetailKey) ?? null
+    : null
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -941,9 +957,14 @@ export default function CRMCalendarPage() {
                       </Tooltip>
                     ))}
                     {day.tasks.length + day.appointments.length > 3 && (
-                      <div className="text-xs text-muted-foreground text-center">
+                      <button
+                        type="button"
+                        onClick={() => setDayDetailKey(toLocalDateKey(day.date))}
+                        className="w-full rounded px-1 py-0.5 text-xs font-medium text-primary text-center hover:bg-primary/10 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Ver todas las actividades del ${day.date.toLocaleDateString("es-MX", { day: "numeric", month: "long" })}`}
+                      >
                         +{day.tasks.length + day.appointments.length - 3} más
-                      </div>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -982,6 +1003,95 @@ export default function CRMCalendarPage() {
       </div>
 
       {/* Task Detail Dialog */}
+      <Dialog open={!!dayDetail} onOpenChange={(open) => !open && setDayDetailKey(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="capitalize">
+              {dayDetail?.date.toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            </DialogTitle>
+            <DialogDescription>
+              {dayDetail
+                ? `${dayDetail.tasks.length} ${dayDetail.tasks.length === 1 ? "tarea" : "tareas"} · ${dayDetail.appointments.length} ${dayDetail.appointments.length === 1 ? "cita" : "citas"}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {dayDetail && (
+            <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+              {dayDetail.tasks.map((task) => (
+                <div
+                  key={task.id}
+                  className={`flex items-center gap-3 rounded-lg border p-3 ${task.is_completed ? "bg-green-50 dark:bg-green-950/40" : ""}`}
+                >
+                  {task.is_completed ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" aria-label="Realizada" />
+                  ) : (
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${getPriorityColor(task.priority)}`} aria-hidden="true" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDayDetailKey(null)
+                      setSelectedTask(task)
+                      setDetailOpen(true)
+                    }}
+                    className="min-w-0 flex-1 text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                  >
+                    <p className={`truncate text-sm font-medium ${task.is_completed ? "line-through opacity-70" : ""}`}>
+                      {task.title}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {new Date(task.due_date).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                      {" · "}
+                      {getTaskTypeLabel(task.task_type)}
+                      {task.prospect ? ` · ${task.prospect.contact_name}` : ""}
+                      {task.is_completed && task.completed_at
+                        ? ` · Realizada ${new Date(task.completed_at).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}`
+                        : ""}
+                    </p>
+                  </button>
+                  <Button
+                    size="sm"
+                    variant={task.is_completed ? "ghost" : "outline"}
+                    className="shrink-0"
+                    disabled={togglingTaskId === task.id}
+                    onClick={async () => {
+                      setTogglingTaskId(task.id)
+                      await toggleTaskComplete(task)
+                      setTogglingTaskId(null)
+                    }}
+                  >
+                    {togglingTaskId === task.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : task.is_completed ? (
+                      "Reabrir"
+                    ) : (
+                      "Marcar Realizada"
+                    )}
+                  </Button>
+                </div>
+              ))}
+              {dayDetail.appointments.map((apt) => (
+                <div key={apt.id} className="flex items-center gap-3 rounded-lg border border-purple-200 bg-purple-50 p-3 dark:border-purple-900 dark:bg-purple-950/40">
+                  <Users className="h-4 w-4 shrink-0 text-purple-700" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{apt.title}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      Cita · {new Date(apt.start_datetime).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                      {apt.prospect ? ` · ${apt.prospect.contact_name}` : ""}
+                    </p>
+                  </div>
+                  {apt.prospect && (
+                    <Button asChild size="sm" variant="ghost" className="shrink-0">
+                      <Link href={`/dashboard/crm/prospects/${apt.prospect.id}`}>Ver prospecto</Link>
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="sm:max-w-[500px]">
           {selectedTask && (
