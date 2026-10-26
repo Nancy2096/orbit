@@ -147,6 +147,8 @@ export default function TasksPage() {
           prospect:crm_prospects(id, contact_name, company_name, stage:crm_pipeline_stages(name, is_lost))
         `)
         .eq("agency_id", selectedAgencyId)
+        .eq("is_completed", false)
+        .not("assigned_to", "is", null)
         .order("due_date", { ascending: true })
         .order("id", { ascending: true })
         .range(from, from + pageSize - 1)
@@ -155,7 +157,11 @@ export default function TasksPage() {
         toast.error("Error al cargar las tareas")
         break
       }
-      tasksData.push(...((data || []) as unknown as Omit<Task, "assigned_staff">[]))
+      tasksData.push(
+        ...((data || []) as unknown as Omit<Task, "assigned_staff">[]).filter(
+          t => !/perdid/i.test(t.prospect?.stage?.name || ""),
+        ),
+      )
       if (!data || data.length < pageSize) break
     }
 
