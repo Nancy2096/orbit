@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireProspectAccess, senderDisplayName } from "@/lib/crm/prospect-access"
-import { sendEmail } from "@/lib/email"
+import { buildFromHeader, isAllowedSenderEmail, sendEmail } from "@/lib/email"
 import { escapeHtml, messageToHtml, wrapEmailDocument } from "@/lib/email-format"
 import { MAX_CC_RECIPIENTS, MAX_TO_RECIPIENTS, validateEmailList } from "@/lib/invoice-email-rules"
 import {
@@ -13,15 +13,28 @@ import {
 
 export const runtime = "nodejs"
 
+// Si el correo del usuario está en COMMERCIAL_SENDER_EMAILS, el prospecto ve
+// "{nombre}" <correo del usuario>; si no, "{nombre} · {agencia}" <SMTP_FROM>.
+function resolveSender(access: { senderName: string; agencyName: string; userEmail: string | null }) {
+  const userEmail = access.userEmail?.trim() || ""
+  if (isAllowedSenderEmail(userEmail)) {
+    return { fromName: access.senderName, fromEmail: userEmail }
+  }
+  return { fromName: senderDisplayName(access.senderName, access.agencyName), fromEmail: undefined }
+}
+
 // Datos del remitente para completar las variables de las plantillas.
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const access = await requireProspectAccess(id)
   if (access instanceof NextResponse) return access
+  const sender = resolveSender(access)
   return NextResponse.json({
     senderName: access.senderName,
     senderEmail: access.userEmail,
-    fromName: senderDisplayName(access.senderName, access.agencyName),
+    fromName: sender.fromName,
+    fromHeader: buildFromHeader(sender.fromName, sender.fromEmail).replace(/^"([^"]*)"/, "$1"),
+    usesPersonalAddress: !!sender.fromEmail,
     canSendEmail: access.canSendEmail,
   })
 }
@@ -138,7 +151,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const alreadyIncluded = [...to, ...cc].some((e) => e.toLowerCase() === senderEmail.toLowerCase())
   const bcc = senderEmail && !alreadyIncluded ? [senderEmail] : []
 
+  const sender = resolveSender(access)
+  const fromHeader = buildFromHeader(sender.fromName, sender.fromEmail).replace(/^"([^"]*)"/, "$1")
+
   const recipientLines = [
+    `Remitente: ${fromHeader}`,
     `Para: ${to.join(", ")}`,
     cc.length ? `CC: ${cc.join(", ")}` : "",
     bcc.length ? `CCO: ${bcc.join(", ")} (copia automática)` : "",
@@ -153,7 +170,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       bcc: bcc.length > 0 ? bcc : undefined,
       subject,
       html,
-      fromName: senderDisplayName(access.senderName, access.agencyName),
+      fromName: sender.fromName,
+      fromEmail: sender.fromEmail,
       // Las respuestas del prospecto llegan al asesor que envió el correo.
       replyTo: senderEmail || undefined,
     })
