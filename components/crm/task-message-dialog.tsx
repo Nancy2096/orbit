@@ -55,6 +55,9 @@ interface SenderInfo {
   senderName: string
   senderEmail: string | null
   fromName: string
+  /** Remitente completo que verá el prospecto, p. ej. "Enrique Guzmán <enrique@...>". */
+  fromHeader?: string
+  usesPersonalAddress?: boolean
   canSendEmail: boolean
 }
 
@@ -131,7 +134,7 @@ export function TaskMessageDialog(props: TaskMessageDialogProps) {
             task={task}
             senderName={data?.senderName ?? ""}
             senderEmail={data?.senderEmail ?? null}
-            fromName={data?.fromName ?? ""}
+            fromName={data?.fromHeader ?? data?.fromName ?? ""}
             canSendEmail={data?.canSendEmail ?? false}
           />
         ) : null}
@@ -254,7 +257,7 @@ function MessageForm({
         <>
           {fromName && (
             <p className="text-xs text-muted-foreground">
-              El prospecto verá como remitente: <span className="font-medium text-foreground">{fromName}</span>
+              El prospecto verá: <span className="font-medium text-foreground">{fromName}</span>
             </p>
           )}
           <div className="grid gap-4 sm:grid-cols-2">

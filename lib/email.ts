@@ -18,8 +18,13 @@ interface SendEmailParams {
   html: string
   replyTo?: string
   attachments?: EmailAttachment[]
-  /** Nombre visible del remitente. Si se omite se usa "Orbit". La dirección siempre es SMTP_FROM. */
+  /** Nombre visible del remitente. Si se omite se usa "Orbit". */
   fromName?: string
+  /**
+   * Dirección del remitente. Solo se acepta si está en COMMERCIAL_SENDER_EMAILS;
+   * si se omite se usa SMTP_FROM.
+   */
+  fromEmail?: string
 }
 
 interface SendEmailResult {
@@ -27,6 +32,37 @@ interface SendEmailResult {
   messageId?: string
   /** Correo de prueba al que se desvió el envío (EMAIL_TEST_RECIPIENT). */
   redirectedTo?: string
+  /** Encabezado From que se usó (o se habría usado si el envío se omitió). */
+  from: string
+}
+
+const EMAIL_PATTERN = /^[^\s@<>",;\\]+@[^\s@<>",;\\]+\.[^\s@<>",;\\]+$/
+
+function commercialSenderEmails(): Set<string> {
+  return new Set(
+    (process.env.COMMERCIAL_SENDER_EMAILS || "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => EMAIL_PATTERN.test(e)),
+  )
+}
+
+/** Indica si el correo puede usarse como remitente (está en COMMERCIAL_SENDER_EMAILS). */
+export function isAllowedSenderEmail(email: string | null | undefined): boolean {
+  const normalized = (email || "").trim().toLowerCase()
+  return !!normalized && EMAIL_PATTERN.test(normalized) && commercialSenderEmails().has(normalized)
+}
+
+/** Arma el encabezado From. Lanza error si fromEmail no está autorizado. */
+export function buildFromHeader(fromName?: string, fromEmail?: string): string {
+  let address = process.env.SMTP_FROM || ""
+  if (fromEmail) {
+    if (!isAllowedSenderEmail(fromEmail)) {
+      throw new Error(`El remitente ${fromEmail} no está autorizado en COMMERCIAL_SENDER_EMAILS`)
+    }
+    address = fromEmail.trim()
+  }
+  return `"${sanitizeDisplayName(fromName)}" <${address}>`
 }
 
 // Evita inyección de encabezados y comillas que rompan el campo From.
@@ -62,6 +98,7 @@ function getTransporter(): nodemailer.Transporter {
  * Reglas:
  * - Si EMAIL_NOTIFICATIONS_ENABLED !== 'true' no envía nada y regresa { skipped: true }.
  * - El remitente es "Orbit" <SMTP_FROM>, o "{fromName}" <SMTP_FROM> si se indica fromName.
+ *   Si se indica fromEmail (y está en COMMERCIAL_SENDER_EMAILS) la dirección es fromEmail.
  * - Si EMAIL_TEST_RECIPIENT tiene valor, redirige TODO a esa dirección, elimina
  *   las copias (cc y bcc) y antepone al asunto la marca de prueba con los destinatarios reales.
  */
@@ -74,12 +111,15 @@ export async function sendEmail({
   replyTo,
   attachments,
   fromName,
+  fromEmail,
 }: SendEmailParams): Promise<SendEmailResult> {
+  const from = buildFromHeader(fromName, fromEmail)
+
   if (process.env.EMAIL_NOTIFICATIONS_ENABLED !== "true") {
     console.log(
       `[email] Envío omitido (EMAIL_NOTIFICATIONS_ENABLED != 'true'). Asunto: "${subject}"`,
     )
-    return { skipped: true }
+    return { skipped: true, from }
   }
 
   const originalTo = toArray(to)
@@ -99,8 +139,6 @@ export async function sendEmail({
     finalSubject = `[PRUEBA → ${originalRecipients}] ${subject}`
   }
 
-  const from = `"${sanitizeDisplayName(fromName)}" <${process.env.SMTP_FROM}>`
-
   try {
     const info = await getTransporter().sendMail({
       from,
@@ -118,7 +156,7 @@ export async function sendEmail({
       `[email] Envío exitoso. Destinatarios: ${recipientsLog} | Asunto: "${finalSubject}"`,
     )
 
-    return { messageId: info.messageId, redirectedTo: testRecipient || undefined }
+    return { messageId: info.messageId, redirectedTo: testRecipient || undefined, from }
   } catch (error) {
     console.error(
       `[email] Error al enviar correo. Asunto: "${finalSubject}"`,
