@@ -34,6 +34,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { syncExpenseBankMovement } from "@/lib/expense-bank-movement"
+import { PaymentDateDialog, getPaymentDateError } from "@/components/finance/payment-date-dialog"
+import { formatDateOnly, todayInMexicoCity } from "@/lib/date-mx"
 
 // Dispara la notificación de correo del gasto sin bloquear la UI (fire-and-forget).
 // Los destinatarios y la validación del evento se resuelven en el servidor.
@@ -127,6 +129,7 @@ const actionLabels: Record<string, string> = {
   receipt_uploaded: "Comprobante de pago subido",
   receipt_replaced: "Comprobante de pago reemplazado",
   bank_selected: "Banco de salida asignado",
+  payment_date_changed: "Fecha de pago corregida",
 }
 
 // Estados del flujo de un gasto. El campo `status` es la fuente de verdad.
@@ -159,6 +162,8 @@ export default function ExpenseDetailPage() {
   const [loading, setLoading] = useState(true)
   const [currentStaffId, setCurrentStaffId] = useState<string | null>(null)
   const [savingStatus, setSavingStatus] = useState(false)
+  const [paymentDateMode, setPaymentDateMode] = useState<"mark" | "edit" | null>(null)
+  const [savingPaymentDate, setSavingPaymentDate] = useState(false)
 
   // Banco de salida (visible cuando el gasto está aprobado).
   const [banks, setBanks] = useState<BankAccount[]>([])
@@ -266,11 +271,24 @@ export default function ExpenseDetailPage() {
   }
 
   // Cambia el estado del gasto y registra el movimiento en el historial.
-  const handleChangeStatus = async (newStatus: string) => {
-    if (!expense || newStatus === expense.status) return
-    if (newStatus === "paid" && expense.third_party_payment_id && !expense.bank_account_id) {
+  const canMarkAsPaid = () => {
+    if (expense?.third_party_payment_id && !expense.bank_account_id) {
       toast.error("Selecciona el banco de salida antes de marcar el gasto como pagado")
-      return
+      return false
+    }
+    return true
+  }
+
+  const handleChangeStatus = async (newStatus: string, paymentDate?: string) => {
+    if (!expense || newStatus === expense.status) return
+    if (newStatus === "paid" && !canMarkAsPaid()) return
+    const paidOn = newStatus === "paid" ? paymentDate || todayInMexicoCity() : null
+    if (paidOn) {
+      const dateError = getPaymentDateError(paidOn)
+      if (dateError) {
+        toast.error(dateError)
+        return
+      }
     }
     setSavingStatus(true)
     try {
@@ -284,8 +302,8 @@ export default function ExpenseDetailPage() {
         updates.approved_at = new Date().toISOString()
         if (currentStaffId) updates.approved_by_id = currentStaffId
       }
-      if (newStatus === "paid" && !expense.payment_date) {
-        updates.payment_date = new Date().toISOString()
+      if (paidOn) {
+        updates.payment_date = paidOn
       }
       if (newStatus === "draft" || newStatus === "pending") {
         // Al regresar el gasto, se limpia la aprobación previa.
@@ -303,8 +321,8 @@ export default function ExpenseDetailPage() {
 
       if (currentStaffId) {
         const comments =
-          newStatus === "paid"
-            ? `Gasto marcado como pagado el ${new Date().toLocaleString("es-MX")}.`
+          paidOn
+            ? `Gasto marcado como pagado. Fecha de pago: ${formatDateOnly(paidOn)}.`
             : `Estado cambiado a "${statusConfig[newStatus]?.label || newStatus}"`
         await supabase.from("expense_approval_history").insert({
           expense_id: expense.id,
@@ -326,6 +344,50 @@ export default function ExpenseDetailPage() {
       toast.error("No se pudo actualizar el estado")
     } finally {
       setSavingStatus(false)
+    }
+  }
+
+  // Corrige la fecha de pago de un gasto ya pagado y deja el cambio en el historial.
+  const handleCorrectPaymentDate = async (newDate: string) => {
+    if (!expense) return
+    const dateError = getPaymentDateError(newDate)
+    if (dateError) {
+      toast.error(dateError)
+      return
+    }
+    const previous = expense.payment_date?.slice(0, 10) || null
+    if (previous === newDate) {
+      setPaymentDateMode(null)
+      return
+    }
+    setSavingPaymentDate(true)
+    try {
+      const { error } = await supabase
+        .from("expenses")
+        .update({ payment_date: newDate, updated_at: new Date().toISOString() })
+        .eq("id", expense.id)
+      if (error) throw error
+
+      // Mantiene la fecha de la salida bancaria igual a la fecha de pago (el monto no cambia).
+      await syncExpenseBankMovement(supabase, expense.id)
+
+      if (currentStaffId) {
+        await supabase.from("expense_approval_history").insert({
+          expense_id: expense.id,
+          action: "payment_date_changed",
+          performed_by_id: currentStaffId,
+          comments: `Fecha de pago corregida: ${previous ? formatDateOnly(previous) : "sin fecha"} → ${formatDateOnly(newDate)}.`,
+        })
+      }
+
+      toast.success("Fecha de pago actualizada")
+      setPaymentDateMode(null)
+      await loadExpense()
+    } catch (err) {
+      console.error("Error updating payment date:", err)
+      toast.error("No se pudo actualizar la fecha de pago")
+    } finally {
+      setSavingPaymentDate(false)
     }
   }
 
@@ -485,6 +547,10 @@ export default function ExpenseDetailPage() {
                   disabled={s.value === expense.status}
                   onSelect={(e) => {
                     e.preventDefault()
+                    if (s.value === "paid") {
+                      if (canMarkAsPaid()) setPaymentDateMode("mark")
+                      return
+                    }
                     handleChangeStatus(s.value)
                   }}
                 >
@@ -531,9 +597,25 @@ export default function ExpenseDetailPage() {
             </CardHeader>
             <CardContent className="space-y-0">
               {detailRow("Fecha de Registro", formatDateTime(expense.created_at))}
-              {detailRow("Fecha de Inicio", formatDate(expense.start_date))}
-              {detailRow("Fecha Final", formatDate(expense.end_date))}
-              {detailRow("Fecha de Pago", formatDate(expense.payment_date))}
+              {detailRow("Fecha de Inicio", formatDateOnly(expense.start_date))}
+              {detailRow("Fecha Final", formatDateOnly(expense.end_date))}
+              {detailRow(
+                "Fecha de Pago",
+                <span className="inline-flex items-center gap-2">
+                  {formatDateOnly(expense.payment_date)}
+                  {expense.status === "paid" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2"
+                      onClick={() => setPaymentDateMode("edit")}
+                    >
+                      <Pencil className="mr-1 h-3.5 w-3.5" />
+                      Corregir
+                    </Button>
+                  )}
+                </span>,
+              )}
             </CardContent>
           </Card>
 
@@ -759,6 +841,28 @@ export default function ExpenseDetailPage() {
       </div>
 
       <FinanceHistory entityType="expense" entityId={id} />
+
+      <PaymentDateDialog
+        open={paymentDateMode !== null}
+        onOpenChange={(open) => !open && setPaymentDateMode(null)}
+        title={paymentDateMode === "edit" ? "Corregir fecha de pago" : "Marcar como pagado"}
+        description={
+          paymentDateMode === "edit"
+            ? "El cambio quedará registrado en el historial del gasto."
+            : "Elige la fecha real en que se realizó el pago."
+        }
+        confirmLabel={paymentDateMode === "edit" ? "Guardar fecha" : "Marcar como pagado"}
+        initialDate={paymentDateMode === "edit" ? expense.payment_date : null}
+        saving={savingStatus || savingPaymentDate}
+        onConfirm={async (date) => {
+          if (paymentDateMode === "edit") {
+            await handleCorrectPaymentDate(date)
+          } else {
+            await handleChangeStatus("paid", date)
+            setPaymentDateMode(null)
+          }
+        }}
+      />
     </div>
   )
 }
