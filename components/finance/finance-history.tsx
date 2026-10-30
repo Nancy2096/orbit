@@ -98,6 +98,7 @@ const FIELD_LABELS: Record<string, string> = {
   payment_receipt_url: "Comprobante de pago",
   payment_reference: "Referencia de pago",
   payment_terms: "Días de crédito",
+  reimbursed_at: "Fecha de reembolso",
   period_label: "Periodo",
   period_start: "Inicio del periodo",
   pre_invoice_number: "Folio",

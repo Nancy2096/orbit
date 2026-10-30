@@ -33,6 +33,7 @@ interface ThirdPartyRow {
   id: string
   payment_number: string | null
   payment_date: string | null
+  reimbursed_at: string | null
   description: string | null
   third_party_name: string | null
   third_party_rfc: string | null
@@ -323,7 +324,7 @@ export async function buildThirdPartyNotification(
     .from("third_party_payments")
     .select(
       `
-      id, payment_number, payment_date, description, third_party_name, third_party_rfc, third_party_concept,
+      id, payment_number, payment_date, reimbursed_at, description, third_party_name, third_party_rfc, third_party_concept,
       original_amount, commission_percentage, commission_amount, tax_enabled, tax_rate, tax_amount, total_amount,
       status, invoice_id, created_by, created_at, validated_at, validation_notes, rejected_at, rejection_reason,
       client:clients(id, company_name),
@@ -487,6 +488,11 @@ export async function buildThirdPartyNotification(
   const inner = `
     <p style="margin:0 0 4px;font-size:17px;font-weight:bold;">El cliente <span style="color:${accent};">reembolsó</span> el pago</p>
     <p style="margin:0 0 16px;color:#4b5563;">${esc(clientName)} reembolsó el pago ${esc(number)}. La operación queda cerrada.</p>
+    ${
+      data.reimbursed_at
+        ? `<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">${detailRow("Fecha de reembolso", esc(formatDate(data.reimbursed_at)))}</table>`
+        : ""
+    }
     ${paymentDetailRows(data, { includeInvoice: true })}
     ${reviewButton("Ver pago")}
   `

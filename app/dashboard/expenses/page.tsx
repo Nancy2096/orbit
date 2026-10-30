@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client"
 import { upload } from "@vercel/blob/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PaymentDateField, getPaymentDateError } from "@/components/finance/payment-date-dialog"
+import { formatDateOnly, todayInMexicoCity } from "@/lib/date-mx"
 import {
   Table,
   TableBody,
@@ -229,6 +231,7 @@ export default function ExpensesPage() {
   const [selectedExpenseForPayment, setSelectedExpenseForPayment] = useState<Expense | null>(null)
   const [paymentBankAccounts, setPaymentBankAccounts] = useState<BankAccount[]>([])
   const [selectedPaymentBankId, setSelectedPaymentBankId] = useState<string>("")
+  const [paymentDate, setPaymentDate] = useState<string>(() => todayInMexicoCity())
   const supabase = createClient()
 
   // Dialogs
@@ -775,7 +778,9 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         Total: Number(e.total_amount || 0),
         Moneda: e.currency?.code || "",
         "Método de pago": e.payment_method ? paymentMethods[e.payment_method] || e.payment_method : "",
-        "Fecha de pago": xlsDateTime(e.payment_date),
+        "Fecha de pago": e.payment_date
+          ? formatDateOnly(e.payment_date, { day: "2-digit", month: "2-digit", year: "numeric" })
+          : "",
         "Banco de salida": e.bank_account
           ? `${e.bank_account.bank_name} - ${e.bank_account.account_name}`
           : "",
@@ -1136,6 +1141,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     setSelectedExpenseForPayment(expense)
     // Preseleccionar el banco ya asignado en el detalle (si existe).
     setSelectedPaymentBankId(expense.bank_account_id || "")
+    setPaymentDate(todayInMexicoCity())
     setShowPaymentDialog(true)
 
     if (expense.agency?.id) {
@@ -1156,6 +1162,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
   // registra el movimiento en el historial de aprobación.
   const handleMarkAsPaid = async () => {
     if (!selectedExpenseForPayment || !selectedPaymentBankId) return
+    if (getPaymentDateError(paymentDate)) return
     setSaving(true)
 
     const expense = selectedExpenseForPayment
@@ -1179,7 +1186,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         // la columna de Aprobación muestra "Pagado" según status === "paid".
         approval_status: "approved",
         bank_account_id: bank.id,
-        payment_date: new Date().toISOString(),
+        payment_date: paymentDate,
         updated_at: new Date().toISOString(),
       })
       .eq("id", expense.id)
@@ -1210,7 +1217,8 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
       action: "paid",
       performed_by_id: performedById,
       comments:
-        `Gasto marcado como pagado. Banco de salida: ${bank.bank_name} - ${bank.account_name}. ` +
+        `Gasto marcado como pagado. Fecha de pago: ${formatDateOnly(paymentDate)}. ` +
+        `Banco de salida: ${bank.bank_name} - ${bank.account_name}. ` +
         `Se registró una salida de ${currencySymbol}${amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })} ` +
         `en los movimientos del banco.`,
     })
@@ -1756,6 +1764,11 @@ const resetExpenseForm = () => {
                           <TableCell>
                             {getApprovalStatusBadge(
                               expense.status === "paid" ? "paid" : expense.approval_status || "pending",
+                            )}
+                            {expense.status === "paid" && expense.payment_date && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {formatDateOnly(expense.payment_date)}
+                              </p>
                             )}
                           </TableCell>
                           <TableCell>
@@ -2505,7 +2518,7 @@ const resetExpenseForm = () => {
           <DialogHeader>
             <DialogTitle>Marcar como pagado</DialogTitle>
             <DialogDescription>
-              Selecciona el banco de salida. El monto del gasto se descontará del saldo de ese banco.
+              Elige la fecha real del pago y el banco de salida. El monto del gasto se descontará del saldo de ese banco.
             </DialogDescription>
           </DialogHeader>
 
@@ -2523,6 +2536,8 @@ const resetExpenseForm = () => {
                   })}
                 </p>
               </div>
+
+              <PaymentDateField value={paymentDate} onChange={setPaymentDate} />
 
               <div className="space-y-2">
                 <Label>Banco de salida</Label>
@@ -2597,7 +2612,7 @@ const resetExpenseForm = () => {
             </Button>
             <Button
               onClick={handleMarkAsPaid}
-              disabled={saving || !selectedPaymentBankId}
+              disabled={saving || !selectedPaymentBankId || !!getPaymentDateError(paymentDate)}
               className="bg-emerald-600 hover:bg-emerald-700"
             >
               {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Wallet className="mr-2 h-4 w-4" />}
