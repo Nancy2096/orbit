@@ -422,24 +422,18 @@ export default function ThirdPartyPaymentsPage() {
     return { commission, tax, total }
   }
 
-  const generatePaymentNumber = async () => {
-    const year = new Date().getFullYear()
-    const { count } = await supabase
-      .from("third_party_payments")
-      .select("*", { count: "exact", head: true })
-    
-    const nextNum = (count || 0) + 1
-    return `PCT-${year}-${String(nextNum).padStart(5, "0")}`
+  // Folios atómicos por agencia en la base de datos. count()+1 repetía folios
+  // cuando se borraba un registro o dos usuarios guardaban al mismo tiempo.
+  const generatePaymentNumber = async (agencyId: string) => {
+    const { data, error } = await supabase.rpc("next_third_party_folio", { p_agency_id: agencyId })
+    if (error || data == null) throw new Error(error?.message || "No se pudo generar el folio PCT")
+    return `PCT-${new Date().getFullYear()}-${String(Number(data)).padStart(5, "0")}`
   }
 
-  const generateInvoiceNumber = async () => {
-    const year = new Date().getFullYear()
-    const { count } = await supabase
-      .from("invoices")
-      .select("*", { count: "exact", head: true })
-    
-    const nextNumber = (count || 0) + 1
-    return `FAC-${year}-${String(nextNumber).padStart(5, "0")}`
+  const generateInvoiceNumber = async (agencyId: string) => {
+    const { data, error } = await supabase.rpc("next_invoice_folio", { p_agency_id: agencyId })
+    if (error || data == null) throw new Error(error?.message || "No se pudo generar el folio FAC")
+    return `FAC-${new Date().getFullYear()}-${String(Number(data)).padStart(5, "0")}`
   }
 
   // Dispara una notificación de correo sin bloquear la UI. Los destinatarios se
@@ -477,7 +471,14 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
     setSaving(true)
 
     const { commission, tax, total } = calculateAmounts()
-    const paymentNumber = await generatePaymentNumber()
+    let paymentNumber: string
+    try {
+      paymentNumber = await generatePaymentNumber(formData.agency_id)
+    } catch (err) {
+      toast.error((err as Error).message)
+      setSaving(false)
+      return
+    }
     const createdByStaffId = await getCurrentStaffId()
 
     const { data: payment, error } = await supabase
@@ -725,7 +726,7 @@ const resetForm = () => {
       dueDate.setDate(dueDate.getDate() + paymentTerms)
 
       // Generate invoice number
-      const invoiceNumber = await generateInvoiceNumber()
+      const invoiceNumber = await generateInvoiceNumber(payment.agency_id)
 
       // Create invoice in "Facturas y Pagos"
       const { data: invoice, error: invoiceError } = await supabase
