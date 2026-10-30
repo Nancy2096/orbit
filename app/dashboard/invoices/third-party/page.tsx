@@ -5,6 +5,8 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { FinanceHistory } from "@/components/finance/finance-history"
+import { PaymentDateDialog, PaymentDateField, getPaymentDateError } from "@/components/finance/payment-date-dialog"
+import { formatDateOnly, todayInMexicoCity } from "@/lib/date-mx"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -103,6 +105,7 @@ interface ThirdPartyPayment {
   rejected_by: string | null
   rejected_at: string | null
   rejection_reason: string | null
+  reimbursed_at?: string | null
   // Direct ID fields
   agency_id: string
   client_id: string
@@ -225,6 +228,9 @@ export default function ThirdPartyPaymentsPage() {
   const [changeStatusModalOpen, setChangeStatusModalOpen] = useState(false)
   const [changeStatusPayment, setChangeStatusPayment] = useState<ThirdPartyPayment | null>(null)
   const [newStatus, setNewStatus] = useState("")
+  const [reimbursedDate, setReimbursedDate] = useState("")
+  const [correctReimbursedOpen, setCorrectReimbursedOpen] = useState(false)
+  const [savingReimbursed, setSavingReimbursed] = useState(false)
 
   // Delete confirmation state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -539,7 +545,37 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
   const openChangeStatusModal = (payment: ThirdPartyPayment) => {
     setChangeStatusPayment(payment)
     setNewStatus(payment.status)
+    setReimbursedDate(payment.reimbursed_at?.slice(0, 10) || todayInMexicoCity())
     setChangeStatusModalOpen(true)
+  }
+
+  // Corrige la fecha de reembolso; el trigger de finance_history registra el cambio.
+  const handleCorrectReimbursedDate = async (date: string) => {
+    if (!detailPayment) return
+    const dateError = getPaymentDateError(date)
+    if (dateError) {
+      toast.error(dateError)
+      return
+    }
+    if (detailPayment.reimbursed_at?.slice(0, 10) === date) {
+      setCorrectReimbursedOpen(false)
+      return
+    }
+    setSavingReimbursed(true)
+    const { error } = await supabase
+      .from("third_party_payments")
+      .update({ reimbursed_at: date, updated_at: new Date().toISOString() })
+      .eq("id", detailPayment.id)
+    setSavingReimbursed(false)
+    if (error) {
+      console.error(error)
+      toast.error("No se pudo actualizar la fecha de reembolso")
+      return
+    }
+    toast.success("Fecha de reembolso actualizada")
+    setDetailPayment({ ...detailPayment, reimbursed_at: date })
+    setCorrectReimbursedOpen(false)
+    fetchPayments()
   }
 
   // Borra la factura generada por un pago por cuenta de cliente con todos sus
@@ -600,6 +636,17 @@ if (!formData.agency_id || !formData.vendor_id || !formData.client_id || !formDa
         return
       }
       updates.invoice_id = null
+    }
+
+    if (newStatus === "paid" && changeStatusPayment.status !== "paid") {
+      const dateError = getPaymentDateError(reimbursedDate)
+      if (dateError) {
+        toast.error(dateError.replace("pago", "reembolso"))
+        return
+      }
+      updates.reimbursed_at = reimbursedDate
+    } else if (changeStatusPayment.status === "paid" && newStatus !== "paid") {
+      updates.reimbursed_at = null
     }
 
     // Add validation timestamps if changing to validated
@@ -1990,6 +2037,29 @@ const filteredPayments = payments.filter((payment) => {
                 </div>
               )}
 
+              {detailPayment.status === "paid" && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                  <p className="text-sm">
+                    <span className="font-medium text-green-600">Reembolsado:</span>{" "}
+                    {detailPayment.reimbursed_at ? formatDateOnly(detailPayment.reimbursed_at) : "Sin fecha registrada"}
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => setCorrectReimbursedOpen(true)}>
+                    {detailPayment.reimbursed_at ? "Corregir fecha" : "Registrar fecha"}
+                  </Button>
+                </div>
+              )}
+
+              <PaymentDateDialog
+                open={correctReimbursedOpen}
+                onOpenChange={setCorrectReimbursedOpen}
+                title="Fecha de reembolso"
+                description="Fecha real en que el cliente reembolsó el pago. El cambio queda en el historial."
+                confirmLabel="Guardar fecha"
+                initialDate={detailPayment.reimbursed_at}
+                saving={savingReimbursed}
+                onConfirm={handleCorrectReimbursedDate}
+              />
+
               <div className="border-t pt-4">
                 <FinanceHistory entityType="third_party_payment" entityId={detailPayment.id} bare />
               </div>
@@ -2140,6 +2210,14 @@ const filteredPayments = payments.filter((payment) => {
                 </div>
               )}
 
+              {newStatus === "paid" && changeStatusPayment.status !== "paid" && (
+                <PaymentDateField
+                  label="Fecha de reembolso"
+                  value={reimbursedDate}
+                  onChange={setReimbursedDate}
+                />
+              )}
+
               {changeStatusPayment.status === "invoiced" && ["draft", "validated", "pending"].includes(newStatus) && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
                   <p className="text-sm text-red-800">
@@ -2158,7 +2236,11 @@ const filteredPayments = payments.filter((payment) => {
             </Button>
             <Button 
               onClick={handleChangeStatus}
-              disabled={!newStatus || newStatus === changeStatusPayment?.status}
+              disabled={
+                !newStatus ||
+                newStatus === changeStatusPayment?.status ||
+                (newStatus === "paid" && !!getPaymentDateError(reimbursedDate))
+              }
             >
               <RefreshCw className="mr-2 h-4 w-4" />
               Cambiar Estado
