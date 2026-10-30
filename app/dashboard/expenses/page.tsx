@@ -1692,6 +1692,9 @@ const resetExpenseForm = () => {
                             >
                               {expense.expense_number}
                             </Link>
+                            {selectedAgency === "all" && expense.agency?.name && (
+                              <div className="text-xs font-normal text-muted-foreground">{expense.agency.name}</div>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">{formatDateTime(expense.created_at)}</div>

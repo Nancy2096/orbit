@@ -51,6 +51,17 @@ set notes = replace(e.notes, r.old_number, r.new_number), updated_at = now()
 from pct_renames r
 where e.third_party_payment_id = r.id and position(r.old_number in e.notes) > 0;
 
+-- Si queda algún duplicado, se aborta toda la transacción.
+do $$
+begin
+  if exists (
+    select 1 from public.third_party_payments
+    group by agency_id, payment_number having count(*) > 1
+  ) then
+    raise exception 'Siguen existiendo folios PCT duplicados';
+  end if;
+end $$;
+
 select * from pct_renames;
 
 commit;

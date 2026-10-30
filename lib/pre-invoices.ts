@@ -276,23 +276,16 @@ export async function convertPreInvoiceToInvoice(
     .eq("code", pre.currency)
     .maybeSingle()
 
-  // Número de factura consistente con el módulo de facturas. Se calcula a partir
-  // del MÁXIMO consecutivo existente para la agencia en el año (no del conteo),
-  // de modo que los huecos por facturas eliminadas no generen números duplicados
-  // que violen la restricción UNIQUE (agency_id, invoice_number).
-  const year = new Date().getFullYear()
-  const { data: existingNumbers } = await supabase
-    .from("invoices")
-    .select("invoice_number")
-    .eq("agency_id", pre.agency_id)
-    .like("invoice_number", `FAC-${year}-%`)
-
-  let maxSeq = 0
-  for (const row of existingNumbers || []) {
-    const seq = Number.parseInt(String(row.invoice_number).split("-").pop() || "0", 10)
-    if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq
+  // Reserva atómica del folio, igual que en el módulo de facturas: dos conversiones
+  // simultáneas (p. ej. facturado masivo) nunca reciben el mismo número.
+  const { data: folio, error: folioError } = await supabase.rpc("next_invoice_folio", {
+    p_agency_id: pre.agency_id,
+  })
+  if (folioError || folio == null) {
+    throw new Error(folioError?.message || "No se pudo reservar el folio de la factura")
   }
-  const invoiceNumber = `FAC-${year}-${String(maxSeq + 1).padStart(5, "0")}`
+  const year = new Date().getFullYear()
+  const invoiceNumber = `FAC-${year}-${String(Number(folio)).padStart(5, "0")}`
 
   const { data: invoice, error: invoiceError } = await supabase
     .from("invoices")

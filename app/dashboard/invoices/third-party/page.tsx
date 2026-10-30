@@ -1159,6 +1159,9 @@ const filteredPayments = payments.filter((payment) => {
                         >
                           {payment.payment_number}
                         </button>
+                        {payment.agency?.name && (
+                          <div className="text-xs font-normal text-muted-foreground">{payment.agency.name}</div>
+                        )}
                       </TableCell>
                       <TableCell>{formatDate(payment.payment_date)}</TableCell>
                       <TableCell>
