@@ -196,6 +196,7 @@ export default function CRMIntegrationsPage() {
         "Crea un Zap con la app que genera tus leads como disparador.",
         "Agrega una acción 'Webhooks by Zapier' tipo POST.",
         "Usa el enlace de captura como URL y mapea nombre, correo y teléfono.",
+        "Opcional: agrega assigned_to_email con el correo de la asesora; si no es válido se usa la asignación automática.",
       ],
     },
     {

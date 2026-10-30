@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createProspect } from "@/lib/crm/create-prospect"
 import { notifyAdvisorNewLead } from "@/lib/notifications/new-lead"
+import { getStaffName, resolveZapAssignee } from "@/lib/crm/zap-assignee"
 
 type Payload = Record<string, unknown>
 
@@ -187,6 +188,7 @@ export async function handleInboundLead(request: Request, urlToken?: string): Pr
   const form = pick(body, ["form_name", "form", "formulario", "form_id"])
   const campaign = pick(body, ["campaign_name", "campaign", "campaña", "campana", "utm_campaign"])
   const ad = pick(body, ["ad_name", "ad", "anuncio", "ad_id"])
+  const assignedToEmail = pick(body, ["assigned_to_email"])
 
   if (!contactName && !email && !phone) {
     return NextResponse.json({ error: "Se requiere al menos un nombre, correo o teléfono" }, { status: 422 })
@@ -239,6 +241,12 @@ export async function handleInboundLead(request: Request, urlToken?: string): Pr
   const sourceId = await resolveSourceId(supabase, agencyId, sourceName)
   const finalName = contactName || email || phone || "Lead sin nombre"
 
+  const zap = assignedToEmail
+    ? await resolveZapAssignee(supabase, agencyId, assignedToEmail)
+    : ({ ok: false, reason: null, detail: "no se indicó assigned_to_email" } as const)
+  const assignedByZap = zap.ok
+  const fallbackReason = zap.ok ? null : zap.detail
+
   let result
   try {
     result = await createProspect(supabase, {
@@ -251,7 +259,7 @@ export async function handleInboundLead(request: Request, urlToken?: string): Pr
       stageId: (stage?.id as string) ?? null,
       sourceId,
       externalLeadId: externalLeadId || null,
-      assignTo: "auto",
+      assignTo: zap.ok ? zap.staffId : "auto",
       assignedBy: null,
     })
   } catch (e) {
@@ -259,7 +267,19 @@ export async function handleInboundLead(request: Request, urlToken?: string): Pr
     return NextResponse.json({ error: "No se pudo crear el prospecto" }, { status: 500 })
   }
 
+  let assignmentLine: string
+  if (zap.ok) {
+    assignmentLine = `Asignado por Zap a ${zap.name}`
+  } else if (result.assignedTo) {
+    const fallbackName = await getStaffName(supabase, result.assignedTo)
+    assignmentLine = `Asignado por respaldo a ${fallbackName} (motivo: ${fallbackReason})`
+  } else {
+    assignmentLine = `Sin asesor asignado: el respaldo no tiene asesores habilitados (motivo: ${fallbackReason})`
+  }
+
   const details = [
+    assignmentLine,
+    assignedToEmail && !zap.ok && `assigned_to_email recibido: ${assignedToEmail}`,
     platform && `Plataforma: ${platform}`,
     form && `Formulario: ${form}`,
     campaign && `Campaña: ${campaign}`,
@@ -299,6 +319,8 @@ export async function handleInboundLead(request: Request, urlToken?: string): Pr
       prospect_id: result.prospectId,
       source: sourceName,
       assigned_to: result.assignedTo,
+      assignment_method: assignedByZap ? "zap" : "fallback",
+      fallback_reason: fallbackReason,
       tasks_created: result.tasksCreated,
     },
     { status: 201 },
