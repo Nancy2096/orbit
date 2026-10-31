@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx"
 import type { createClient } from "@/lib/supabase/client"
 import { isActiveDuringPeriod } from "@/lib/payroll-currency"
+import { commissionRangeForPeriod, isPayableInRange } from "@/lib/appointment-commissions"
 
 type SupabaseClient = ReturnType<typeof createClient>
 
@@ -285,10 +286,10 @@ export async function computePayrollEntries(
       supabase
         .from("commissions")
         .select(
-          "staff_id, commission_type, description, base_amount, commission_percentage, commission_amount, status, period_date, created_at",
+          "staff_id, commission_type, description, base_amount, commission_percentage, commission_amount, status, period_date, created_at, approved_at, paid_at",
         )
         .in("staff_id", staffIds)
-        .in("status", ["approved", "paid"]),
+        .in("status", isPaidPeriod ? ["approved", "paid"] : ["approved"]),
       supabase
         .from("loans")
         .select("staff_id, payment_amount, remaining_balance, status")
@@ -309,9 +310,23 @@ export async function computePayrollEntries(
         date: (b.effective_date || b.created_at || null) as string | null,
       })
     }
+    const freqByStaff: Record<string, string | null> = Object.fromEntries(
+      staffData.map((s) => [s.id, (s as { payment_frequency?: string | null }).payment_frequency ?? null]),
+    )
     for (const c of commissionsRes.data || []) {
-      if (isPaidPeriod && c.status !== "paid") continue
-      if (!inPeriod(c.period_date, c.created_at)) continue
+      if (isPaidPeriod) {
+        // Nóminas pagadas sin snapshot (históricas): se conserva el cálculo original.
+        if (c.status !== "paid") continue
+        if (!inPeriod(c.period_date, c.created_at)) continue
+      } else {
+        const range = commissionRangeForPeriod({
+          periodType: period.period_type,
+          startDate: start,
+          endDate: end,
+          paymentFrequency: freqByStaff[c.staff_id],
+        })
+        if (!range || !isPayableInRange(c, range)) continue
+      }
       commissionsByStaff[c.staff_id] =
         (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)
       ;(commissionItemsByStaff[c.staff_id] ||= []).push({

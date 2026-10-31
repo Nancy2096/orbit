@@ -54,6 +54,7 @@ import {
 import { toast } from "sonner"
 import * as XLSX from "xlsx"
 import { snapToPayday } from "@/lib/loan-schedule"
+import { commissionRangeForPeriod, isPayableInRange } from "@/lib/appointment-commissions"
 
 interface PayrollPeriod {
   id: string
@@ -581,9 +582,9 @@ export default function PayrollDetailPage({
             .in("status", ["approved", "paid"]),
           supabase
             .from("commissions")
-            .select("id, staff_id, commission_type, description, base_amount, commission_percentage, commission_amount, status, period_date, created_at, paid_at")
+            .select("id, staff_id, commission_type, description, base_amount, commission_percentage, commission_amount, status, period_date, created_at, approved_at, paid_at")
             .in("staff_id", staffIds)
-            .in("status", ["approved", "paid"]),
+            .in("status", isPaidPeriod ? ["approved", "paid"] : ["approved"]),
           // Préstamos vigentes (activos/aprobados) con saldo pendiente.
           supabase
             .from("loans")
@@ -627,14 +628,27 @@ export default function PayrollDetailPage({
           //   periodo ajeno (evita que comisiones de julio caigan en agosto).
           // En una nómina ya pagada solo se incluye si la comisión realmente se
           // pagó; las pendientes/aprobadas no formaron parte de ese pago.
-          if (isPaidPeriod && c.status !== "paid") continue
-          // Colaborador mensual: la comisión de citas se acumula al pago mensual
-          // (todo el mes) y no aparece en cada quincena. Los demás (quincenal/
-          // semanal) mantienen la atribución por periodo.
+          // Nóminas pagadas sin snapshot (históricas) conservan su cálculo original
+          // para no alterar lo que ya se pagó.
           const isMonthly = (freqByStaff[c.staff_id] || "biweekly") === "monthly"
-          const include = isMonthly
-            ? monthlyPayingPeriod && inMonth(c.period_date, c.created_at)
-            : inPeriod(c.period_date, c.created_at)
+          let include: boolean
+          if (isPaidPeriod) {
+            include =
+              c.status === "paid" &&
+              (isMonthly
+                ? monthlyPayingPeriod && inMonth(c.period_date, c.created_at)
+                : inPeriod(c.period_date, c.created_at))
+          } else {
+            // Regla vigente (lib/appointment-commissions): solo aprobadas sin pagar,
+            // por fecha de aprobación en America/Mexico_City.
+            const range = commissionRangeForPeriod({
+              periodType: periodData.period_type,
+              startDate: start,
+              endDate: end,
+              paymentFrequency: freqByStaff[c.staff_id],
+            })
+            include = !!range && isPayableInRange(c, range)
+          }
           if (!include) continue
           commissionsByStaff[c.staff_id] =
             (commissionsByStaff[c.staff_id] || 0) + Number(c.commission_amount || 0)

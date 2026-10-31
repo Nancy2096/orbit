@@ -45,6 +45,13 @@ import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import { Plus, Search, BadgePercent, DollarSign, Clock, CheckCircle, Lock, MoreHorizontal, Eye, FileText, CalendarClock, UserPlus, Pencil, Trash2 } from "lucide-react"
 import { useAgency } from "@/contexts/agency-context"
+import { formatDateOnly, todayInMexicoCity } from "@/lib/date-mx"
+import {
+  monthRangeOf,
+  payableCommissionsBefore,
+  payableCommissionsInRange,
+  sumCommissionAmounts,
+} from "@/lib/appointment-commissions"
 
 interface Commission {
   id: string
@@ -369,6 +376,14 @@ export default function CommissionsPage() {
     .reduce((sum, c) => sum + Number(c.commission_amount || 0), 0)
   const pendingCount = commissions.filter((c) => c.status === "pending").length
 
+  const payrollMonth = monthRangeOf(todayInMexicoCity())
+  const payrollMonthLabel = formatDateOnly(payrollMonth.start, { month: "long", year: "numeric" })
+  const commissionsForRep =
+    salesRepFilter === "all" ? commissions : commissions.filter((c) => c.staff?.id === salesRepFilter)
+  const payableThisMonth = payableCommissionsInRange(commissionsForRep, payrollMonth)
+  const payableThisMonthAmount = sumCommissionAmounts(payableThisMonth)
+  const overduePayable = payableCommissionsBefore(commissionsForRep, payrollMonth.start)
+
   if (agencyLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -409,7 +424,25 @@ export default function CommissionsPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">A pagar en nómina</CardTitle>
+            <CalendarClock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(payableThisMonthAmount)}</div>
+            <p className="text-xs text-muted-foreground">
+              {payableThisMonth.length} aprobada(s) en {payrollMonthLabel}
+            </p>
+            {overduePayable.length > 0 && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+                {overduePayable.length} aprobada(s) de meses anteriores sin pagar (
+                {formatCurrency(sumCommissionAmounts(overduePayable))})
+              </p>
+            )}
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Comisiones</CardTitle>
