@@ -444,6 +444,7 @@ const templateColumns: Record<string, { field: string; required: boolean; descri
     { field: "agency_name", required: true, description: "Nombre de la agencia a la que pertenece (debe existir en el sistema)", example: "Mi Agencia Digital" },
     { field: "category_name", required: false, description: "Nombre de la categoría de gasto (debe existir en el sistema)", example: "Suministros de Oficina" },
     { field: "project_name", required: false, description: "Nombre del proyecto asociado (debe existir en el sistema)", example: "Campaña Q1 2024" },
+    { field: "requested_by_email", required: true, description: "Email del solicitante (debe existir en Personal)", example: "empleado@agencia.com" },
     { field: "expense_date", required: true, description: "Fecha del gasto (YYYY-MM-DD)", example: "2024-01-15" },
     { field: "vendor_name", required: false, description: "Nombre del proveedor (si existe en sistema se vincula)", example: "Office Depot" },
     { field: "description", required: true, description: "Descripción del gasto", example: "Material de oficina" },
@@ -1739,6 +1740,7 @@ if (isTemplateFormat) {
           "creative_manager_email": "creative_manager_id",
           "creative_coordinator_email": "creative_coordinator_id",
           "project_manager_email": "project_manager_id",
+          "requested_by_email": "requested_by_id",
         }
         if (teamEmailMappings[key] && value) {
           const cacheKey = String(value).toLowerCase()
@@ -2176,6 +2178,17 @@ if (isTemplateFormat) {
         if (value !== undefined && value !== null && value !== "") {
           resolved[key] = value
         }
+      }
+
+      if (tableName === "expenses" && !hasError && !resolved.requested_by_id) {
+        const rowNumber = rows.indexOf(row) + 2
+        const provided = row.requested_by_email ? String(row.requested_by_email) : ""
+        errors.push(
+          provided
+            ? `Fila ${rowNumber}: el solicitante "${provided}" no existe en Personal. La fila no se importó.`
+            : `Fila ${rowNumber}: falta el solicitante (requested_by_email). La fila no se importó.`,
+        )
+        hasError = true
       }
 
       if (!hasError) {

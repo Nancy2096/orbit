@@ -207,6 +207,7 @@ export default function ExpensesPage() {
   const [staffList, setStaffList] = useState<Staff[]>([])
   const [approversList, setApproversList] = useState<Staff[]>([])
   const [currentUserStaff, setCurrentUserStaff] = useState<Staff | null>(null)
+  const [canChangeRequester, setCanChangeRequester] = useState(false)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedAgency, setSelectedAgency] = useState<string>("all")
@@ -312,6 +313,15 @@ export default function ExpensesPage() {
     // Get current authenticated user
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+
+    const { data: userRow } = await supabase
+      .from("users")
+      .select("role:roles(name)")
+      .eq("id", user.id)
+      .maybeSingle()
+    const userRole = userRow ? (Array.isArray(userRow.role) ? userRow.role[0] : userRow.role) : null
+    const roleName = (userRole as { name?: string } | null)?.name
+    setCanChangeRequester(roleName === "superadmin" || roleName === "finanzas")
 
     // Find staff record linked to this user
     const { data: staffData } = await supabase
@@ -930,6 +940,11 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     const resolvedApprovalStatus = resolvedStatus
 
     if (editingExpense) {
+      const originalRequesterId = editingExpense.requested_by_id
+      // Solo superadmin y finanzas pueden reasignar un solicitante ya existente.
+      const requesterId =
+        originalRequesterId && !canChangeRequester ? originalRequesterId : expenseForm.requested_by_id
+      const requesterChanged = requesterId !== originalRequesterId
       const { error } = await supabase
         .from("expenses")
         .update({
@@ -939,7 +954,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
           account_id: accountId,
           is_operational: expenseForm.is_operational,
           vendor_id: expenseForm.vendor_id || null,
-          requested_by_id: expenseForm.requested_by_id,
+          requested_by_id: requesterId,
           approver_id: expenseForm.approver_id,
           start_date: expenseForm.start_date,
           end_date: expenseForm.end_date,
@@ -964,6 +979,24 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         })
         .eq("id", editingExpense.id)
 
+      if (!error && requesterChanged) {
+        const staffName = (id: string | null) => {
+          const s = staffList.find((x) => x.id === id) || (id === currentUserStaff?.id ? currentUserStaff : null)
+          if (s) return `${s.first_name} ${s.last_name}`
+          if (id && id === originalRequesterId && editingExpense.requested_by) {
+            return `${editingExpense.requested_by.first_name} ${editingExpense.requested_by.last_name}`
+          }
+          return id ? "otro usuario" : "sin solicitante"
+        }
+        const { error: historyError } = await supabase.from("expense_approval_history").insert({
+          expense_id: editingExpense.id,
+          action: "requester_changed",
+          performed_by_id: currentUserStaff?.id || null,
+          comments: `Solicitante cambiado de ${staffName(originalRequesterId)} a ${staffName(requesterId)}`,
+        })
+        if (historyError) console.error("Error registrando cambio de solicitante:", historyError)
+      }
+
       if (error) {
         console.error("Error updating expense:", error)
       } else if (submitForApproval) {
@@ -971,7 +1004,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
         await supabase.from("expense_approval_history").insert({
           expense_id: editingExpense.id,
           action: isSelfApproval ? "approved" : "submitted",
-          performed_by_id: expenseForm.requested_by_id,
+          performed_by_id: requesterId,
           comments: isSelfApproval
             ? "Gasto aprobado por el mismo solicitante (sin jefe asignado)"
             : "Gasto enviado para aprobación",
@@ -1320,7 +1353,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
       account_id: expense.account_id || "",
       is_operational: expense.is_operational ?? false,
       vendor_id: (expense as Record<string, unknown>).vendor_id as string || "",
-      requested_by_id: expense.requested_by_id || "",
+      requested_by_id: expense.requested_by_id || currentUserStaff?.id || "",
       approver_id: (expense as Record<string, unknown>).approver_id as string || "",
       // Usar el rango si existe; si no, caer al expense_date anterior.
       start_date: expense.start_date || expense.expense_date,
@@ -1984,10 +2017,9 @@ const resetExpenseForm = () => {
             </div>
             <div className="space-y-2">
               <Label>Solicitado por *</Label>
-              {editingExpense ? (
-                // Al editar, el solicitante es SIEMPRE el que registró el gasto,
-                // NO el usuario actual. Se muestra como solo lectura para no
-                // reasignarlo por error al visualizar/editar un gasto ajeno.
+              {editingExpense?.requested_by_id && !canChangeRequester ? (
+                // Al editar, el solicitante se conserva. Solo superadmin y
+                // finanzas pueden reasignarlo (con registro en el historial).
                 <div className="flex items-center gap-2 h-10 px-3 py-2 rounded-md border bg-muted">
                   <UserCheck className="h-4 w-4 text-primary" />
                   <span className="font-medium">
@@ -1997,7 +2029,7 @@ const resetExpenseForm = () => {
                   </span>
                   <Badge variant="secondary" className="ml-auto text-xs">Solicitante original</Badge>
                 </div>
-              ) : currentUserStaff ? (
+              ) : !editingExpense && currentUserStaff ? (
                 // Gasto nuevo: se prellena con el usuario actual como solicitante.
                 <div className="flex items-center gap-2 h-10 px-3 py-2 rounded-md border bg-muted">
                   <UserCheck className="h-4 w-4 text-primary" />
@@ -2019,6 +2051,24 @@ const resetExpenseForm = () => {
                     ))}
                   </SelectContent>
                 </Select>
+              )}
+              {editingExpense?.requested_by_id &&
+                canChangeRequester &&
+                expenseForm.requested_by_id &&
+                expenseForm.requested_by_id !== editingExpense.requested_by_id && (
+                  <p className="text-xs text-muted-foreground">
+                    El cambio de solicitante quedará registrado en el historial del gasto.
+                  </p>
+                )}
+              {editingExpense && !editingExpense.requested_by_id && expenseForm.requested_by_id && (
+                <p className="text-xs text-muted-foreground">
+                  Este gasto no tenía solicitante. Se guardará con el seleccionado.
+                </p>
+              )}
+              {!expenseForm.requested_by_id && (
+                <p className="text-xs text-destructive" role="alert">
+                  El solicitante es obligatorio.
+                </p>
               )}
             </div>
             <div className="space-y-2">
