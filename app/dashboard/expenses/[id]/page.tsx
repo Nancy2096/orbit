@@ -124,6 +124,7 @@ const actionLabels: Record<string, string> = {
   paid: "Marcado como pagado",
   rejected: "Rechazado",
   cancelled: "Cancelado",
+  requester_changed: "Solicitante cambiado",
   draft: "Regresado a borrador",
   created: "Creado",
   receipt_uploaded: "Comprobante de pago subido",
