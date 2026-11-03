@@ -1320,7 +1320,7 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
       account_id: expense.account_id || "",
       is_operational: expense.is_operational ?? false,
       vendor_id: (expense as Record<string, unknown>).vendor_id as string || "",
-      requested_by_id: expense.requested_by_id || "",
+      requested_by_id: expense.requested_by_id || currentUserStaff?.id || "",
       approver_id: (expense as Record<string, unknown>).approver_id as string || "",
       // Usar el rango si existe; si no, caer al expense_date anterior.
       start_date: expense.start_date || expense.expense_date,
@@ -1984,7 +1984,7 @@ const resetExpenseForm = () => {
             </div>
             <div className="space-y-2">
               <Label>Solicitado por *</Label>
-              {editingExpense ? (
+              {editingExpense?.requested_by_id ? (
                 // Al editar, el solicitante es SIEMPRE el que registró el gasto,
                 // NO el usuario actual. Se muestra como solo lectura para no
                 // reasignarlo por error al visualizar/editar un gasto ajeno.
@@ -1997,7 +1997,7 @@ const resetExpenseForm = () => {
                   </span>
                   <Badge variant="secondary" className="ml-auto text-xs">Solicitante original</Badge>
                 </div>
-              ) : currentUserStaff ? (
+              ) : !editingExpense && currentUserStaff ? (
                 // Gasto nuevo: se prellena con el usuario actual como solicitante.
                 <div className="flex items-center gap-2 h-10 px-3 py-2 rounded-md border bg-muted">
                   <UserCheck className="h-4 w-4 text-primary" />
@@ -2019,6 +2019,16 @@ const resetExpenseForm = () => {
                     ))}
                   </SelectContent>
                 </Select>
+              )}
+              {editingExpense && !editingExpense.requested_by_id && expenseForm.requested_by_id && (
+                <p className="text-xs text-muted-foreground">
+                  Este gasto no tenía solicitante. Se guardará con el seleccionado.
+                </p>
+              )}
+              {!expenseForm.requested_by_id && (
+                <p className="text-xs text-destructive" role="alert">
+                  El solicitante es obligatorio.
+                </p>
               )}
             </div>
             <div className="space-y-2">

@@ -106,6 +106,7 @@ interface ThirdPartyPayment {
   rejected_at: string | null
   rejection_reason: string | null
   reimbursed_at?: string | null
+  created_by?: string | null
   // Direct ID fields
   agency_id: string
   client_id: string
@@ -765,6 +766,13 @@ const resetForm = () => {
       return
     }
 
+    // Solicitante del gasto: el creador del pago o, si no lo tiene, quien genera la factura.
+    const expenseRequesterId = payment.created_by || (await getCurrentStaffId())
+    if (!expenseRequesterId) {
+      toast.error("No se pudo determinar el solicitante del gasto. Verifica que tu usuario tenga un registro de personal activo.")
+      return
+    }
+
     try {
       // Get client payment terms for due date
       const client = clients.find(c => c.id === payment.client_id)
@@ -874,6 +882,7 @@ const resetForm = () => {
           approval_status: "approved",
           account_id: payment.account_id || null,
           expense_number: expenseNumber,
+          requested_by_id: expenseRequesterId,
           third_party_payment_id: payment.id,
           notes: `Referencia: ${payment.payment_number}\nFactura generada: ${invoiceNumber}\nRFC Proveedor: ${payment.third_party_rfc || "N/A"}\nCliente: ${payment.client?.company_name || "N/A"}\nComisión cobrada: ${payment.commission_percentage}% ($${payment.commission_amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })})`,
         })
