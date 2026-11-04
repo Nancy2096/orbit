@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAgency } from "@/contexts/agency-context"
+import { SCOPE_MINE, SCOPE_TEAM, useCrmTaskScope } from "@/hooks/use-crm-task-scope"
 import {
   Select,
   SelectContent,
@@ -100,7 +101,7 @@ export default function TasksPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState<string>("pending")
   const [filterPriority, setFilterPriority] = useState<string>("all")
-  const [filterSalesRep, setFilterSalesRep] = useState<string>("all")
+  const taskScope = useCrmTaskScope()
   const [modalOpen, setModalOpen] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [messageDialog, setMessageDialog] = useState<{
@@ -113,7 +114,7 @@ export default function TasksPage() {
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE)
-  }, [searchTerm, filterStatus, filterPriority, filterSalesRep])
+  }, [searchTerm, filterStatus, filterPriority, taskScope.scope])
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
@@ -241,8 +242,7 @@ export default function TasksPage() {
 
     const matchesPriority = filterPriority === "all" || task.priority === filterPriority
     
-    // Filter by task's assigned_to, not prospect's
-    const matchesSalesRep = filterSalesRep === "all" || task.assigned_to === filterSalesRep
+    const matchesSalesRep = taskScope.ready && taskScope.matches(task.assigned_to)
 
     return matchesSearch && matchesStatus && matchesPriority && matchesSalesRep
   })
@@ -501,30 +501,31 @@ export default function TasksPage() {
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
-            <Users className="h-5 w-5 text-primary" />
-            Seleccionar Asesor Comercial
+            <Users className="h-5 w-5 text-primary" aria-hidden="true" />
+            {taskScope.canSeeTeam ? "Ver tareas de" : "Mis tareas"}
           </CardTitle>
           <CardDescription>
-            Selecciona un asesor para ver sus tareas asignadas
+            {taskScope.canSeeTeam
+              ? "Elige tus tareas, las de un asesor o las de todo el equipo"
+              : "Se muestran las tareas asignadas a ti"}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {salesReps.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              No hay asesores configurados en departamentos Comercial o Dirección.
-            </div>
-          ) : (
-            <Select value={filterSalesRep} onValueChange={setFilterSalesRep}>
-              <SelectTrigger className="w-full md:w-[300px] bg-background">
-                <SelectValue placeholder="Selecciona un asesor" />
+          {taskScope.canSeeTeam && (
+            <Select value={taskScope.scope} onValueChange={taskScope.setScope}>
+              <SelectTrigger aria-label="Ver tareas de" className="w-full md:w-[300px] bg-background">
+                <SelectValue placeholder="Mis tareas" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos los asesores</SelectItem>
-                {salesReps.map((rep) => (
-                  <SelectItem key={rep.id} value={rep.id}>
-                    {rep.first_name} {rep.last_name}
-                  </SelectItem>
-                ))}
+                <SelectItem value={SCOPE_MINE}>Mis tareas</SelectItem>
+                {salesReps
+                  .filter((rep) => !taskScope.myStaffIds.includes(rep.id))
+                  .map((rep) => (
+                    <SelectItem key={rep.id} value={rep.id}>
+                      {rep.first_name} {rep.last_name}
+                    </SelectItem>
+                  ))}
+                <SelectItem value={SCOPE_TEAM}>Todo el equipo</SelectItem>
               </SelectContent>
             </Select>
           )}

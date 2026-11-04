@@ -163,16 +163,17 @@ export default function ProspectsPage() {
     setReassigning(true)
 
     const newAssignee = reassignTo === "unassigned" ? null : reassignTo
-    const { error } = await supabase
-      .from("crm_prospects")
-      .update({ assigned_to: newAssignee, updated_at: new Date().toISOString() })
-      .in("id", ids)
+    const res = await fetch("/api/crm/prospects/reassign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prospectIds: ids, toStaffId: newAssignee }),
+    })
+    const result = await res.json().catch(() => ({}))
 
     setReassigning(false)
 
-    if (error) {
-      console.log("[v0] Error reasignando prospectos:", error)
-      toast.error("No se pudieron reasignar los prospectos")
+    if (!res.ok) {
+      toast.error(result.error || "No se pudieron reasignar los prospectos")
       return
     }
 
@@ -183,7 +184,8 @@ export default function ProspectsPage() {
     const repName =
       reassignTo === "unassigned" ? "Sin asignar" : rep ? `${rep.first_name} ${rep.last_name}` : ""
     toast.success(
-      `${ids.length} ${ids.length === 1 ? "prospecto reasignado" : "prospectos reasignados"} a ${repName}`,
+      `${ids.length} ${ids.length === 1 ? "prospecto reasignado" : "prospectos reasignados"} a ${repName}` +
+        (result.transferredTasks ? ` · ${result.transferredTasks} tareas transferidas` : ""),
     )
     setSelectedIds(new Set())
     setReassignTo("")

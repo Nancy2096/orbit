@@ -387,6 +387,15 @@ export default function NewProspectPage() {
       }
     }
 
+    // Correo a la asesora asignada; si falla, el prospecto ya quedó guardado.
+    if (prospect && hasInitialAssignment) {
+      fetch("/api/crm/prospects/reassign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prospectIds: [prospect.id], toStaffId: formData.assigned_to, mode: "initial" }),
+      }).catch((e) => console.error("Error al avisar la asignación:", e))
+    }
+
     setSaving(false)
     toast.success("Prospecto creado exitosamente")
     router.push("/dashboard/crm/prospects")

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAgency } from "@/contexts/agency-context"
+import { SCOPE_MINE, SCOPE_TEAM, useCrmTaskScope } from "@/hooks/use-crm-task-scope"
 import {
   Select,
   SelectContent,
@@ -140,7 +141,7 @@ export default function CRMCalendarPage() {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [salesReps, setSalesReps] = useState<SalesRep[]>([])
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [filterSalesRep, setFilterSalesRep] = useState<string>("all")
+  const taskScope = useCrmTaskScope()
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -351,16 +352,14 @@ export default function CRMCalendarPage() {
   // Una tarea o cita pertenece al asesor dueño del prospecto; si la tarea no
   // tiene prospecto (o se asignó a otra persona), también cuenta para su responsable.
   const filteredTasks = useMemo(() => {
-    if (filterSalesRep === "all") return tasks
-    return tasks.filter(
-      (t) => t.prospect?.assigned_to === filterSalesRep || t.assigned_to === filterSalesRep,
-    )
-  }, [tasks, filterSalesRep])
+    if (!taskScope.ready) return []
+    return tasks.filter((t) => taskScope.matches(t.assigned_to))
+  }, [tasks, taskScope])
 
   const filteredAppointments = useMemo(() => {
-    if (filterSalesRep === "all") return appointments
-    return appointments.filter((a) => a.prospect?.assigned_to === filterSalesRep)
-  }, [appointments, filterSalesRep])
+    if (!taskScope.ready) return []
+    return appointments.filter((a) => taskScope.matches(a.prospect?.assigned_to))
+  }, [appointments, taskScope])
 
   const tasksByDay = useMemo(() => {
     const map = new Map<string, Task[]>()
@@ -804,23 +803,35 @@ export default function CRMCalendarPage() {
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Filtrar por asesor:</span>
-              <Select value={filterSalesRep} onValueChange={setFilterSalesRep}>
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Todos los asesores" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los asesores</SelectItem>
-                  {salesReps.map((rep) => (
-                    <SelectItem key={rep.id} value={rep.id}>
-                      {rep.first_name} {rep.last_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {taskScope.canSeeTeam ? (
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <Label htmlFor="calendar-task-scope" className="text-sm font-normal text-muted-foreground">
+                  Ver tareas de:
+                </Label>
+                <Select value={taskScope.scope} onValueChange={taskScope.setScope}>
+                  <SelectTrigger id="calendar-task-scope" className="w-[200px]">
+                    <SelectValue placeholder="Mis tareas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SCOPE_MINE}>Mis tareas</SelectItem>
+                    {salesReps
+                      .filter((rep) => !taskScope.myStaffIds.includes(rep.id))
+                      .map((rep) => (
+                        <SelectItem key={rep.id} value={rep.id}>
+                          {rep.first_name} {rep.last_name}
+                        </SelectItem>
+                      ))}
+                    <SelectItem value={SCOPE_TEAM}>Todo el equipo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Users className="h-4 w-4" aria-hidden="true" />
+                <span>Mis tareas</span>
+              </div>
+            )}
             
             {/* Navigation */}
             <div className="flex items-center gap-2">

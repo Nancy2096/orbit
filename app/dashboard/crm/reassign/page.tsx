@@ -170,23 +170,27 @@ export default function ReassignProspectsPage() {
 
     setReassigning(true)
 
-    const { error } = await supabase
-      .from("crm_prospects")
-      .update({ 
-        assigned_to: toSalesRep === "unassigned" ? null : toSalesRep,
-        updated_at: new Date().toISOString()
-      })
-      .in("id", selectedProspects)
+    const res = await fetch("/api/crm/prospects/reassign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prospectIds: selectedProspects,
+        toStaffId: toSalesRep === "unassigned" ? null : toSalesRep,
+      }),
+    })
+    const result = await res.json().catch(() => ({}))
 
-    if (error) {
-      toast.error("Error al reasignar prospectos")
-      console.error(error)
+    if (!res.ok) {
+      toast.error(result.error || "Error al reasignar prospectos")
     } else {
       const toRepName = toSalesRep === "unassigned" 
         ? "Sin asignar"
         : salesReps.find(r => r.id === toSalesRep)?.first_name + " " + salesReps.find(r => r.id === toSalesRep)?.last_name
 
-      toast.success(`${selectedProspects.length} prospecto(s) reasignado(s) a ${toRepName}`)
+      toast.success(
+        `${selectedProspects.length} prospecto(s) reasignado(s) a ${toRepName}` +
+          (result.transferredTasks ? ` · ${result.transferredTasks} tareas transferidas` : ""),
+      )
       
       // Refresh data
       setSelectedProspects([])
