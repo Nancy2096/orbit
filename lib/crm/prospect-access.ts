@@ -34,6 +34,70 @@ export function senderDisplayName(senderName: string, agencyName: string): strin
   return [senderName, agencyName].filter((part) => part.trim()).join(" · ") || "Orbit"
 }
 
+export interface ProspectsModuleUser {
+  userId: string
+  roleName: string
+  userName: string
+  /** Superadmin o is_global_access: acceso a todas las agencias. */
+  allAgencies: boolean
+  service: SupabaseClient
+}
+
+/** Usuario autenticado y activo con acceso al módulo de Prospectos. */
+export async function requireProspectsModule(): Promise<ProspectsModuleUser | NextResponse> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+
+  const service = createServiceClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    auth: { persistSession: false },
+  })
+
+  const { data: userRow } = await service
+    .from("users")
+    .select("role_id, is_global_access, is_active, first_name, last_name, role:roles(name)")
+    .eq("id", user.id)
+    .maybeSingle()
+
+  const forbidden = NextResponse.json({ error: "No tienes permiso para usar Prospectos" }, { status: 403 })
+  if (!userRow || userRow.is_active === false) return forbidden
+
+  const role = Array.isArray(userRow.role) ? userRow.role[0] : userRow.role
+  const roleName = (role as { name?: string } | null)?.name ?? ""
+  const isSuperadmin = roleName === "superadmin"
+
+  let hasModule = isSuperadmin
+  if (!hasModule && userRow.role_id) {
+    const requiredModules = getModulesForPath("/dashboard/crm/prospects") ?? []
+    const { data: rolePerms } = await service
+      .from("role_permissions")
+      .select("permission:permissions(module)")
+      .eq("role_id", userRow.role_id)
+    hasModule = (rolePerms ?? []).some((row) => {
+      const perm = Array.isArray(row.permission) ? row.permission[0] : row.permission
+      const moduleName = (perm as { module?: string } | null)?.module
+      return !!moduleName && requiredModules.includes(moduleName)
+    })
+  }
+  if (!hasModule) return forbidden
+
+  return {
+    userId: user.id,
+    roleName,
+    userName: [userRow.first_name, userRow.last_name].filter(Boolean).join(" ").trim(),
+    allAgencies: isSuperadmin || userRow.is_global_access === true,
+    service,
+  }
+}
+
+/** IDs de agencia a los que el usuario tiene acceso (vacío si tiene todas). */
+export async function getUserAgencyIds(service: SupabaseClient, userId: string): Promise<Set<string>> {
+  const { data } = await service.from("user_agencies").select("agency_id").eq("user_id", userId)
+  return new Set((data ?? []).map((r) => r.agency_id as string))
+}
+
 // Mismo criterio que el resto de módulos: superadmin tiene acceso total; el resto
 // necesita el módulo de Prospectos y acceso a la agencia del prospecto
 // (is_global_access amplía el alcance a todas las agencias).

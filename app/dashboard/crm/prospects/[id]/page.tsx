@@ -616,8 +616,9 @@ state_province: prospectData.state_province || "",
     const enteringWon = !!stage?.is_won && !previousStageWon
     const closeDateOnWin = enteringWon ? new Date().toISOString().split("T")[0] : null
 
+    // El cambio de asesor lo aplica /api/crm/prospects/reassign (tareas,
+    // actividad, historial y correo); aquí solo se guardan los demás campos.
     const updateData: Record<string, unknown> = {
-      assigned_to: newAssignedTo,
       contact_name: formData.contact_name,
       contact_email: formData.contact_email || null,
       contact_phone: formData.contact_phone || null,
@@ -667,11 +668,6 @@ state_province: prospectData.state_province || "",
       updateData.loss_recontact_date = null
       updateData.loss_notes = null
     }
-    // Actualizar la fecha/hora de asignación solo cuando cambia el asesor.
-    if (assignmentChanged) {
-      updateData.assigned_at = newAssignedTo ? assignmentTimestamp : null
-    }
-
     const { error } = await supabase
       .from("crm_prospects")
       .update(updateData)
@@ -682,6 +678,27 @@ state_province: prospectData.state_province || "",
       toast.error("Error al guardar los cambios")
       console.error(error)
       return
+    }
+
+    if (assignmentChanged) {
+      const res = await fetch("/api/crm/prospects/reassign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prospectIds: [prospectId], toStaffId: newAssignedTo }),
+      })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setSaving(false)
+        toast.error(result.error || "No se pudo cambiar el asesor")
+        return
+      }
+      if (result.transferredTasks > 0) {
+        toast.success(
+          result.transferredTasks === 1
+            ? "1 tarea pendiente transferida al nuevo asesor"
+            : `${result.transferredTasks} tareas pendientes transferidas al nuevo asesor`,
+        )
+      }
     }
 
     // Materializar las tareas predefinidas que apliquen a la nueva etapa del
@@ -752,16 +769,8 @@ state_province: prospectData.state_province || "",
         .ilike("title", `${RECONTACT_PREFIX}%`)
     }
 
-    // Registrar en el historial de asignaciones cuando hay un nuevo asesor.
+    // El historial lo registra la API de reasignación; aquí solo el estado local.
     if (assignmentChanged && newAssignedTo) {
-      const { data: authData } = await supabase.auth.getUser()
-      await supabase.from("crm_prospect_assignments").insert({
-        prospect_id: prospectId,
-        assigned_to: newAssignedTo,
-        assigned_by: authData?.user?.id ?? null,
-        created_at: assignmentTimestamp,
-      })
-      // Reflejar los cambios en el estado local.
       setInitialAssignedTo(newAssignedTo)
       setAssignedAt(assignmentTimestamp)
       const rep = salesReps.find((r) => r.id === newAssignedTo)
