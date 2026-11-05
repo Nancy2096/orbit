@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
+import { USER_PERMISSION_KEYS } from "@/lib/user-permissions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -166,9 +167,10 @@ export default function EditAccountPage({ params }: { params: Promise<{ id: stri
   const [deletingQuotationId, setDeletingQuotationId] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
-  // Solo Super Administrador y Director General pueden editar las comisiones.
-  const { roleName } = usePermissions()
-  const canEditCommissions = roleName === "superadmin" || roleName === "direccion_general"
+  // Superadmin, Director General o quien tenga el permiso individual accounts.edit_commissions.
+  // La base de datos valida lo mismo (scripts/user_permissions.sql).
+  const { hasUserPermission } = usePermissions()
+  const canEditCommissions = hasUserPermission(USER_PERMISSION_KEYS.accountsEditCommissions)
 
   useEffect(() => {
     setMounted(true)
@@ -940,10 +942,20 @@ async function fetchAgencyDepartments(agencyId: string) {
         .eq("id", commission.id)
     }
 
+    if (!canEditCommissions) {
+      router.push("/dashboard/accounts")
+      return
+    }
+
     // Comisiones por servicio: sincronización completa (borrar e insertar).
     // Resolvemos el uid de cada servicio a su id real (ya insertado arriba) y
     // omitimos comisiones de servicios eliminados o no comisionables.
-    await supabase.from("account_service_commissions").delete().eq("account_id", id)
+    const { error: scDeleteError } = await supabase.from("account_service_commissions").delete().eq("account_id", id)
+    if (scDeleteError) {
+      setError(scDeleteError.message)
+      setLoading(false)
+      return
+    }
 
     const activeServiceUids = new Set(
       contractedServices.filter(s => !s.is_deleted && s.is_commissionable).map(s => s.uid)
@@ -1697,7 +1709,7 @@ setClients([])
               <CardDescription>
                 {canEditCommissions
                   ? "Selecciona qué servicios comisionan y asigna una o más personas con su porcentaje a cada uno"
-                  : "Solo el Super Administrador o el Director General pueden editar las comisiones"}
+                  : "Solo el Super Administrador, el Director General o usuarios con permiso para editar comisiones pueden modificarlas"}
               </CardDescription>
             </CardHeader>
             <CardContent>

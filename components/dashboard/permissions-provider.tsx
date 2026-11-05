@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { getModulesForPath, getRolesForPath, isAlwaysAllowed } from "@/lib/permission-access"
+import { ROLES_WITH_ALL_USER_PERMISSIONS } from "@/lib/user-permissions"
 
 interface PermissionsContextValue {
   loading: boolean
@@ -15,6 +16,8 @@ interface PermissionsContextValue {
   hasAnyModule: (modules: string[] | null | undefined) => boolean
   // ¿El usuario puede acceder a la ruta indicada?
   canAccessPath: (pathname: string) => boolean
+  // Permisos individuales (tabla user_permissions). Superadmin y director general siempre los tienen.
+  hasUserPermission: (key: string) => boolean
 }
 
 const PermissionsContext = createContext<PermissionsContextValue>({
@@ -25,6 +28,7 @@ const PermissionsContext = createContext<PermissionsContextValue>({
   hasModule: () => false,
   hasAnyModule: () => false,
   canAccessPath: () => false,
+  hasUserPermission: () => false,
 })
 
 export function usePermissions() {
@@ -36,6 +40,7 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
   const [fullAccess, setFullAccess] = useState(false)
   const [modules, setModules] = useState<Set<string>>(new Set())
   const [roleName, setRoleName] = useState<string | null>(null)
+  const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let active = true
@@ -64,6 +69,14 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
       const role = Array.isArray(userData?.role) ? userData?.role[0] : userData?.role
       const name = role?.name ?? null
       setRoleName(name)
+
+      const { data: individual } = await supabase
+        .from("user_permissions")
+        .select("permission_key")
+        .eq("user_id", authUser.id)
+        .is("revoked_at", null)
+      if (!active) return
+      setUserPermissions(new Set((individual ?? []).map((p: { permission_key: string }) => p.permission_key)))
 
       // Acceso total SOLO para el superadministrador. El flag is_global_access
       // define el alcance por agencia (ver datos de todas las agencias), NO
@@ -137,9 +150,15 @@ export function PermissionsProvider({ children }: { children: React.ReactNode })
     [fullAccess, modules, roleName],
   )
 
+  const hasUserPermission = useCallback(
+    (key: string) =>
+      (roleName != null && ROLES_WITH_ALL_USER_PERMISSIONS.includes(roleName)) || userPermissions.has(key),
+    [roleName, userPermissions],
+  )
+
   return (
     <PermissionsContext.Provider
-      value={{ loading, fullAccess, modules, roleName, hasModule, hasAnyModule, canAccessPath }}
+      value={{ loading, fullAccess, modules, roleName, hasModule, hasAnyModule, canAccessPath, hasUserPermission }}
     >
       {children}
     </PermissionsContext.Provider>
