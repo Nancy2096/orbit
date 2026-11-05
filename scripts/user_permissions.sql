@@ -59,37 +59,11 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
            WHERE up.user_id = p_user AND up.permission_key = p_key AND up.revoked_at IS NULL)
 $$;
 
--- Editar cuenta: lo de siempre (permiso de rol accounts.update, o projects.update
--- si es proyecto) más la clave individual accounts.edit.
-CREATE OR REPLACE FUNCTION public.can_edit_account(p_user uuid, p_account_type text)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT public.user_has_permission(p_user, 'accounts.edit')
-      OR EXISTS (
-           SELECT 1 FROM users u
-           JOIN role_permissions rp ON rp.role_id = u.role_id
-           JOIN permissions p ON p.id = rp.permission_id
-           WHERE u.id = p_user AND p.action = 'update'
-             AND (p.module = 'accounts' OR (p.module = 'projects' AND p_account_type = 'project')))
-$$;
-
--- PASO 4: validación en el servidor (base de datos).
+-- PASO 4: validación en el servidor (base de datos), solo para comisiones por servicio
+-- y para marcar/desmarcar servicios como comisionables. La edición general de la
+-- cuenta no se valida aquí (sigue la regla de roles existente).
 -- auth.uid() nulo = proceso del sistema / service role: se permite.
 -- pg_trigger_depth() > 1 = borrado en cascada (p. ej. al borrar la cuenta): se permite.
-CREATE OR REPLACE FUNCTION public.enforce_account_edit()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-BEGIN
-  IF auth.uid() IS NULL OR pg_trigger_depth() > 1 THEN RETURN NEW; END IF;
-  IF NOT public.can_edit_account(auth.uid(), OLD.account_type) THEN
-    RAISE EXCEPTION 'No tienes permiso para editar esta cuenta (accounts.edit)'
-      USING ERRCODE = '42501';
-  END IF;
-  RETURN NEW;
-END $$;
-
-DROP TRIGGER IF EXISTS trg_enforce_account_edit ON public.accounts;
-CREATE TRIGGER trg_enforce_account_edit BEFORE UPDATE ON public.accounts
-  FOR EACH ROW EXECUTE FUNCTION public.enforce_account_edit();
-
 CREATE OR REPLACE FUNCTION public.enforce_service_commission_edit()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
