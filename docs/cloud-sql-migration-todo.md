@@ -11,3 +11,11 @@ Elementos que dependen de Supabase (`auth.uid()`, rol `authenticated`, RLS con l
 - [ ] **Regla "auth.uid() nulo = proceso del sistema"**: en Cloud SQL todas las conexiones serán del servidor, así que sin un usuario explícito todo pasaría. Definir cómo distinguir procesos del sistema de acciones de usuario.
 - [ ] **Escrituras desde el navegador**: la edición de cuentas (`app/dashboard/accounts/[id]/page.tsx`) escribe directo con el cliente de Supabase. En Cloud SQL debe pasar por rutas del servidor que validen `accounts.edit_commissions` antes de escribir.
 - [ ] **Carga de permisos en pantalla** (`components/dashboard/permissions-provider.tsx`, `lib/user-permissions.ts`): hoy lee `user_permissions` con el cliente de Supabase y RLS. Cambiar a una ruta del servidor.
+
+## Incentivos (`scripts/hr_incentives.sql`)
+
+- [ ] **Tabla `public.incentives`**: migrar con sus llaves foráneas a `agencies`, `staff`, `users`, `currencies` y `payroll_periods`, sus `CHECK` y sus índices.
+- [ ] **RLS y grants de `incentives`**: la política `incentives_select_authenticated` usa el rol `authenticated` de Supabase, y se revocó todo a `anon`. En Cloud SQL la lectura debe pasar por rutas del servidor.
+- [ ] **Lecturas desde el navegador**: la pestaña (`components/hr/incentives-tab.tsx`), el formulario (`app/dashboard/hr/bonuses/incentives/new/page.tsx`), el detalle (`app/dashboard/hr/bonuses/incentives/[id]/page.tsx`) y la nómina (`app/dashboard/hr/payroll/[id]/page.tsx`) leen `incentives` con el cliente de Supabase. Cambiarlas a rutas del servidor.
+- [ ] **Sesión y service role** (`lib/incentives-server.ts`): `getIncentiveActor` usa `supabase.auth.getUser()` para identificar al usuario y `createAdminClient()` (service role) para escribir. Las rutas `app/api/incentives/**` dependen de eso.
+- [ ] **Archivos**: los comprobantes están en Vercel Blob privado (`incentives/<id>/...`), se suben con `@vercel/blob/client` mediante `/api/incentives/upload` y se sirven con `/api/file`. No dependen de Supabase, pero el registro (`receipt_url`, `receipt_pathname`) vive en la tabla. Si los archivos se mueven a Cloud Storage, hay que migrar los objetos y actualizar esas columnas.

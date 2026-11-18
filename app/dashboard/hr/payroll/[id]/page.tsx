@@ -167,6 +167,10 @@ interface BonusItem {
   description: string | null
   effective_date: string | null
   created_at: string | null
+  // "incentive" cuando proviene de la tabla incentives (pestaña Bonos > Incentivos).
+  source?: "bonus" | "incentive"
+  has_receipt?: boolean
+  incentive_number?: string | null
 }
 
 interface PayrollEntry {
@@ -573,7 +577,7 @@ export default function PayrollDetailPage({
       const isPaidPeriod = periodData.status === "paid"
 
       if (staffIds.length > 0) {
-        const [bonusesRes, commissionsRes, loansRes] = await Promise.all([
+        const [bonusesRes, commissionsRes, loansRes, incentivesRes] = await Promise.all([
           supabase
             .from("bonuses")
             .select("id, staff_id, amount, bonus_type, description, benefit_type, status, effective_date, created_at, paid_at")
@@ -592,7 +596,37 @@ export default function PayrollDetailPage({
             )
             .in("staff_id", staffIds)
             .in("status", ["active", "approved"]),
+          supabase
+            .from("incentives")
+            .select("id, staff_id, incentive_number, incentive_type, amount, description, status, pay_in_payroll_date, approved_at, receipt_pathname, payroll_period_id")
+            .in("staff_id", staffIds)
+            .in("status", ["approved", "paid"]),
         ])
+
+        // Incentivos: cuentan en el periodo de "Pagar en la nómina de" en cuanto
+        // se aprueban (aunque no tengan comprobante). Una vez pagados quedan
+        // ligados a la nómina que los pagó y no vuelven a contarse en otra.
+        for (const inc of incentivesRes.data || []) {
+          const paidHere = inc.status === "paid" && inc.payroll_period_id === periodData.id
+          const pendingHere =
+            !isPaidPeriod && inc.status === "approved" && inPeriod(inc.pay_in_payroll_date, inc.approved_at)
+          if (!paidHere && !pendingHere) continue
+          const amount = Number(inc.amount || 0)
+          bonusesByStaff[inc.staff_id] = (bonusesByStaff[inc.staff_id] || 0) + amount
+          if (!bonusItemsByStaff[inc.staff_id]) bonusItemsByStaff[inc.staff_id] = []
+          bonusItemsByStaff[inc.staff_id].push({
+            id: inc.id,
+            amount,
+            status: inc.status,
+            bonus_type: "Incentivo",
+            description: inc.description ?? null,
+            effective_date: inc.pay_in_payroll_date ?? null,
+            created_at: inc.approved_at ?? null,
+            source: "incentive",
+            has_receipt: !!inc.receipt_pathname,
+            incentive_number: inc.incentive_number ?? null,
+          })
+        }
 
         for (const b of bonusesRes.data || []) {
           // Los bonos de "días libres" no representan un monto en dinero
@@ -1260,8 +1294,28 @@ export default function PayrollDetailPage({
       // cuando la nómina que lo incluye se marca como pagada.
       const bonusIdsToPay = entries
         .flatMap((e) => e.bonusItems)
-        .filter((b) => b.status !== "paid")
+        .filter((b) => b.status !== "paid" && b.source !== "incentive")
         .map((b) => b.id)
+
+      const incentiveIdsToPay = entries
+        .flatMap((e) => e.bonusItems)
+        .filter((b) => b.status !== "paid" && b.source === "incentive")
+        .map((b) => b.id)
+      let paidIncentiveIds: string[] = []
+      if (incentiveIdsToPay.length > 0) {
+        try {
+          const res = await fetch("/api/incentives/mark-paid", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ periodId: period.id, incentiveIds: incentiveIdsToPay }),
+          })
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Error")
+          paidIncentiveIds = incentiveIdsToPay
+        } catch (incentiveError) {
+          console.error("Error updating incentives:", incentiveError)
+          toast.error("La nómina se marcó como pagada, pero no se pudieron actualizar los incentivos")
+        }
+      }
 
       let paidBonusesCount = 0
       if (bonusIdsToPay.length > 0) {
@@ -1384,7 +1438,7 @@ export default function PayrollDetailPage({
             commissionIdsToPay.includes(c.id) ? { ...c, status: "paid" } : c,
           ),
           bonusItems: e.bonusItems.map((b) =>
-            bonusIdsToPay.includes(b.id) ? { ...b, status: "paid" } : b,
+            bonusIdsToPay.includes(b.id) || paidIncentiveIds.includes(b.id) ? { ...b, status: "paid" } : b,
           ),
           staff: finiquitoStaffIds.includes(e.staff_id)
             ? { ...e.staff, finiquito_paid_at: paidAt }
@@ -1733,8 +1787,11 @@ export default function PayrollDetailPage({
           for (const b of items) {
             bonos.push({
               Colaborador: staffName(e),
-              Tipo: b.bonus_type || "",
-              Descripción: b.description || "",
+              Tipo: b.source === "incentive" ? "Incentivo" : b.bonus_type || "",
+              Descripción:
+                b.source === "incentive"
+                  ? [b.incentive_number, b.description].filter(Boolean).join(" - ")
+                  : b.description || "",
               Monto: b.amount,
               Estado: b.status === "paid" ? "Pagado" : "Aprobado",
               Fecha: fmtDay(b.effective_date || b.created_at),
@@ -1881,6 +1938,11 @@ export default function PayrollDetailPage({
   const mxnTotals = currencyTotals.MXN ?? { gross: 0, net: 0 }
   const usdTotals = currencyTotals.USD ?? { gross: 0, net: 0 }
   const employeesWithoutSalary = entries.filter(e => !e.staff.monthly_salary || e.staff.monthly_salary === 0)
+  const incentivesWithoutReceipt = entries.flatMap((entry) =>
+    (entry.bonusItems || [])
+      .filter((item) => item.source === "incentive" && item.status === "approved" && !item.has_receipt)
+      .map((item) => ({ entry, item })),
+  )
 
   // Estado de la nómina para controlar la edición:
   // - draft: siempre editable.
@@ -2204,6 +2266,29 @@ export default function PayrollDetailPage({
         </Card>
       )}
 
+      {incentivesWithoutReceipt.length > 0 && (
+        <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20" role="status">
+          <CardContent className="flex items-start gap-4 py-4">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-yellow-600" aria-hidden="true" />
+            <div className="flex flex-col gap-1">
+              <p className="font-medium text-yellow-800 dark:text-yellow-200">
+                {incentivesWithoutReceipt.length} incentivo(s) aprobado(s) sin comprobante
+              </p>
+              <ul className="text-sm text-yellow-700 dark:text-yellow-300">
+                {incentivesWithoutReceipt.map(({ entry, item }) => (
+                  <li key={item.id}>
+                    <a href={`/dashboard/hr/bonuses/incentives/${item.id}`} className="underline underline-offset-2">
+                      {item.incentive_number || "Incentivo"}
+                    </a>
+                    {` · ${entry.staff.first_name} ${entry.staff.last_name} · ${formatCurrency(item.amount)}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Payroll Table */}
       <Card>
         <CardHeader>
@@ -2317,7 +2402,19 @@ export default function PayrollDetailPage({
                     </TableCell>
                     <TableCell>{entry.staff.position}</TableCell>
                     <TableCell className="text-right">{formatCurrency(entry.base_salary)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(entry.bonuses)}</TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(entry.bonuses)}
+                      {(() => {
+                        const incentiveTotal = (entry.bonusItems || [])
+                          .filter((b) => b.source === "incentive")
+                          .reduce((sum, b) => sum + b.amount, 0)
+                        return incentiveTotal > 0 ? (
+                          <span className="block text-xs text-muted-foreground">
+                            {`Incentivo: ${formatCurrency(incentiveTotal)}`}
+                          </span>
+                        ) : null
+                      })()}
+                    </TableCell>
                     <TableCell className="text-right text-blue-600">
                       {entry.commissionItems.length > 0 ? (
                         <button

@@ -37,7 +37,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins, GraduationCap, Trash2, RefreshCw } from "lucide-react"
+import { Plus, Search, Gift, DollarSign, Clock, CheckCircle, Eye, Users, ScrollText, Pencil, Save, X, HandCoins, GraduationCap, Trash2, RefreshCw, Trophy } from "lucide-react"
+import { IncentivesTab } from "@/components/hr/incentives-tab"
 import { DepartmentFilter } from "@/components/hr/department-filter"
 import { BonusTypePanel } from "@/components/hr/bonus-type-sections"
 import { useAgency } from "@/contexts/agency-context"
@@ -428,6 +429,10 @@ export default function BonusesPage() {
                   <HandCoins className="mr-2 h-4 w-4" />
                   Bono fin de año
                 </TabsTrigger>
+                <TabsTrigger value="incentives">
+                  <Trophy className="mr-2 h-4 w-4" />
+                  Incentivos
+                </TabsTrigger>
                 <TabsTrigger
                   value="staff"
                   className="ml-auto text-blue-600 data-[state=active]:bg-blue-600 data-[state=active]:text-white"
@@ -455,6 +460,10 @@ export default function BonusesPage() {
                   label="Bono fin de año"
                   requestMode="direct"
                 />
+              </TabsContent>
+
+              <TabsContent value="incentives" className="mt-6">
+                <IncentivesTab agencyId={selectedAgencyId} />
               </TabsContent>
 
               {/* Tab: lista de bonos */}
