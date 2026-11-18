@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS incentives_period_idx ON public.incentives (payroll_p
 -- Lectura para usuarios con sesión; nada de escritura desde el navegador.
 ALTER TABLE public.incentives ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.incentives FROM anon;
-REVOKE INSERT, UPDATE, DELETE ON public.incentives FROM authenticated;
+REVOKE ALL ON public.incentives FROM authenticated;
 GRANT SELECT ON public.incentives TO authenticated;
 
 DROP POLICY IF EXISTS incentives_select_authenticated ON public.incentives;
