@@ -9,6 +9,16 @@ import { getEntryPayment, isActiveDuringPeriod, sumByCurrency } from "@/lib/payr
 import { buildPayrollBreakdownItems, sumBreakdown } from "@/lib/payroll-bank-breakdown"
 import { PayrollNotes } from "@/components/hr/payroll-notes"
 import { PayrollHistory } from "@/components/hr/payroll-history"
+import {
+  usePayrollReconciliation,
+  postReconciliation,
+  ReconciliationToolbar,
+  ReconciliationBadge,
+  ReasonDialog,
+  PayrollAuditLog,
+  todayInMexico,
+} from "@/components/hr/payroll-reconciliation"
+import { Textarea } from "@/components/ui/textarea"
 import { logPayrollHistory } from "@/lib/payroll-history"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
 import { Button } from "@/components/ui/button"
@@ -49,7 +59,8 @@ import {
   Upload,
   Paperclip,
   Download,
-  X
+  X,
+  Ban
 } from "lucide-react"
 import { toast } from "sonner"
 import * as XLSX from "xlsx"
@@ -193,6 +204,8 @@ interface PayrollEntry {
   // única de pagos en dólares). Si existe, tiene prioridad sobre la conversión.
   paid_currency_code?: string | null
   paid_amount?: number | null
+  // Pago cancelado por colaborador (nómina pagada con conciliación por colaborador).
+  payment_cancelled?: boolean
   }
 
 const commissionTypeLabels: Record<string, string> = {
@@ -271,6 +284,69 @@ export default function PayrollDetailPage({
   const [usdCorrectionOpen, setUsdCorrectionOpen] = useState(false)
   const [usdCorrectionAmounts, setUsdCorrectionAmounts] = useState<Record<string, string>>({})
   const [savingUsdCorrection, setSavingUsdCorrection] = useState(false)
+  // Evita el doble clic en "Marcar como Pagada" (el ref bloquea antes del re-render).
+  const [markingPaid, setMarkingPaid] = useState(false)
+  const markingPaidRef = useRef(false)
+  const [editReason, setEditReason] = useState("")
+  const [savingEntry, setSavingEntry] = useState(false)
+  const [pendingDate, setPendingDate] = useState<{ staffId: string; date: string } | null>(null)
+  const [cancelStaffId, setCancelStaffId] = useState<string | null>(null)
+  const [savingDateStaffId, setSavingDateStaffId] = useState<string | null>(null)
+  const recon = usePayrollReconciliation(
+    resolvedParams.id,
+    period?.status === "paid" || period?.status === "cancelled",
+  )
+  const paymentByStaff = new Map((recon.data?.payments || []).map((p) => [p.staff_id, p]))
+
+  const refreshAfterReconChange = async () => {
+    await recon.mutate()
+    await fetchData()
+  }
+
+  // Tras subir o quitar un comprobante se crea o revierte el movimiento bancario.
+  const syncReceiptMovement = async (staffId: string) => {
+    if (period?.status !== "paid" || recon.data?.legacy) return
+    try {
+      const r = await postReconciliation(resolvedParams.id, { action: "sync", staffId })
+      if (r.warning) toast.warning(r.warning)
+      else if (r.status === "reconciled") toast.success("Pago conciliado con el banco")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo actualizar la conciliación")
+    }
+    await recon.mutate()
+  }
+
+  const handleRowDate = async (staffId: string, date: string, reason?: string) => {
+    if (!date) return
+    const current = paymentByStaff.get(staffId)?.actual_payment_date
+    if (current === date) return
+    if (current && !reason) {
+      setPendingDate({ staffId, date })
+      return
+    }
+    setSavingDateStaffId(staffId)
+    try {
+      const { results } = await postReconciliation(resolvedParams.id, {
+        action: "set_date",
+        date,
+        staffIds: [staffId],
+        reason,
+      })
+      const r = results?.[0]
+      if (r?.error) throw new Error(r.error)
+      if (r?.warning) toast.warning(r.warning)
+      else
+        toast.success(
+          r?.status === "reconciled" ? "Pago conciliado con el banco" : "Fecha guardada. Falta el comprobante para conciliar.",
+        )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar la fecha")
+      if (reason) throw error
+    } finally {
+      setSavingDateStaffId(null)
+      await recon.mutate()
+    }
+  }
 
   useEffect(() => {
     fetchData()
@@ -353,6 +429,7 @@ export default function PayrollDetailPage({
         "receipt_attached",
         `Comprobante de pago adjuntado para ${staffNameById(staffId)} (${file.name})`,
       )
+      await syncReceiptMovement(staffId)
     } catch (error) {
       console.error("Error uploading payroll receipt:", error)
       toast.error("Error al subir el comprobante. Verifica que sea PDF o imagen (máx 25MB).")
@@ -385,6 +462,7 @@ export default function PayrollDetailPage({
         "receipt_removed",
         `Comprobante de pago eliminado para ${staffNameById(staffId)}${removedFileName ? ` (${removedFileName})` : ""}`,
       )
+      await syncReceiptMovement(staffId)
     } catch (error) {
       console.error("Error removing payroll receipt:", error)
       toast.error("Error al eliminar el comprobante")
@@ -1256,15 +1334,25 @@ export default function PayrollDetailPage({
   }
 
   const handleMarkAsPaid = async () => {
-    if (!period) return
+    if (!period || markingPaidRef.current) return
+    markingPaidRef.current = true
+    setMarkingPaid(true)
 
     try {
-      const { error } = await supabase
+      // Solo cambia si sigue "approved": un segundo clic o pestaña no hace nada.
+      const { data: updated, error } = await supabase
         .from("payroll_periods")
         .update({ status: "paid" })
         .eq("id", period.id)
+        .eq("status", "approved")
+        .select("id")
 
       if (error) throw error
+      if (!updated || updated.length === 0) {
+        toast.info("La nómina ya estaba marcada como pagada")
+        await fetchData()
+        return
+      }
 
       // Marcar como pagadas las comisiones incluidas en este periodo que
       // aún no lo estén, registrando su fecha de pago. Así no se vuelven a
@@ -1420,14 +1508,8 @@ export default function PayrollDetailPage({
         }
       }
 
-      // Registrar la salida de dinero de cada banco de origen por el pago.
-      let bankMovementsResult = { registered: 0, unmatched: [] as string[] }
-      try {
-        bankMovementsResult = await registerPayrollBankMovements(period.id)
-      } catch {
-        toast.error("La nómina se marcó como pagada, pero no se pudieron registrar los movimientos bancarios")
-      }
-
+      // Los movimientos bancarios ya no se crean aquí: se crean por colaborador
+      // cuando tiene comprobante y fecha real de pago (conciliación).
       setPeriod({ ...period, status: "paid" })
       // Reflejar el nuevo estado de las comisiones y finiquitos en la vista.
       const paidAt = new Date().toISOString()
@@ -1451,9 +1533,6 @@ export default function PayrollDetailPage({
         paidBonusesCount > 0 ? `${paidBonusesCount} bono(s)` : null,
         paidFiniquitosCount > 0 ? `${paidFiniquitosCount} finiquito(s)` : null,
         paidLoansCount > 0 ? `${paidLoansCount} pago(s) de préstamo` : null,
-        bankMovementsResult.registered > 0
-          ? `${bankMovementsResult.registered} salida(s) bancaria(s)`
-          : null,
       ].filter(Boolean)
       toast.success(
         extras.length > 0
@@ -1474,25 +1553,57 @@ export default function PayrollDetailPage({
           ],
         },
       )
-      // Avisar de bancos de empleados que no tienen cuenta bancaria registrada.
-      if (bankMovementsResult.unmatched.length > 0) {
-        toast.warning(
-          `Sin cuenta bancaria para: ${bankMovementsResult.unmatched.join(", ")}. Registra esas cuentas en Finanzas → Bancos.`,
-        )
-      }
+      toast.info("Captura la fecha real de pago y el comprobante de cada colaborador para conciliar con el banco.")
     } catch (error) {
       console.error("Error marking as paid:", error)
       toast.error("Error al marcar como pagada")
+    } finally {
+      markingPaidRef.current = false
+      setMarkingPaid(false)
     }
   }
 
   const handleEditEntry = (entry: PayrollEntry) => {
     setEditingEntry({ ...entry })
+    setEditReason("")
     setShowEditDialog(true)
   }
 
   const handleSaveEntry = async () => {
     if (!editingEntry || !period) return
+
+    // Nómina pagada: se edita en el servidor (permiso, motivo y bitácora) y se
+    // recalcula el movimiento bancario del colaborador.
+    if (period.status === "paid") {
+      if (editReason.trim().length < 5) {
+        toast.error("Escribe el motivo (mínimo 5 caracteres)")
+        return
+      }
+      setSavingEntry(true)
+      try {
+        const { entry } = await postReconciliation(period.id, {
+          action: "edit_entry",
+          staffId: editingEntry.staff_id,
+          reason: editReason.trim(),
+          values: {
+            base_salary: editingEntry.base_salary,
+            bonuses: editingEntry.bonuses,
+            commissions: editingEntry.commissions,
+            deductions: editingEntry.deductions,
+          },
+        })
+        setEntries((prev) => prev.map((e) => (e.staff_id === entry.staff_id ? { ...e, ...entry, staff: e.staff } : e)))
+        setShowEditDialog(false)
+        setEditingEntry(null)
+        toast.success("Pago actualizado y registrado en la bitácora")
+        await refreshAfterReconChange()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "No se pudo guardar")
+      } finally {
+        setSavingEntry(false)
+      }
+      return
+    }
 
     // Salvaguarda: una nómina "Pagada" nunca se modifica. Una "Calculada" o
     // "Aprobada" solo si el modo de modificación está activo.
@@ -1956,6 +2067,12 @@ export default function PayrollDetailPage({
   // Estados en los que la nómina puede modificarse (con modo modificación).
   const isModifiable = isCalculated || isApproved
   const canEdit = period.status === "draft" || (isModifiable && modifyMode)
+  const reconData = recon.data
+  const showRecon = isPaid && !!reconData && !reconData.legacy
+  const staffNameForAudit = (staffId: string) => {
+    const e = entries.find((x) => x.staff_id === staffId)
+    return e ? `${e.staff.first_name} ${e.staff.last_name}` : "Colaborador"
+  }
 
   return (
     <div className="space-y-6">
@@ -2068,9 +2185,9 @@ export default function PayrollDetailPage({
                   </p>
                 ))}
               {isApproved && (
-                <Button onClick={handleMarkAsPaid}>
-                  <Wallet className="mr-2 h-4 w-4" />
-                  Marcar como Pagada
+                <Button onClick={handleMarkAsPaid} disabled={markingPaid} aria-busy={markingPaid}>
+                  {markingPaid ? <Spinner className="mr-2 h-4 w-4" /> : <Wallet className="mr-2 h-4 w-4" />}
+                  {markingPaid ? "Procesando…" : "Marcar como Pagada"}
                 </Button>
               )}
             </>
@@ -2100,9 +2217,9 @@ export default function PayrollDetailPage({
                   </p>
                 ))}
               {isApproved && (
-                <Button onClick={handleMarkAsPaid}>
-                  <Wallet className="mr-2 h-4 w-4" />
-                  Marcar como Pagada
+                <Button onClick={handleMarkAsPaid} disabled={markingPaid} aria-busy={markingPaid}>
+                  {markingPaid ? <Spinner className="mr-2 h-4 w-4" /> : <Wallet className="mr-2 h-4 w-4" />}
+                  {markingPaid ? "Procesando…" : "Marcar como Pagada"}
                 </Button>
               )}
             </>
@@ -2374,6 +2491,12 @@ export default function PayrollDetailPage({
                   {(period.status === "approved" || period.status === "paid") && (
                     <TableHead>Comprobante</TableHead>
                   )}
+                  {showRecon && (
+                    <>
+                      <TableHead>Fecha real de pago</TableHead>
+                      <TableHead>Conciliación</TableHead>
+                    </>
+                  )}
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -2526,11 +2649,54 @@ export default function PayrollDetailPage({
                         )}
                       </TableCell>
                     )}
+                    {showRecon &&
+                      (() => {
+                        const pay = paymentByStaff.get(entry.staff_id)
+                        const cancelled = pay?.status === "cancelled" || entry.payment_cancelled
+                        const name = `${entry.staff.first_name} ${entry.staff.last_name}`
+                        return (
+                          <>
+                            <TableCell>
+                              <Input
+                                type="date"
+                                className="h-8 w-36"
+                                value={pay?.actual_payment_date ?? ""}
+                                max={todayInMexico()}
+                                disabled={cancelled || savingDateStaffId === entry.staff_id}
+                                aria-label={`Fecha real de pago de ${name}`}
+                                onChange={(e) => handleRowDate(entry.staff_id, e.target.value)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <ReconciliationBadge payment={cancelled ? { ...(pay ?? { staff_id: entry.staff_id, actual_payment_date: null, bank_movement_id: null, cancelled_at: null, cancel_reason: null }), status: "cancelled" } : pay} />
+                                {reconData?.permissions.cancel && !cancelled && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Cancelar pago del colaborador"
+                                    aria-label={`Cancelar pago de ${name}`}
+                                    onClick={() => setCancelStaffId(entry.staff_id)}
+                                  >
+                                    <Ban className="h-3.5 w-3.5 text-destructive" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </>
+                        )
+                      })()}
                     <TableCell>
-                      {canEdit && (
+                      {(canEdit ||
+                        (showRecon &&
+                          reconData?.permissions.editPaid &&
+                          !entry.payment_cancelled &&
+                          paymentByStaff.get(entry.staff_id)?.status !== "cancelled")) && (
                         <Button 
                           variant="ghost" 
                           size="icon"
+                          aria-label={`Editar pago de ${entry.staff.first_name} ${entry.staff.last_name}`}
                           onClick={() => handleEditEntry(entry)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -2544,6 +2710,49 @@ export default function PayrollDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {isPaid && reconData && (
+        <ReconciliationToolbar
+          periodId={period.id}
+          data={reconData}
+          activeStaffIds={entries.filter((e) => !e.payment_cancelled).map((e) => e.staff_id)}
+          onChanged={refreshAfterReconChange}
+        />
+      )}
+
+      {reconData && reconData.audit.length > 0 && (
+        <PayrollAuditLog audit={reconData.audit} staffName={staffNameForAudit} />
+      )}
+
+      <ReasonDialog
+        open={!!pendingDate}
+        onOpenChange={(open) => !open && setPendingDate(null)}
+        title="Corregir fecha real de pago"
+        description={`Cambiar la fecha de ${pendingDate ? staffNameForAudit(pendingDate.staffId) : ""} a ${pendingDate?.date ?? ""}. Requiere permiso de edición de nómina pagada.`}
+        confirmLabel="Corregir fecha"
+        onConfirm={async (reason) => {
+          if (pendingDate) await handleRowDate(pendingDate.staffId, pendingDate.date, reason)
+        }}
+      />
+      <ReasonDialog
+        open={!!cancelStaffId}
+        onOpenChange={(open) => !open && setCancelStaffId(null)}
+        destructive
+        title="Cancelar pago del colaborador"
+        description={`Se borra el movimiento bancario de ${cancelStaffId ? staffNameForAudit(cancelStaffId) : ""}, se regresan sus préstamos y sus incentivos, bonos y comisiones quedan disponibles para otra nómina.`}
+        confirmLabel="Cancelar pago"
+        onConfirm={async (reason) => {
+          if (!cancelStaffId) return
+          try {
+            await postReconciliation(period.id, { action: "cancel_staff", staffId: cancelStaffId, reason })
+            toast.success("Pago del colaborador cancelado")
+            await refreshAfterReconChange()
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "No se pudo cancelar")
+            throw error
+          }
+        }}
+      />
 
       {/* Notas del periodo de nómina, al mismo nivel que el Detalle de Nómina */}
       <PayrollNotes periodId={period.id} />
@@ -2670,14 +2879,33 @@ export default function PayrollDetailPage({
                   </span>
                 </div>
               </div>
+              {period.status === "paid" && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-paid-reason">Motivo del cambio</Label>
+                  <Textarea
+                    id="edit-paid-reason"
+                    value={editReason}
+                    onChange={(e) => setEditReason(e.target.value)}
+                    placeholder="Ej. Se pagó un bono que faltaba"
+                    rows={2}
+                    maxLength={1000}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    La nómina ya está pagada: el cambio queda en la bitácora y se recalcula el movimiento bancario.
+                  </p>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)} disabled={savingEntry}>
               Cancelar
             </Button>
-            <Button onClick={handleSaveEntry}>
-              <Save className="mr-2 h-4 w-4" />
+            <Button
+              onClick={handleSaveEntry}
+              disabled={savingEntry || (period.status === "paid" && editReason.trim().length < 5)}
+            >
+              {savingEntry ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
               Guardar
             </Button>
           </DialogFooter>
