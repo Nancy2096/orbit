@@ -9,23 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { ResizableTableHead, useColumnWidths } from "@/components/resizable-table-head"
+import { ColumnVisibilityMenu, DataTable, useColumnVisibility, type DataTableColumn } from "@/components/data-table"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuCheckboxItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import {
   Select,
@@ -43,7 +32,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Building2, Mail, Globe, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Building2, Mail, Globe, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
 import { ClientCompletionBar } from "@/components/client-completion-chart"
 import { getClientOverallCompletion, type ClientLike } from "@/lib/client-completion"
 
@@ -71,13 +60,6 @@ interface Client {
   referral_source?: { name: string } | null
 }
 
-interface ColumnDef {
-  key: string
-  label: string
-  visible: boolean
-  filterable: boolean
-}
-
 const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
   prospect: { label: "Prospecto", variant: "outline" },
   active: { label: "Activo", variant: "outline", className: "bg-green-100 text-green-700 border-green-200 hover:bg-green-100" },
@@ -85,21 +67,143 @@ const statusLabels: Record<string, { label: string; variant: "default" | "second
   suspended: { label: "Suspendido", variant: "outline", className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100" },
 }
 
-const defaultColumns: ColumnDef[] = [
-  { key: "company_name", label: "Empresa", visible: true, filterable: true },
-  { key: "legal_name", label: "Razón Social", visible: false, filterable: true },
-  { key: "tax_id", label: "RFC", visible: false, filterable: true },
-  { key: "agency", label: "Agencia", visible: true, filterable: true },
-  { key: "contact", label: "Contacto", visible: true, filterable: true },
-  { key: "phone", label: "Teléfono", visible: false, filterable: true },
-  { key: "industry", label: "Industria", visible: true, filterable: true },
-  { key: "referral_source", label: "Fuente", visible: false, filterable: true },
-  { key: "location", label: "Ubicación", visible: true, filterable: true },
-  { key: "payment_terms", label: "Términos", visible: true, filterable: false },
-  { key: "completion", label: "Avance", visible: true, filterable: false },
-  { key: "contract", label: "Contrato", visible: true, filterable: true },
-  { key: "status", label: "Estado", visible: true, filterable: true },
+function formatClientLocation(client: Client) {
+  return [client.city, client.state, client.country].filter(Boolean).join(", ") || "-"
+}
+
+const yesBadge = (
+  <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
+    Sí
+  </Badge>
+)
+const noBadge = (
+  <Badge variant="outline" className="border-red-200 bg-red-100 text-red-700 hover:bg-red-100">
+    No
+  </Badge>
+)
+
+const clientColumns: DataTableColumn<Client>[] = [
+  {
+    key: "company_name",
+    label: "Empresa",
+    pinned: true,
+    width: 240,
+    fullText: (c) => c.company_name,
+    cell: (c) => (
+      <Link href={`/dashboard/clients/${c.id}`} className="font-medium hover:underline">
+        {c.company_name}
+      </Link>
+    ),
+  },
+  {
+    key: "contract",
+    label: "Contrato",
+    width: 100,
+    cell: (c) => (hasContract(c) ? yesBadge : noBadge),
+  },
+  {
+    key: "status",
+    label: "Estado",
+    width: 120,
+    cell: (c) => (
+      <Badge variant={statusLabels[c.status]?.variant || "outline"} className={statusLabels[c.status]?.className}>
+        {statusLabels[c.status]?.label || c.status}
+      </Badge>
+    ),
+  },
+  {
+    key: "completion",
+    label: "Avance",
+    width: 150,
+    cell: (c) => <ClientCompletionBar percentage={getClientOverallCompletion(c as unknown as ClientLike)} />,
+  },
+  {
+    key: "contact",
+    label: "Contacto",
+    width: 220,
+    fullText: (c) => [c.primary_contact_name, c.primary_contact_email].filter(Boolean).join(" · "),
+    cell: (c) =>
+      c.primary_contact_name || c.primary_contact_email ? (
+        <div className="space-y-1">
+          {c.primary_contact_name && <div className="truncate font-medium">{c.primary_contact_name}</div>}
+          {c.primary_contact_email && (
+            <div className="flex min-w-0 items-center gap-1 text-muted-foreground">
+              <Mail className="h-3 w-3 shrink-0" aria-hidden="true" />
+              <span className="truncate">{c.primary_contact_email}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        "-"
+      ),
+  },
+  {
+    key: "agency",
+    label: "Agencia",
+    width: 160,
+    fullText: (c) => c.agency?.name,
+    cell: (c) => c.agency?.name || "-",
+  },
+  {
+    key: "industry",
+    label: "Industria",
+    width: 160,
+    fullText: (c) => c.industry?.name,
+    cell: (c) =>
+      c.industry?.name ? (
+        <Badge variant="outline" className="max-w-full">
+          <span className="truncate">{c.industry.name}</span>
+        </Badge>
+      ) : (
+        <span className="text-muted-foreground">-</span>
+      ),
+  },
+  {
+    key: "location",
+    label: "Ubicación",
+    width: 200,
+    fullText: formatClientLocation,
+    cell: formatClientLocation,
+  },
+  {
+    key: "payment_terms",
+    label: "Términos",
+    width: 100,
+    cell: (c) => `${c.payment_terms} días`,
+  },
+  {
+    key: "legal_name",
+    label: "Razón social",
+    width: 200,
+    defaultVisible: false,
+    fullText: (c) => c.legal_name,
+    cell: (c) => c.legal_name || "-",
+  },
+  {
+    key: "tax_id",
+    label: "RFC",
+    width: 140,
+    defaultVisible: false,
+    cell: (c) => <span className="font-mono">{c.tax_id || "-"}</span>,
+  },
+  {
+    key: "phone",
+    label: "Teléfono",
+    width: 140,
+    defaultVisible: false,
+    cell: (c) => c.primary_contact_phone || "-",
+  },
+  {
+    key: "referral_source",
+    label: "Fuente",
+    width: 150,
+    defaultVisible: false,
+    fullText: (c) => c.referral_source?.name,
+    cell: (c) => c.referral_source?.name || "-",
+  },
 ]
+
+const clientMobileFields = ["contract", "status", "completion", "contact", "location"]
 
 interface Filters {
   status: string
@@ -119,7 +223,7 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = usePersistentState("clients:searchTerm", "")
-  const [columns, setColumns] = useState<ColumnDef[]>(defaultColumns)
+  const columnVisibility = useColumnVisibility("clients", clientColumns)
   const [filters, setFilters] = usePersistentState<Filters>("clients:filters", {
     status: "all",
     agency_id: "all",
@@ -187,12 +291,6 @@ export default function ClientsPage() {
     }
   }
 
-  function toggleColumn(key: string) {
-    setColumns(columns.map(col => 
-      col.key === key ? { ...col, visible: !col.visible } : col
-    ))
-  }
-
   function clearFilters() {
     setFilters({
       status: "all",
@@ -258,153 +356,49 @@ export default function ClientsPage() {
     [filteredClients],
   )
 
-  const visibleColumns = columns.filter(col => col.visible)
-  const { widths, setWidth, getColumnStyle } = useColumnWidths("clients-column-widths")
-
-  function renderClientsTable(rows: Client[]) {
+  function renderClientActions(client: Client) {
     return (
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12 text-right">#</TableHead>
-              {visibleColumns.map((column) => (
-                <ResizableTableHead
-                  key={column.key}
-                  columnKey={column.key}
-                  width={widths[column.key]}
-                  onResize={setWidth}
-                >
-                  {column.label}
-                </ResizableTableHead>
-              ))}
-              <TableHead className="w-12"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((client, index) => (
-              <TableRow key={client.id}>
-                <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
-                  {index + 1}
-                </TableCell>
-                {visibleColumns.map((column) => (
-                  <TableCell
-                    key={column.key}
-                    style={getColumnStyle(column.key)}
-                    className={getColumnStyle(column.key) ? "overflow-hidden text-ellipsis" : undefined}
-                  >
-                    {column.key === "company_name" && (
-                      <div>
-                        <Link
-                          href={`/dashboard/clients/${client.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {client.company_name}
-                        </Link>
-                      </div>
-                    )}
-                    {column.key === "legal_name" && (
-                      <div className="text-sm">{client.legal_name || "-"}</div>
-                    )}
-                    {column.key === "tax_id" && (
-                      <div className="text-sm font-mono">{client.tax_id || "-"}</div>
-                    )}
-                    {column.key === "agency" && (
-                      <div className="text-sm">{client.agency?.name || "-"}</div>
-                    )}
-                    {column.key === "contact" && (
-                      <div className="space-y-1">
-                        {client.primary_contact_name && (
-                          <div className="text-sm font-medium">{client.primary_contact_name}</div>
-                        )}
-                        {client.primary_contact_email && (
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <Mail className="h-3 w-3" />
-                            {client.primary_contact_email}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {column.key === "phone" && (
-                      <div className="text-sm">{client.primary_contact_phone || "-"}</div>
-                    )}
-                    {column.key === "industry" && (
-                      <>
-                        {client.industry?.name ? (
-                          <Badge variant="outline">{client.industry.name}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </>
-                    )}
-                    {column.key === "referral_source" && (
-                      <div className="text-sm">{client.referral_source?.name || "-"}</div>
-                    )}
-                    {column.key === "location" && (
-                      <div className="text-sm">
-                        {[client.city, client.state, client.country].filter(Boolean).join(", ") || "-"}
-                      </div>
-                    )}
-                    {column.key === "payment_terms" && (
-                      <div className="text-sm">{client.payment_terms} días</div>
-                    )}
-                    {column.key === "completion" && (
-                      <ClientCompletionBar percentage={getClientOverallCompletion(client as unknown as ClientLike)} />
-                    )}
-                    {column.key === "contract" &&
-                      (hasContract(client) ? (
-                        <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
-                          Sí
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="border-red-200 bg-red-100 text-red-700 hover:bg-red-100">
-                          No
-                        </Badge>
-                      ))}
-                    {column.key === "status" && (
-                          <Badge variant={statusLabels[client.status]?.variant || "outline"} className={statusLabels[client.status]?.className}>
-                            {statusLabels[client.status]?.label || client.status}
-                          </Badge>
-                    )}
-                  </TableCell>
-                ))}
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/clients/${client.id}`}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Editar
-                        </Link>
-                      </DropdownMenuItem>
-                      {client.website && (
-                        <DropdownMenuItem asChild>
-                          <a href={client.website} target="_blank" rel="noopener noreferrer">
-                            <Globe className="mr-2 h-4 w-4" />
-                            Sitio web
-                          </a>
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => handleDelete(client.id)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Eliminar
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={`Acciones de ${client.company_name}`}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link href={`/dashboard/clients/${client.id}`}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar
+            </Link>
+          </DropdownMenuItem>
+          {client.website && (
+            <DropdownMenuItem asChild>
+              <a href={client.website} target="_blank" rel="noopener noreferrer">
+                <Globe className="mr-2 h-4 w-4" />
+                Sitio web
+              </a>
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(client.id)}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Eliminar
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+
+  function renderClientsTable(rows: Client[], ariaLabel: string) {
+    return (
+      <DataTable
+        ariaLabel={ariaLabel}
+        rows={rows}
+        columns={columnVisibility.visibleColumns}
+        getRowKey={(c) => c.id}
+        renderActions={renderClientActions}
+        widthsStorageKey="clients-column-widths"
+        mobileFieldKeys={clientMobileFields}
+      />
     )
   }
 
@@ -613,26 +607,7 @@ export default function ClientsPage() {
                 </Popover>
 
                 {/* Column visibility */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="icon">
-                      <Settings2 className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuLabel>Columnas visibles</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {columns.map((column) => (
-                      <DropdownMenuCheckboxItem
-                        key={column.key}
-                        checked={column.visible}
-                        onCheckedChange={() => toggleColumn(column.key)}
-                      >
-                        {column.label}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <ColumnVisibilityMenu visibility={columnVisibility} />
               </div>
             </div>
 
@@ -731,7 +706,7 @@ export default function ClientsPage() {
                   <Badge variant="secondary" className="tabular-nums">{activeClients.length}</Badge>
                 </div>
                 {activeClients.length > 0 ? (
-                  renderClientsTable(activeClients)
+                  renderClientsTable(activeClients, "Clientes activos")
                 ) : (
                   <p className="py-4 text-sm text-muted-foreground">No hay clientes activos.</p>
                 )}
@@ -751,7 +726,7 @@ export default function ClientsPage() {
                 </Button>
                 {showInactive &&
                   (inactiveClients.length > 0 ? (
-                    renderClientsTable(inactiveClients)
+                    renderClientsTable(inactiveClients, "Clientes inactivos")
                   ) : (
                     <p className="py-4 text-sm text-muted-foreground">No hay clientes inactivos.</p>
                   ))}

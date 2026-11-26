@@ -9,23 +9,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { ResizableTableHead, useColumnWidths } from "@/components/resizable-table-head"
+import { ColumnVisibilityMenu, DataTable, useColumnVisibility, type DataTableColumn } from "@/components/data-table"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuCheckboxItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import {
   Select,
@@ -37,7 +26,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Settings2, Filter, X, ChevronDown, ChevronRight, Copy } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Briefcase, FolderKanban, Filter, X, ChevronDown, ChevronRight, Copy } from "lucide-react"
 
 interface Account {
   id: string
@@ -62,26 +51,6 @@ interface Account {
     name: string
   } | null
 }
-
-interface ColumnDef {
-  key: string
-  label: string
-  visible: boolean
-}
-
-const defaultColumns: ColumnDef[] = [
-  { key: "account_name", label: "Cuenta", visible: true },
-  { key: "client", label: "Cliente", visible: true },
-  { key: "country", label: "País", visible: true },
-  { key: "state", label: "Estado (Ubicación)", visible: true },
-  { key: "agency", label: "Agencia", visible: true },
-  { key: "total_contracted", label: "Total Contratado", visible: true },
-  { key: "currency_code", label: "Moneda", visible: true },
-  { key: "payment_terms", label: "Términos", visible: false },
-  { key: "discount", label: "Descuento", visible: false },
-  { key: "quotation", label: "Cotización", visible: true },
-  { key: "status", label: "Estado", visible: true },
-]
 
 interface Filters {
   status: string
@@ -121,12 +90,111 @@ function formatCountry(code: string | null | undefined) {
   return countryLabels[code.toUpperCase()] || code
 }
 
+function formatLocation(client: Account["client"]) {
+  const parts = [client?.state, client?.country ? formatCountry(client.country) : null].filter(Boolean)
+  return parts.length > 0 ? parts.join(", ") : "-"
+}
+
+function formatMoney(value: number) {
+  return `$${value.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+const accountColumns: DataTableColumn<Account>[] = [
+  {
+    key: "account_name",
+    label: "Cuenta",
+    pinned: true,
+    width: 240,
+    fullText: (a) => a.account_name,
+    cell: (a) => (
+      <Link href={`/dashboard/accounts/${a.id}`} className="font-medium hover:underline">
+        {a.account_name}
+      </Link>
+    ),
+  },
+  {
+    key: "client",
+    label: "Cliente",
+    width: 200,
+    fullText: (a) => a.client?.company_name,
+    cell: (a) => <span className="font-medium">{a.client?.company_name || "-"}</span>,
+  },
+  {
+    key: "quotation",
+    label: "Cotización",
+    width: 110,
+    cell: (a) =>
+      a.has_quotation ? (
+        <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
+          Sí
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="border-red-200 bg-red-100 text-red-700 hover:bg-red-100">
+          No
+        </Badge>
+      ),
+  },
+  {
+    key: "total_contracted",
+    label: "Total contratado",
+    width: 150,
+    align: "right",
+    cell: (a) => <span className="font-medium tabular-nums">{formatMoney(a.total_contracted ?? 0)}</span>,
+  },
+  {
+    key: "currency_code",
+    label: "Moneda",
+    width: 90,
+    cell: (a) => a.currency_code,
+  },
+  {
+    key: "status",
+    label: "Estado",
+    width: 110,
+    cell: (a) => (
+      <Badge variant={statusLabels[a.status]?.variant || "outline"} className={statusLabels[a.status]?.className}>
+        {statusLabels[a.status]?.label || a.status}
+      </Badge>
+    ),
+  },
+  {
+    key: "payment_terms",
+    label: "Términos",
+    width: 100,
+    defaultVisible: false,
+    cell: (a) => `${a.payment_terms} días`,
+  },
+  {
+    key: "discount",
+    label: "Descuento",
+    width: 100,
+    defaultVisible: false,
+    cell: (a) => (a.discount_percentage > 0 ? `${a.discount_percentage}%` : "-"),
+  },
+  {
+    key: "location",
+    label: "Ubicación",
+    width: 180,
+    fullText: (a) => formatLocation(a.client),
+    cell: (a) => formatLocation(a.client),
+  },
+  {
+    key: "agency",
+    label: "Agencia",
+    width: 160,
+    fullText: (a) => a.agency?.name,
+    cell: (a) => a.agency?.name || "-",
+  },
+]
+
+const accountMobileFields = ["client", "quotation", "total_contracted", "currency_code", "status", "location"]
+
 export default function AccountsPage() {
   const [mounted, setMounted] = useState(false)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = usePersistentState("accounts:searchTerm", "")
-  const [columns, setColumns] = useState<ColumnDef[]>(defaultColumns)
+  const columnVisibility = useColumnVisibility("accounts", accountColumns)
   const [filters, setFilters] = usePersistentState<Filters>("accounts:filters", {
     status: "all",
     agency_id: "all",
@@ -279,12 +347,6 @@ export default function AccountsPage() {
     await fetchAccounts()
   }
 
-  function toggleColumn(key: string) {
-    setColumns(columns.map(col =>
-      col.key === key ? { ...col, visible: !col.visible } : col
-    ))
-  }
-
   function clearFilters() {
     setFilters({
       status: "all",
@@ -368,162 +430,61 @@ export default function AccountsPage() {
     [filteredAccounts],
   )
 
-  const visibleColumns = columns.filter(col => col.visible)
-  const { widths, setWidth, getColumnStyle } = useColumnWidths("accounts-column-widths")
+  function renderAccountActions(account: Account) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={`Acciones de ${account.account_name}`}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link href={`/dashboard/accounts/${account.id}`}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href={`/dashboard/projects?account=${account.id}`}>
+              <FolderKanban className="mr-2 h-4 w-4" />
+              Ver proyectos
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleDuplicate(account.id)}>
+            <Copy className="mr-2 h-4 w-4" />
+            Duplicar
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(account.id)}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Eliminar
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
 
-  function renderAccountsTable(rows: Account[], showTotals = true) {
+  function renderAccountsTable(rows: Account[], ariaLabel: string, showTotals = true) {
     // Los totales por moneda (MXN/USD) solo se muestran para las cuentas activas.
     const totals = showTotals ? computeTotals(rows) : []
     return (
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12 text-right">#</TableHead>
-                  {visibleColumns.map((column) => (
-                    <ResizableTableHead
-                      key={column.key}
-                      columnKey={column.key}
-                      width={widths[column.key]}
-                      onResize={setWidth}
-                    >
-                      {column.label}
-                    </ResizableTableHead>
-                  ))}
-                  <TableHead className="w-24 text-right">Acciones</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((account, index) => (
-              <TableRow key={account.id}>
-                <TableCell className="text-right text-sm text-muted-foreground tabular-nums">
-                  {index + 1}
-                </TableCell>
-                {visibleColumns.map((column) => (
-                  <TableCell
-                    key={column.key}
-                    style={getColumnStyle(column.key)}
-                    className={getColumnStyle(column.key) ? "overflow-hidden text-ellipsis" : undefined}
-                  >
-                    {column.key === "account_name" && (
-                      <Link
-                        href={`/dashboard/accounts/${account.id}`}
-                        className="font-medium hover:underline"
-                      >
-                        {account.account_name}
-                      </Link>
-                    )}
-                    {column.key === "client" && (
-                      <div className="font-medium">
-                        {account.client?.company_name || "-"}
-                      </div>
-                    )}
-                    {column.key === "country" && (
-                      <div className="text-sm">
-                        {formatCountry(account.client?.country)}
-                      </div>
-                    )}
-                    {column.key === "state" && (
-                      <div className="text-sm">
-                        {account.client?.state || "-"}
-                      </div>
-                    )}
-                    {column.key === "agency" && (
-                      <div className="text-sm">
-                        {account.agency?.name || "-"}
-                      </div>
-                    )}
-                    {column.key === "total_contracted" && (
-                      <div className="text-sm font-medium tabular-nums">
-                        ${(account.total_contracted ?? 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </div>
-                    )}
-                    {column.key === "currency_code" && (
-                      <div className="text-sm">
-                        {account.currency_code}
-                      </div>
-                    )}
-                    {column.key === "payment_terms" && (
-                      <div className="text-sm">{account.payment_terms} días</div>
-                    )}
-                    {column.key === "discount" && (
-                      <div className="text-sm">
-                        {account.discount_percentage > 0 ? `${account.discount_percentage}%` : "-"}
-                      </div>
-                    )}
-                    {column.key === "quotation" &&
-                      (account.has_quotation ? (
-                        <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
-                          Sí
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="border-red-200 bg-red-100 text-red-700 hover:bg-red-100">
-                          No
-                        </Badge>
-                      ))}
-                    {column.key === "status" && (
-                      <Badge variant={statusLabels[account.status]?.variant || "outline"} className={statusLabels[account.status]?.className}>
-                        {statusLabels[account.status]?.label || account.status}
-                      </Badge>
-                    )}
-                  </TableCell>
-                ))}
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/accounts/${account.id}`}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Editar
-                        </Link>
-                      </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/projects?account=${account.id}`}>
-                                <FolderKanban className="mr-2 h-4 w-4" />
-                                Ver proyectos
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDuplicate(account.id)}>
-                              <Copy className="mr-2 h-4 w-4" />
-                              Duplicar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleDelete(account.id)}
-                            >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Eliminar
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-            {totals.map((t) => (
-              <TableRow key={t.code} className="border-t bg-muted/30 font-medium hover:bg-muted/30">
-                <TableCell />
-                {visibleColumns.map((column, i) => (
-                  <TableCell key={column.key} style={getColumnStyle(column.key)}>
-                    {i === 0 && `Total contratado (${t.code})`}
-                    {column.key === "total_contracted" && (
-                      <span className="tabular-nums">
-                        ${t.total.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    )}
-                    {column.key === "currency_code" && t.code}
-                  </TableCell>
-                ))}
-                <TableCell />
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        ariaLabel={ariaLabel}
+        rows={rows}
+        columns={columnVisibility.visibleColumns}
+        getRowKey={(a) => a.id}
+        renderActions={renderAccountActions}
+        widthsStorageKey="accounts-column-widths"
+        mobileFieldKeys={accountMobileFields}
+        summaryRows={totals.map((t) => ({
+          key: t.code,
+          label: `Total contratado (${t.code})`,
+          cells: {
+            total_contracted: <span className="tabular-nums">{formatMoney(t.total)}</span>,
+            currency_code: t.code,
+          },
+        }))}
+      />
     )
   }
 
@@ -712,26 +673,7 @@ export default function AccountsPage() {
                 </Popover>
 
                 {/* Column visibility */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="icon">
-                      <Settings2 className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuLabel>Columnas visibles</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {columns.map((column) => (
-                      <DropdownMenuCheckboxItem
-                        key={column.key}
-                        checked={column.visible}
-                        onCheckedChange={() => toggleColumn(column.key)}
-                      >
-                        {column.label}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <ColumnVisibilityMenu visibility={columnVisibility} />
               </div>
             </div>
 
@@ -821,7 +763,7 @@ export default function AccountsPage() {
                   <Badge variant="secondary" className="tabular-nums">{activeAccounts.length}</Badge>
                 </div>
                 {activeAccounts.length > 0 ? (
-                  renderAccountsTable(activeAccounts)
+                  renderAccountsTable(activeAccounts, "Cuentas activas")
                 ) : (
                   <p className="py-4 text-sm text-muted-foreground">No hay cuentas activas.</p>
                 )}
@@ -841,7 +783,7 @@ export default function AccountsPage() {
                 </Button>
             {showInactive &&
               (inactiveAccounts.length > 0 ? (
-                renderAccountsTable(inactiveAccounts, false)
+                renderAccountsTable(inactiveAccounts, "Cuentas inactivas", false)
                   ) : (
                     <p className="py-4 text-sm text-muted-foreground">No hay cuentas inactivas.</p>
                   ))}
