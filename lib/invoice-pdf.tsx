@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 8,
-    color: "#9ca3af",
+    color: "#4b5563",
     textTransform: "uppercase",
     marginBottom: 3,
     fontFamily: "Helvetica-Bold",

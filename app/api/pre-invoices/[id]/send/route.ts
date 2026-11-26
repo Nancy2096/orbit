@@ -136,7 +136,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     </table>
     ${sourceNotes ? `<div style="margin-top:24px;"><p style="font-weight:bold;margin:0 0 4px;">Notas</p><p style="margin:0;color:#444;white-space:pre-line;">${escapeHtml(sourceNotes)}</p></div>` : ""}
     ${preInvoice.notes ? `<p style="margin-top:24px;color:#666;">${escapeHtml(preInvoice.notes)}</p>` : ""}
-    <p style="margin-top:24px;color:#999;font-size:12px;">Este documento es una prefactura y no tiene validez fiscal.</p>
+    <p style="margin-top:24px;color:#6b7280;font-size:12px;">Este documento es una prefactura y no tiene validez fiscal.</p>
   </div>`
 
   const resend = new Resend(process.env.RESEND_API_KEY)
