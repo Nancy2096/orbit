@@ -61,6 +61,7 @@ interface ResizableTableHeadProps {
   className?: string
   children?: React.ReactNode
   minWidth?: number
+  ariaSort?: React.AriaAttributes["aria-sort"]
 }
 
 /**
@@ -74,6 +75,7 @@ export function ResizableTableHead({
   className,
   children,
   minWidth = 80,
+  ariaSort,
 }: ResizableTableHeadProps) {
   const thRef = React.useRef<HTMLTableCellElement>(null)
   const [resizing, setResizing] = React.useState(false)
@@ -105,7 +107,7 @@ export function ResizableTableHead({
   const style = width ? { width, minWidth: width, maxWidth: width } : undefined
 
   return (
-    <TableHead ref={thRef} className={cn("group/th relative pr-3", className)} style={style}>
+    <TableHead ref={thRef} aria-sort={ariaSort} className={cn("group/th relative pr-3", className)} style={style}>
       <span className="block truncate">{children}</span>
       <span
         role="separator"

@@ -472,6 +472,21 @@ La cotización vive en Cuentas (`entity_quotations`, `owner_type = 'account'`); 
 - **Código:** nuevos `lib/quotation-files.ts` y `lib/quotation-uploads-server.ts`. Modificados: `app/api/quotations/upload/route.ts`, `app/api/crm/quotations/route.ts`, `app/dashboard/accounts/page.tsx` (columna, indicador y filtro de cotización), `app/dashboard/accounts/[id]/page.tsx`, `app/dashboard/clients/page.tsx` (columna, indicador y filtro de contrato), `app/dashboard/clients/[id]/page.tsx`, `lib/client-completion.ts` y `app/dashboard/crm/prospects/[id]/page.tsx`. Eliminados: `lib/client-quotations-server.ts`, `app/api/clients/[id]/quotations/route.ts`, `app/api/clients/quotations-status/route.ts`, `components/clients/client-quotations-section.tsx`.
 - **Pendiente de revisar:** `entity_quotations.id = 6546b888-5e49-4282-986b-c644e33cc7f5` apunta a la cuenta `d170c62b-…` que ya no existe (archivo «Propuesta Abrek Construcción - A4R (1).pdf»). Se ignora en la app.
 
+## Anexo. Tablas con el componente compartido (`components/data-table.tsx`)
+
+Todas las tablas de listados de Orbit usan (o van a usar) el mismo componente `DataTable`. Al migrar a AI Studio o Cloud Run no hay que reescribir tablas una por una: basta con conservar este componente. No toca datos, filtros, totales, permisos ni acciones; solo cómo se muestran.
+
+- **Patrón:** columna de identificación fija a la izquierda y acciones fija a la derecha; encabezado fijo debajo de la barra superior; desplazamiento horizontal solo dentro de la tabla; textos largos recortados con «…» y completos al pasar el mouse; tarjetas en celulares.
+- **Preferencias del usuario (solo navegador, no van a la base):** columnas visibles en `localStorage` con la clave `table-columns:<tabla>:<id de usuario>`, y anchos de columna con la clave propia de cada tabla. No hay que migrarlas.
+- **Opciones disponibles:** encabezados ordenables (`sortable` + `sortValue`, o `sort`/`onSortChange` si la pantalla ordena por su cuenta), filas de resumen (`summaryRows`), totales al pie fijos (`footerRows`), filas expandibles (`renderExpanded`), apagar el selector de columnas (`useColumnVisibility(..., { configurable: false })`) y apagar las tarjetas (`mobileCards={false}`).
+
+**Tablas migradas**
+
+| Módulo | Tabla | Ruta | PR |
+| --- | --- | --- | --- |
+| Operaciones | Cuentas | `/dashboard/accounts` | #157 |
+| Comercial | Clientes | `/dashboard/clients` | #157 |
+
 ## Riesgos (de mayor a menor)
 
 1. **139 páginas de navegador consultan la base directamente con `supabase-js`.** Cloud SQL no tiene una API pública equivalente, así que cada lectura y escritura debe pasar a rutas del servidor. Es el trabajo más grande y donde es más fácil olvidar algo. Mitigación: migrar por módulos y usar una capa de datos común en el servidor.
