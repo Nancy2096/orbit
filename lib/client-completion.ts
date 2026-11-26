@@ -48,6 +48,13 @@ export const COMPLETION_CATEGORIES: CompletionCategory[] = [
     label: "Contrato",
     fields: ["contract_url"],
   },
+  {
+    key: "quotation",
+    label: "Cotización",
+    // Campo calculado: true si el cliente tiene al menos una cotización
+    // (propia, de su prospecto de origen o de sus cuentas).
+    fields: ["has_quotation"],
+  },
 ]
 
 function isFilled(value: unknown): boolean {

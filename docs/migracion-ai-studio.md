@@ -461,6 +461,17 @@ Objetos nuevos que deben existir en Cloud SQL (todo es PostgreSQL estándar, sin
 - **Dependencias de la app:** rutas de servidor que usan `createAdminClient` (service role) y `supabase.auth.getUser()` para identificar al usuario; al pasar a Firebase Auth, el `p_user` se toma del token verificado.
 - **Datos que dependen de esto:** las 8 nóminas pagadas antes del cambio siguen con movimientos agrupados por banco (`source_type = 'payroll_period'`) y se tratan como *esquema anterior*.
 
+## Anexo. Cotizaciones del cliente (`scripts/client_quotations.sql`)
+
+- **Tabla nueva:** `client_quotations` (`id`, `client_id` → `clients` con `ON DELETE CASCADE`, `file_url`, `file_name`, `file_size`, `mime_type`, `uploaded_by` → `users` con `ON DELETE SET NULL`, `uploaded_by_name`, `uploaded_at`). Checks: nombre no vacío y tamaño positivo. Índice `idx_client_quotations_client (client_id, uploaded_at DESC)`.
+- **Índice nuevo:** `idx_crm_prospects_converted_client` sobre `crm_prospects.converted_to_client_id` (parcial, no nulos).
+- **RLS:** activado sin políticas; solo se accede desde el servidor con service role. En Cloud SQL, permisos para el rol de la aplicación.
+- **Sin copia de datos:** las cotizaciones del prospecto de origen (`crm_prospect_quotations` vía `converted_to_client_id`) y de las cuentas del cliente (`entity_quotations` con `owner_type = 'account'`) se leen en su tabla original y se muestran solo para consulta.
+- **Cambio en datos nuevos:** `crm_prospect_quotations.uploaded_by` (→ `staff`) ahora se llena al subir; los registros anteriores no se modificaron.
+- **Archivos en Blob:** prefijo nuevo `client-quotations/<client_id>/...` (store privado, servido por `/api/file`). Tipos permitidos: PDF, Word, Excel e imagen (JPG, PNG, WEBP); máximo 25 MB, validado en el servidor (token de subida y verificación con `head()` al registrar). Las cotizaciones de prospectos (`quotations/...`) usan la misma validación.
+- **Código nuevo:** `lib/quotation-files.ts`, `lib/client-quotations-server.ts`, `app/api/clients/[id]/quotations/route.ts`, `app/api/clients/quotations-status/route.ts`, `components/clients/client-quotations-section.tsx`. Modificados: `lib/client-completion.ts` (categoría «Cotización»), `app/dashboard/clients/page.tsx`, `app/dashboard/clients/[id]/page.tsx`, `app/api/crm/quotations/route.ts` y `app/dashboard/crm/prospects/[id]/page.tsx`.
+- **Pendiente de revisar:** `entity_quotations.id = 6546b888-5e49-4282-986b-c644e33cc7f5` apunta a la cuenta `d170c62b-…` que ya no existe (archivo «Propuesta Abrek Construcción - A4R (1).pdf»). Se ignora en la app.
+
 ## Riesgos (de mayor a menor)
 
 1. **139 páginas de navegador consultan la base directamente con `supabase-js`.** Cloud SQL no tiene una API pública equivalente, así que cada lectura y escritura debe pasar a rutas del servidor. Es el trabajo más grande y donde es más fácil olvidar algo. Mitigación: migrar por módulos y usar una capa de datos común en el servidor.

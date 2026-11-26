@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { usePersistentState } from "@/hooks/use-persistent-state"
+import useSWR from "swr"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -95,6 +96,7 @@ const defaultColumns: ColumnDef[] = [
   { key: "location", label: "Ubicación", visible: true, filterable: true },
   { key: "payment_terms", label: "Términos", visible: true, filterable: false },
   { key: "completion", label: "Avance", visible: true, filterable: false },
+  { key: "quotation", label: "Cotización", visible: true, filterable: true },
   { key: "status", label: "Estado", visible: true, filterable: true },
 ]
 
@@ -104,6 +106,13 @@ interface Filters {
   industry_id: string
   referral_source_id: string
   city: string
+  quotation?: "all" | "yes" | "no"
+}
+
+const quotationStatusFetcher = async (url: string) => {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error("No se pudo cargar el estado de cotizaciones")
+  return res.json() as Promise<{ clientIds: string[] }>
 }
 
 export default function ClientsPage() {
@@ -118,8 +127,17 @@ export default function ClientsPage() {
     industry_id: "all",
     referral_source_id: "all",
     city: "all",
+    quotation: "all",
   })
   const [showFilters, setShowFilters] = useState(false)
+  const { data: quotationStatus, isLoading: quotationStatusLoading } = useSWR(
+    "/api/clients/quotations-status",
+    quotationStatusFetcher,
+  )
+  const clientsWithQuotation = useMemo(
+    () => new Set(quotationStatus?.clientIds ?? []),
+    [quotationStatus],
+  )
   const [showInactive, setShowInactive] = useState(false)
   
   // Catalogs for filters
@@ -191,6 +209,7 @@ export default function ClientsPage() {
       industry_id: "all",
       referral_source_id: "all",
       city: "all",
+      quotation: "all",
     })
   }
 
@@ -222,10 +241,15 @@ export default function ClientsPage() {
       const matchesIndustry = !filters.industry_id || filters.industry_id === "all" || c.industry_id === filters.industry_id
       const matchesSource = !filters.referral_source_id || filters.referral_source_id === "all" || c.referral_source_id === filters.referral_source_id
       const matchesCity = !filters.city || filters.city === "all" || c.city === filters.city
+      const hasQuotation = clientsWithQuotation.has(c.id)
+      const matchesQuotation =
+        !filters.quotation ||
+        filters.quotation === "all" ||
+        (filters.quotation === "yes" ? hasQuotation : !hasQuotation)
 
-      return matchesSearch && matchesStatus && matchesAgency && matchesIndustry && matchesSource && matchesCity
+      return matchesSearch && matchesStatus && matchesAgency && matchesIndustry && matchesSource && matchesCity && matchesQuotation
     })
-  }, [clients, searchTerm, filters])
+  }, [clients, searchTerm, filters, clientsWithQuotation])
 
   const activeClients = useMemo(
     () => filteredClients.filter((c) => c.status === "active"),
@@ -327,8 +351,25 @@ export default function ClientsPage() {
                       <div className="text-sm">{client.payment_terms} días</div>
                     )}
                     {column.key === "completion" && (
-                      <ClientCompletionBar percentage={getClientOverallCompletion(client)} />
+                      <ClientCompletionBar
+                        percentage={getClientOverallCompletion({
+                          ...client,
+                          has_quotation: clientsWithQuotation.has(client.id),
+                        })}
+                      />
                     )}
+                    {column.key === "quotation" &&
+                      (quotationStatusLoading ? (
+                        <span className="text-sm text-muted-foreground">...</span>
+                      ) : clientsWithQuotation.has(client.id) ? (
+                        <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
+                          Sí
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          No
+                        </Badge>
+                      ))}
                     {column.key === "status" && (
                           <Badge variant={statusLabels[client.status]?.variant || "outline"} className={statusLabels[client.status]?.className}>
                             {statusLabels[client.status]?.label || client.status}
@@ -546,6 +587,25 @@ export default function ClientsPage() {
                             </SelectContent>
                           </Select>
                         </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Cotización</Label>
+                          <Select
+                            value={filters.quotation ?? "all"}
+                            onValueChange={(value) =>
+                              setFilters({ ...filters, quotation: value as Filters["quotation"] })
+                            }
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todas" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas</SelectItem>
+                              <SelectItem value="yes">Con cotización</SelectItem>
+                              <SelectItem value="no">Sin cotización</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
                   </PopoverContent>
@@ -620,6 +680,15 @@ export default function ClientsPage() {
                     <X 
                       className="h-3 w-3 cursor-pointer" 
                       onClick={() => setFilters({ ...filters, city: "all" })}
+                    />
+                  </Badge>
+                )}
+                {filters.quotation && filters.quotation !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    {filters.quotation === "yes" ? "Con cotización" : "Sin cotización"}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, quotation: "all" })}
                     />
                   </Badge>
                 )}

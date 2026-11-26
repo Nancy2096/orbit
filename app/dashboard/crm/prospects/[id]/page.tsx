@@ -87,6 +87,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
+import { safeBlobFileName, validateQuotationFile } from "@/lib/quotation-files"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1496,21 +1497,19 @@ state_province: prospectData.state_province || "",
     const file = event.target.files?.[0]
     if (!file) return
 
-    const allowedExtensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp"]
-    const hasAllowedExtension = allowedExtensions.some((ext) => file.name.toLowerCase().endsWith(ext))
-    if (!hasAllowedExtension) {
-      toast.error("Formato no permitido. Sube PDF, Word, Excel o imagen (JPG, PNG).")
+    const validationError = validateQuotationFile(file)
+    if (validationError) {
+      toast.error(validationError)
+      event.target.value = ""
       return
     }
 
     setUploadingQuotation(true)
 
     try {
-      // Sube el archivo DIRECTO a Vercel Blob (store privado), sin pasar por el
-      // servidor, así no aplica el límite de ~4.5MB de los Route Handlers ni
-      // ninguna restricción de peso.
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
-      const blob = await upload(`quotations/${prospectId}/${Date.now()}-${safeName}`, file, {
+      // Sube el archivo directo a Vercel Blob (store privado); el servidor
+      // valida tipo y tamaño al emitir el token y al registrar la cotización.
+      const blob = await upload(`quotations/${prospectId}/${Date.now()}-${safeBlobFileName(file.name)}`, file, {
         access: "private",
         handleUploadUrl: "/api/crm/quotations",
       })
@@ -1523,7 +1522,6 @@ state_province: prospectData.state_province || "",
           prospectId,
           url: blob.url,
           filename: file.name,
-          fileSize: file.size,
         }),
       })
 
