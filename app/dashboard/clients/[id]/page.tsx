@@ -18,6 +18,7 @@ import { ArrowLeft, Building2, User, CreditCard, Plus, Trash2, Instagram, Facebo
 import { getCountries, getStatesByCountry, getCitiesByState, getPostalCodesByCity, getCountryCodeByName } from "@/lib/locations-data"
 import { ClientCompletionDetail } from "@/components/client-completion-chart"
 import { getClientCompletionByCategory } from "@/lib/client-completion"
+import { ClientQuotationsSection, useClientQuotations } from "@/components/clients/client-quotations-section"
 
 // Opciones de Régimen Fiscal México
 const TAX_REGIMES = [
@@ -137,6 +138,7 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
   const [additionalContacts, setAdditionalContacts] = useState<Contact[]>([])
   const [contract, setContract] = useState<{ url: string; filename: string; uploaded_at: string | null } | null>(null)
   const [uploadingContract, setUploadingContract] = useState(false)
+  const clientQuotations = useClientQuotations(id)
   const [contactDialogOpen, setContactDialogOpen] = useState(false)
   const [editingContactIndex, setEditingContactIndex] = useState<number | null>(null)
   const [contactForm, setContactForm] = useState<Contact>({
@@ -527,7 +529,11 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
   const visibleContacts = additionalContacts.filter(c => !c.isDeleted)
 
   // Combina los datos del formulario con el contrato para calcular la completitud.
-  const completionSource = { ...formData, contract_url: contract?.url || null }
+  const completionSource = {
+    ...formData,
+    contract_url: contract?.url || null,
+    has_quotation: clientQuotations.total > 0,
+  }
   const completionData = getClientCompletionByCategory(completionSource)
 
   return (
@@ -1208,6 +1214,8 @@ export default function EditClientPage({ params }: { params: Promise<{ id: strin
               )}
             </CardContent>
           </Card>
+
+          <ClientQuotationsSection clientId={id} quotations={clientQuotations} />
 
           {error && (
             <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-sm">

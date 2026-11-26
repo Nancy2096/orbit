@@ -2,6 +2,8 @@ import { del } from "@vercel/blob"
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { QUOTATION_ALLOWED_CONTENT_TYPES, QUOTATION_MAX_SIZE_BYTES } from "@/lib/quotation-files"
+import { getStaffIdForUser, verifyUploadedQuotation } from "@/lib/client-quotations-server"
 
 // POST: genera el token para subir el archivo DIRECTO a Vercel Blob desde el
 // cliente. Esto evita el límite de ~4.5MB de los Route Handlers, por lo que la
@@ -13,9 +15,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const jsonResponse = await handleUpload({
       body,
       request,
-      onBeforeGenerateToken: async () => {
+      onBeforeGenerateToken: async (pathname) => {
+        const supabase = await createClient()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (!user) throw new Error("No autenticado")
+
+        // Las cotizaciones (quotations/...) se limitan a PDF, Word, Excel o imagen
+        // y a un tamaño máximo. Otras subidas que usan este endpoint (p. ej.
+        // adjuntos de actividades) conservan su comportamiento.
+        if (pathname.startsWith("quotations/")) {
+          return {
+            access: "private",
+            addRandomSuffix: false,
+            allowedContentTypes: QUOTATION_ALLOWED_CONTENT_TYPES,
+            maximumSizeInBytes: QUOTATION_MAX_SIZE_BYTES,
+          }
+        }
         return {
-          // Store privado, sin restricción de peso ni de tipo de archivo.
           access: "private",
           addRandomSuffix: false,
         }
@@ -39,13 +57,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 // calculando el número de versión correspondiente.
 export async function PATCH(request: NextRequest) {
   try {
-    const { prospectId, url, filename, fileSize } = await request.json()
+    const { prospectId, url, filename } = await request.json()
 
-    if (!prospectId || !url) {
+    if (!prospectId || !url || !filename) {
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 })
     }
 
     const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    }
+
+    const check = await verifyUploadedQuotation(url, `quotations/${prospectId}/`, filename)
+    if (!check.ok) {
+      return NextResponse.json({ error: check.error }, { status: 400 })
+    }
+    const fileSize = check.size
+    const uploadedBy = await getStaffIdForUser(user.id)
 
     // Verify prospect exists
     const { data: prospect, error: prospectError } = await supabase
@@ -74,8 +105,9 @@ export async function PATCH(request: NextRequest) {
         prospect_id: prospectId,
         file_name: filename,
         file_url: url,
-        file_size: fileSize ?? null,
+        file_size: fileSize,
         version,
+        uploaded_by: uploadedBy,
       })
       .select()
       .single()
