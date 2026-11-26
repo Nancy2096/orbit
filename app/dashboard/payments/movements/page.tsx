@@ -5,14 +5,7 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { usePermissions } from "@/components/dashboard/permissions-provider"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { ColumnVisibilityMenu, DataTable, useColumnVisibility, type DataTableColumn } from "@/components/data-table"
 import {
   Select,
   SelectContent,
@@ -383,6 +376,126 @@ function MovementsContent() {
   const fmt = (n: number) =>
     n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+  const movementColumns: DataTableColumn<Movement>[] = [
+    {
+      key: "description",
+      label: "Descripción",
+      pinned: true,
+      width: 240,
+      fullText: (m) => m.description || (m.payrollPeriodId ? "Pago de nómina" : null),
+      cell: (m) => {
+        if (!m.payrollPeriodId) {
+          return m.description || <span className="text-muted-foreground">—</span>
+        }
+        const acct = accountById.get(m.bank_account_id)
+        return (
+          <button
+            type="button"
+            className="max-w-full truncate text-left font-medium text-primary underline-offset-4 hover:underline"
+            onClick={() =>
+              setPayrollTarget({
+                movementId: String(m.id),
+                movementDate: m.movement_date ?? null,
+                periodId: m.payrollPeriodId as string,
+                bankName: acct?.bank_name || "",
+                bankCurrencyCode: acct?.currency?.code || "MXN",
+                movementAmount: Number(m.amount),
+              })
+            }
+            title="Ver integración de la nómina"
+          >
+            {m.description || "Pago de nómina"}
+          </button>
+        )
+      },
+    },
+    {
+      key: "date",
+      label: "Fecha",
+      width: 110,
+      cell: (m) => new Date(m.movement_date + "T00:00:00").toLocaleDateString("es-MX"),
+    },
+    {
+      key: "amount",
+      label: "Monto",
+      width: 140,
+      align: "right",
+      cell: (m) => {
+        const isIngreso = m.movement_type === "ingreso"
+        const acct = accountById.get(m.bank_account_id)
+        return (
+          <span className={`font-semibold tabular-nums ${isIngreso ? "text-emerald-600" : "text-red-600"}`}>
+            {isIngreso ? "+" : "-"}
+            {acct?.currency?.symbol || "$"}
+            {fmt(Number(m.amount))}
+          </span>
+        )
+      },
+    },
+    {
+      key: "type",
+      label: "Tipo",
+      width: 110,
+      cell: (m) => {
+        const isIngreso = m.movement_type === "ingreso"
+        return (
+          <Badge
+            variant="outline"
+            className={
+              isIngreso
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-red-200 bg-red-50 text-red-700"
+            }
+          >
+            {isIngreso ? <ArrowUpRight className="mr-1 h-3 w-3" /> : <ArrowDownRight className="mr-1 h-3 w-3" />}
+            {isIngreso ? "Ingreso" : "Salida"}
+          </Badge>
+        )
+      },
+    },
+    {
+      key: "category",
+      label: "Categoría",
+      width: 130,
+      cell: (m) => <Badge variant="secondary">{CATEGORY_LABELS[m.category] || m.category}</Badge>,
+    },
+    {
+      key: "bank",
+      label: "Banco / Cuenta",
+      width: 180,
+      fullText: (m) => {
+        const acct = accountById.get(m.bank_account_id)
+        return [acct?.bank_name, acct?.agency?.name].filter(Boolean).join(" · ")
+      },
+      cell: (m) => {
+        const acct = accountById.get(m.bank_account_id)
+        return (
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate">{acct?.bank_name}</span>
+            {acct?.agency?.name ? (
+              <span className="truncate text-xs text-muted-foreground">{acct.agency.name}</span>
+            ) : null}
+          </div>
+        )
+      },
+    },
+    {
+      key: "reference",
+      label: "Referencia",
+      width: 160,
+      fullText: (m) => m.reference,
+      cell: (m) => m.reference || <span className="text-muted-foreground">—</span>,
+    },
+  ]
+  const movementVisibility = useColumnVisibility("bank-movements", movementColumns)
+
+  const renderMovementActions = (m: Movement) =>
+    m.deletable ? (
+      <Button variant="ghost" size="icon" onClick={() => handleDelete(m)} aria-label="Eliminar movimiento">
+        <Trash2 className="h-4 w-4 text-muted-foreground" />
+      </Button>
+    ) : null
+
   const bankTitle = bankNameParam || "Todos los bancos"
 
   const buildExportRows = () =>
@@ -654,8 +767,9 @@ function MovementsContent() {
       </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-base">Detalle de movimientos</CardTitle>
+          <ColumnVisibilityMenu visibility={movementVisibility} />
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -668,106 +782,15 @@ function MovementsContent() {
               &quot;Todo&quot; para ver el historial completo.
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Banco / Cuenta</TableHead>
-                  <TableHead>Descripción</TableHead>
-                  <TableHead>Referencia</TableHead>
-                  <TableHead className="text-right">Monto</TableHead>
-                  {canManage && <TableHead className="w-10" />}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredMovements.map((m) => {
-                  const acct = accountById.get(m.bank_account_id)
-                  const isIngreso = m.movement_type === "ingreso"
-                  return (
-                    <TableRow key={m.id}>
-                      <TableCell className="whitespace-nowrap">
-                        {new Date(m.movement_date + "T00:00:00").toLocaleDateString("es-MX")}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={
-                            isIngreso
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : "border-red-200 bg-red-50 text-red-700"
-                          }
-                        >
-                          {isIngreso ? (
-                            <ArrowUpRight className="mr-1 h-3 w-3" />
-                          ) : (
-                            <ArrowDownRight className="mr-1 h-3 w-3" />
-                          )}
-                          {isIngreso ? "Ingreso" : "Salida"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{CATEGORY_LABELS[m.category] || m.category}</Badge>
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {acct?.bank_name}
-                        {acct?.agency?.name ? (
-                          <span className="block text-xs text-muted-foreground">{acct.agency.name}</span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="max-w-xs">
-                        {m.payrollPeriodId ? (
-                          <button
-                            type="button"
-                            className="text-left font-medium text-primary underline-offset-4 hover:underline"
-                            onClick={() =>
-                              setPayrollTarget({
-                                movementId: String(m.id),
-                                movementDate: m.movement_date ?? null,
-                                periodId: m.payrollPeriodId as string,
-                                bankName: acct?.bank_name || "",
-                                bankCurrencyCode: acct?.currency?.code || "MXN",
-                                movementAmount: Number(m.amount),
-                              })
-                            }
-                            title="Ver integración de la nómina"
-                          >
-                            {m.description || "Pago de nómina"}
-                          </button>
-                        ) : (
-                          m.description || <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {m.reference || <span className="text-muted-foreground">—</span>}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right font-semibold ${isIngreso ? "text-emerald-600" : "text-red-600"}`}
-                      >
-                        {isIngreso ? "+" : "-"}
-                        {acct?.currency?.symbol || "$"}
-                        {fmt(Number(m.amount))}
-                      </TableCell>
-                      {canManage && (
-                        <TableCell>
-                          {m.deletable && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDelete(m)}
-                              aria-label="Eliminar movimiento"
-                            >
-                              <Trash2 className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          )}
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+            <DataTable
+              ariaLabel="Detalle de movimientos"
+              rows={filteredMovements}
+              columns={movementVisibility.visibleColumns}
+              getRowKey={(m) => m.id}
+              renderActions={canManage ? renderMovementActions : undefined}
+              widthsStorageKey="bank-movements-column-widths"
+              mobileFieldKeys={["date", "amount", "type", "bank"]}
+            />
           )}
         </CardContent>
       </Card>

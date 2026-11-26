@@ -9,14 +9,19 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
+import { ColumnVisibilityMenu, DataTable, useColumnVisibility, type DataTableColumn } from "@/components/data-table"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Select,
   SelectContent,
@@ -48,6 +53,7 @@ import {
   ChevronRight,
   ArrowLeft,
   FileCheck,
+  MoreHorizontal,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -516,6 +522,138 @@ function PeriodDetailView({
     })
   }
 
+  const preInvoiceMobileFields = ["client", "status", "total"]
+
+  const preInvoiceColumns = useMemo<DataTableColumn<PreInvoiceRow>[]>(
+    () => [
+      {
+        key: "number",
+        label: "Número",
+        pinned: true,
+        width: 190,
+        fullText: (r) => r.pre_invoice_number,
+        cell: (r) => (
+          <span className="flex min-w-0 items-center gap-2">
+            <Checkbox
+              checked={selectedIds.has(r.id)}
+              onCheckedChange={() => toggleOne(r.id)}
+              disabled={r.status === "invoiced" || r.status === "cancelled"}
+              aria-label={`Seleccionar prefactura ${r.pre_invoice_number}`}
+            />
+            <Link
+              href={`/dashboard/pre-invoices/${r.id}`}
+              className="truncate font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {r.pre_invoice_number}
+            </Link>
+          </span>
+        ),
+      },
+      {
+        key: "client",
+        label: "Cliente",
+        width: 200,
+        fullText: (r) => r.client?.company_name,
+        cell: (r) => r.client?.company_name || "-",
+      },
+      {
+        key: "status",
+        label: "Estado",
+        width: 130,
+        cell: (r) => (
+          <Badge variant={STATUS_VARIANTS[r.status]} className={STATUS_CLASSES[r.status]}>
+            {STATUS_LABELS[r.status]}
+          </Badge>
+        ),
+      },
+      {
+        key: "total",
+        label: "Total",
+        width: 140,
+        align: "right",
+        cell: (r) => <span className="tabular-nums">{formatCurrency(r.total, r.currency)}</span>,
+      },
+      {
+        key: "source",
+        label: "Origen",
+        width: 220,
+        fullText: (r) => r.account?.account_name || r.project?.name,
+        cell: (r) => (
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate">{r.account?.account_name || r.project?.name || "-"}</span>
+            <span className="text-xs text-muted-foreground">
+              {r.source_type === "account" ? "Cuenta" : "Proyecto"}
+            </span>
+          </div>
+        ),
+      },
+      {
+        key: "agency",
+        label: "Agencia",
+        width: 160,
+        fullText: (r) => r.agency?.name,
+        cell: (r) => r.agency?.name || "-",
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedIds],
+  )
+  const columnVisibility = useColumnVisibility("pre-invoices", preInvoiceColumns)
+
+  const renderPreInvoiceActions = (r: PreInvoiceRow) => {
+    const busy = statusUpdatingId === r.id || refreshingId === r.id || deletingId === r.id
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            disabled={busy}
+            aria-label={`Acciones de la prefactura ${r.pre_invoice_number}`}
+          >
+            {busy ? <Spinner className="h-4 w-4" /> : <MoreHorizontal className="h-4 w-4" />}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem asChild>
+            <Link href={`/dashboard/pre-invoices/${r.id}`}>
+              <Eye className="mr-2 h-4 w-4" />
+              Ver
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Cambiar estado</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup
+                value={r.status}
+                onValueChange={(v) => onStatusChange(r.id, v as PreInvoiceStatus)}
+              >
+                {(Object.keys(STATUS_LABELS) as PreInvoiceStatus[]).map((s) => (
+                  <DropdownMenuRadioItem key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuItem onClick={() => onRefresh(r.id)}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Actualizar montos
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => onDelete(r.id, r.pre_invoice_number)}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Borrar prefactura
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+
   return (
     <>
       <div className="mb-4 flex flex-col gap-3">
@@ -569,6 +707,20 @@ function PeriodDetailView({
               ))}
             </SelectContent>
           </Select>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="pre-invoices-select-all"
+              checked={allSelected ? true : someSelected ? "indeterminate" : false}
+              onCheckedChange={toggleAll}
+              disabled={selectableIds.length === 0}
+            />
+            <label htmlFor="pre-invoices-select-all" className="cursor-pointer text-sm">
+              Seleccionar todas las facturables
+            </label>
+          </div>
+          <div className="sm:ml-auto">
+            <ColumnVisibilityMenu visibility={columnVisibility} />
+          </div>
         </div>
       </div>
 
@@ -586,129 +738,15 @@ function PeriodDetailView({
           </p>
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">
-                <Checkbox
-                  checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                  onCheckedChange={toggleAll}
-                  disabled={selectableIds.length === 0}
-                  aria-label="Seleccionar todas las prefacturas facturables"
-                />
-              </TableHead>
-              <TableHead>Número</TableHead>
-              <TableHead>Origen</TableHead>
-              <TableHead>Cliente</TableHead>
-              <TableHead>Agencia</TableHead>
-              <TableHead>Estado</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead className="text-right">Acciones</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((r) => {
-              const canSelect = r.status !== "invoiced" && r.status !== "cancelled"
-              return (
-              <TableRow key={r.id} data-state={selectedIds.has(r.id) ? "selected" : undefined}>
-                <TableCell>
-                  <Checkbox
-                    checked={selectedIds.has(r.id)}
-                    onCheckedChange={() => toggleOne(r.id)}
-                    disabled={!canSelect}
-                    aria-label={`Seleccionar prefactura ${r.pre_invoice_number}`}
-                  />
-                </TableCell>
-                <TableCell className="font-medium">
-                  <Link
-                    href={`/dashboard/pre-invoices/${r.id}`}
-                    className="text-primary underline-offset-4 hover:underline"
-                  >
-                    {r.pre_invoice_number}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span>{r.account?.account_name || r.project?.name || "-"}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {r.source_type === "account" ? "Cuenta" : "Proyecto"}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell>{r.client?.company_name || "-"}</TableCell>
-                <TableCell>{r.agency?.name || "-"}</TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_VARIANTS[r.status]} className={STATUS_CLASSES[r.status]}>
-                    {STATUS_LABELS[r.status]}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">{formatCurrency(r.total, r.currency)}</TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Select
-                      value={r.status}
-                      onValueChange={(v) => onStatusChange(r.id, v as PreInvoiceStatus)}
-                      disabled={statusUpdatingId === r.id}
-                    >
-                      <SelectTrigger className="h-8 w-[130px]" title="Cambiar estado">
-                        {statusUpdatingId === r.id ? (
-                          <span className="flex items-center gap-1">
-                            <Spinner className="h-3 w-3" />
-                            Guardando
-                          </span>
-                        ) : (
-                          <SelectValue />
-                        )}
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(Object.keys(STATUS_LABELS) as PreInvoiceStatus[]).map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {STATUS_LABELS[s]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/dashboard/pre-invoices/${r.id}`}>
-                        <Eye className="mr-1 h-4 w-4" />
-                        Ver
-                      </Link>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onRefresh(r.id)}
-                      disabled={refreshingId === r.id}
-                      title="Actualizar montos con los datos de Cuentas/Proyectos"
-                    >
-                      {refreshingId === r.id ? (
-                        <Spinner className="mr-1 h-4 w-4" />
-                      ) : (
-                        <RefreshCw className="mr-1 h-4 w-4" />
-                      )}
-                      Actualizar
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => onDelete(r.id, r.pre_invoice_number)}
-                      disabled={deletingId === r.id}
-                      title="Borrar prefactura"
-                    >
-                      {deletingId === r.id ? (
-                        <Spinner className="h-4 w-4" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+        <DataTable
+          ariaLabel={`Prefacturas de ${label}`}
+          rows={rows}
+          columns={columnVisibility.visibleColumns}
+          getRowKey={(r) => r.id}
+          renderActions={renderPreInvoiceActions}
+          widthsStorageKey="pre-invoices-column-widths"
+          mobileFieldKeys={preInvoiceMobileFields}
+        />
       )}
 
       <AlertDialog open={confirmBillOpen} onOpenChange={(open) => !open && setConfirmBillOpen(false)}>

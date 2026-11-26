@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ColumnVisibilityMenu, DataTable, useColumnVisibility, type DataTableColumn } from "@/components/data-table"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,9 +22,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Truck, Filter, Settings2, Building2, Phone, Mail, X, Tag } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Truck, Filter, Building2, Phone, Mail, X, Tag } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,20 +60,122 @@ const vendorTypeLabels: Record<string, { label: string; variant: "default" | "se
   other: { label: "Otro", variant: "secondary" },
 }
 
-type ColumnKey = "name" | "legal_name" | "tax_id" | "vendor_type" | "contact" | "phone" | "email" | "city" | "agency" | "status"
-
-const allColumns: { key: ColumnKey; label: string }[] = [
-  { key: "name", label: "Nombre" },
-  { key: "legal_name", label: "Razón Social" },
-  { key: "tax_id", label: "RFC" },
-  { key: "vendor_type", label: "Tipo" },
-  { key: "contact", label: "Contacto" },
-  { key: "phone", label: "Teléfono" },
-  { key: "email", label: "Email" },
-  { key: "city", label: "Ciudad" },
-  { key: "agency", label: "Agencia" },
-  { key: "status", label: "Estado" },
+const vendorColumns: DataTableColumn<Vendor>[] = [
+  {
+    key: "name",
+    label: "Nombre",
+    pinned: true,
+    width: 240,
+    fullText: (v) => v.name,
+    cell: (vendor) => (
+      <Link
+        href={`/dashboard/vendors/${vendor.id}`}
+        className="flex min-w-0 items-center gap-2 font-medium hover:underline"
+      >
+        <Truck className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="truncate">{vendor.name}</span>
+      </Link>
+    ),
+  },
+  {
+    key: "vendor_type",
+    label: "Tipo",
+    width: 130,
+    cell: (vendor) => (
+      <Badge variant={vendorTypeLabels[vendor.vendor_type]?.variant || "secondary"}>
+        {vendorTypeLabels[vendor.vendor_type]?.label || vendor.vendor_type}
+      </Badge>
+    ),
+  },
+  {
+    key: "status",
+    label: "Estado",
+    width: 110,
+    cell: (vendor) => (
+      <Badge variant={vendor.is_active ? "default" : "secondary"}>
+        {vendor.is_active ? "Activo" : "Inactivo"}
+      </Badge>
+    ),
+  },
+  {
+    key: "contact",
+    label: "Contacto",
+    width: 180,
+    fullText: (v) => v.contact_name,
+    cell: (vendor) => vendor.contact_name || "-",
+  },
+  {
+    key: "phone",
+    label: "Teléfono",
+    width: 150,
+    fullText: (v) => v.contact_phone,
+    cell: (vendor) =>
+      vendor.contact_phone ? (
+        <span className="flex min-w-0 items-center gap-1">
+          <Phone className="h-3 w-3 shrink-0" />
+          <span className="truncate">{vendor.contact_phone}</span>
+        </span>
+      ) : (
+        "-"
+      ),
+  },
+  {
+    key: "email",
+    label: "Email",
+    width: 220,
+    defaultVisible: false,
+    fullText: (v) => v.contact_email,
+    cell: (vendor) =>
+      vendor.contact_email ? (
+        <span className="flex min-w-0 items-center gap-1">
+          <Mail className="h-3 w-3 shrink-0" />
+          <span className="truncate">{vendor.contact_email}</span>
+        </span>
+      ) : (
+        "-"
+      ),
+  },
+  {
+    key: "legal_name",
+    label: "Razón Social",
+    width: 220,
+    defaultVisible: false,
+    fullText: (v) => v.legal_name,
+    cell: (vendor) => <span className="text-muted-foreground">{vendor.legal_name || "-"}</span>,
+  },
+  {
+    key: "tax_id",
+    label: "RFC",
+    width: 150,
+    defaultVisible: false,
+    fullText: (v) => v.tax_id,
+    cell: (vendor) => <span className="font-mono text-sm">{vendor.tax_id || "-"}</span>,
+  },
+  {
+    key: "city",
+    label: "Ciudad",
+    width: 150,
+    fullText: (v) => v.city,
+    cell: (vendor) => vendor.city || "-",
+  },
+  {
+    key: "agency",
+    label: "Agencia",
+    width: 170,
+    fullText: (v) => v.agency?.name,
+    cell: (vendor) =>
+      vendor.agency ? (
+        <span className="flex min-w-0 items-center gap-1">
+          <Building2 className="h-3 w-3 shrink-0" />
+          <span className="truncate">{vendor.agency.name}</span>
+        </span>
+      ) : (
+        "-"
+      ),
+  },
 ]
+
+const vendorMobileFields = ["vendor_type", "status", "contact", "phone", "city", "agency"]
 
 export default function VendorsPage() {
   const [vendors, setVendors] = useState<Vendor[]>([])
@@ -84,10 +185,7 @@ export default function VendorsPage() {
   const [deleting, setDeleting] = useState(false)
   const [agencies, setAgencies] = useState<{ id: string; name: string }[]>([])
   
-  // Column visibility
-  const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>([
-    "name", "vendor_type", "contact", "phone", "city", "agency", "status"
-  ])
+  const columnVisibility = useColumnVisibility("vendors", vendorColumns)
   
   // Filters
   const [filters, setFilters] = useState({
@@ -175,11 +273,30 @@ export default function VendorsPage() {
     })
   }, [vendors, search, filters])
 
-  function toggleColumn(key: ColumnKey) {
-    setVisibleColumns(prev =>
-      prev.includes(key)
-        ? prev.filter(k => k !== key)
-        : [...prev, key]
+  function renderVendorActions(vendor: Vendor) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Acciones de ${vendor.name}`}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link href={`/dashboard/vendors/${vendor.id}`}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setDeleteId(vendor.id)}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Eliminar
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     )
   }
 
@@ -235,35 +352,7 @@ export default function VendorsPage() {
                 />
               </div>
               <div className="flex items-center gap-2">
-                {/* Column visibility */}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      <Settings2 className="h-4 w-4 mr-2" />
-                      Columnas
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-56" align="end">
-                    <div className="space-y-2">
-                      <p className="font-medium text-sm">Columnas visibles</p>
-                      {allColumns.map((col) => (
-                        <div key={col.key} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`col-${col.key}`}
-                            checked={visibleColumns.includes(col.key)}
-                            onCheckedChange={() => toggleColumn(col.key)}
-                          />
-                          <label
-                            htmlFor={`col-${col.key}`}
-                            className="text-sm cursor-pointer"
-                          >
-                            {col.label}
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
+                <ColumnVisibilityMenu visibility={columnVisibility} />
 
                 {/* Filters */}
                 <Popover>
@@ -395,122 +484,15 @@ export default function VendorsPage() {
                 )}
               </div>
             ) : (
-              <div className="rounded-md border overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {visibleColumns.includes("name") && <TableHead>Nombre</TableHead>}
-                      {visibleColumns.includes("legal_name") && <TableHead>Razón Social</TableHead>}
-                      {visibleColumns.includes("tax_id") && <TableHead>RFC</TableHead>}
-                      {visibleColumns.includes("vendor_type") && <TableHead>Tipo</TableHead>}
-                      {visibleColumns.includes("contact") && <TableHead>Contacto</TableHead>}
-                      {visibleColumns.includes("phone") && <TableHead>Teléfono</TableHead>}
-                      {visibleColumns.includes("email") && <TableHead>Email</TableHead>}
-                      {visibleColumns.includes("city") && <TableHead>Ciudad</TableHead>}
-                      {visibleColumns.includes("agency") && <TableHead>Agencia</TableHead>}
-                      {visibleColumns.includes("status") && <TableHead>Estado</TableHead>}
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredVendors.map((vendor) => (
-                      <TableRow key={vendor.id}>
-                        {visibleColumns.includes("name") && (
-                          <TableCell>
-                            <Link
-                              href={`/dashboard/vendors/${vendor.id}`}
-                              className="font-medium hover:underline flex items-center gap-2"
-                            >
-                              <Truck className="h-4 w-4 text-muted-foreground" />
-                              {vendor.name}
-                            </Link>
-                          </TableCell>
-                        )}
-                        {visibleColumns.includes("legal_name") && (
-                          <TableCell className="text-muted-foreground">{vendor.legal_name || "-"}</TableCell>
-                        )}
-                        {visibleColumns.includes("tax_id") && (
-                          <TableCell className="font-mono text-sm">{vendor.tax_id || "-"}</TableCell>
-                        )}
-                        {visibleColumns.includes("vendor_type") && (
-                          <TableCell>
-                            <Badge variant={vendorTypeLabels[vendor.vendor_type]?.variant || "secondary"}>
-                              {vendorTypeLabels[vendor.vendor_type]?.label || vendor.vendor_type}
-                            </Badge>
-                          </TableCell>
-                        )}
-                        {visibleColumns.includes("contact") && (
-                          <TableCell>{vendor.contact_name || "-"}</TableCell>
-                        )}
-                        {visibleColumns.includes("phone") && (
-                          <TableCell>
-                            {vendor.contact_phone ? (
-                              <span className="flex items-center gap-1">
-                                <Phone className="h-3 w-3" />
-                                {vendor.contact_phone}
-                              </span>
-                            ) : "-"}
-                          </TableCell>
-                        )}
-                        {visibleColumns.includes("email") && (
-                          <TableCell>
-                            {vendor.contact_email ? (
-                              <span className="flex items-center gap-1">
-                                <Mail className="h-3 w-3" />
-                                {vendor.contact_email}
-                              </span>
-                            ) : "-"}
-                          </TableCell>
-                        )}
-                        {visibleColumns.includes("city") && (
-                          <TableCell>{vendor.city || "-"}</TableCell>
-                        )}
-                        {visibleColumns.includes("agency") && (
-                          <TableCell>
-                            {vendor.agency ? (
-                              <span className="flex items-center gap-1">
-                                <Building2 className="h-3 w-3" />
-                                {vendor.agency.name}
-                              </span>
-                            ) : "-"}
-                          </TableCell>
-                        )}
-                        {visibleColumns.includes("status") && (
-                          <TableCell>
-                            <Badge variant={vendor.is_active ? "default" : "secondary"}>
-                              {vendor.is_active ? "Activo" : "Inactivo"}
-                            </Badge>
-                          </TableCell>
-                        )}
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem asChild>
-                                <Link href={`/dashboard/vendors/${vendor.id}`}>
-                                  <Pencil className="mr-2 h-4 w-4" />
-                                  Editar
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => setDeleteId(vendor.id)}
-                                className="text-destructive focus:text-destructive"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Eliminar
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <DataTable
+                ariaLabel="Proveedores"
+                rows={filteredVendors}
+                columns={columnVisibility.visibleColumns}
+                getRowKey={(vendor) => vendor.id}
+                renderActions={renderVendorActions}
+                widthsStorageKey="vendors-column-widths"
+                mobileFieldKeys={vendorMobileFields}
+              />
             )}
           </div>
         </CardContent>
