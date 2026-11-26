@@ -6,6 +6,8 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { FinanceHistory, refreshFinanceHistory } from "@/components/finance/finance-history"
 import { parseLocalDate } from "@/lib/utils"
+import { getDocumentPalette } from "@/lib/document-colors"
+import { InvoicePreviewDocument, InvoicePrintDocument } from "@/components/invoices/invoice-print-document"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -473,6 +475,8 @@ export default function InvoiceDetailPage() {
     font_family: "Inter",
     tagline: "",
   }
+
+  const docPalette = getDocumentPalette(branding)
 
   const getLogoUrl = (logoUrl: string | null) => {
     if (!logoUrl) return null
@@ -1099,94 +1103,23 @@ export default function InvoiceDetailPage() {
             </DialogDescription>
           </DialogHeader>
           
-          {/* Preview Container */}
-          <div 
-            className="border rounded-lg p-8 bg-white shadow-sm"
-            style={{ fontFamily: branding.font_family }}
-          >
-            {/* Preview Header */}
-            <div className="flex justify-between items-start mb-6 border-b-4 pb-4" style={{ borderColor: branding.primary_color }}>
-              <div className="flex items-center gap-4">
-                {invoice.agency?.logo_url ? (
-                  <img 
-                    src={getLogoUrl(invoice.agency.logo_url) || ""} 
-                    alt={invoice.agency.name || ""}
-                    className="h-16 w-auto object-contain"
-                  />
-                ) : (
-                  <div 
-                    className="h-16 w-16 rounded-lg flex items-center justify-center text-white font-bold text-xl"
-                    style={{ backgroundColor: branding.primary_color }}
-                  >
-                    {invoice.agency?.name?.charAt(0) || "A"}
-                  </div>
-                )}
-                <div>
-                  <h2 className="text-xl font-bold" style={{ color: branding.primary_color }}>
-                    {invoice.agency?.legal_name || invoice.agency?.name}
-                  </h2>
-                  {branding.tagline && <p className="text-xs italic" style={{ color: branding.secondary_color }}>{branding.tagline}</p>}
-                  {invoice.agency?.tax_id && <p className="text-xs" style={{ color: branding.text_color }}>RFC: {invoice.agency.tax_id}</p>}
-                </div>
-              </div>
-              <div className="text-right">
-                <h1 className="text-2xl font-bold" style={{ color: branding.primary_color }}>FACTURA</h1>
-                <p className="text-lg font-semibold" style={{ color: branding.text_color }}>{invoice.invoice_number}</p>
-                <p className="text-xs mt-1" style={{ color: branding.text_color }}>Fecha: {formatDate(invoice.issue_date)}</p>
-              </div>
-            </div>
-
-            {/* Preview Client & Total */}
-            <div className="grid grid-cols-2 gap-6 mb-6">
-              <div className="p-3 rounded-lg" style={{ backgroundColor: `${branding.secondary_color}10` }}>
-                <h3 className="font-bold text-xs mb-1 uppercase" style={{ color: branding.secondary_color }}>Facturar a:</h3>
-                <p className="font-medium text-sm" style={{ color: branding.text_color }}>{invoice.client?.company_name}</p>
-                {invoice.client?.address && <p className="text-xs" style={{ color: branding.text_color }}>{invoice.client.address}</p>}
-              </div>
-              <div className="text-right">
-                <div className="inline-block p-3 rounded-lg" style={{ backgroundColor: `${branding.primary_color}10` }}>
-                  <p className="text-xs" style={{ color: branding.text_color }}>Total</p>
-                  <p className="text-2xl font-bold" style={{ color: branding.primary_color }}>
-                    {formatCurrency(invoice.total_amount)}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Preview Items Summary */}
-            <div className="mb-6">
-              <div className="rounded-lg overflow-hidden border" style={{ borderColor: `${branding.primary_color}30` }}>
-                <div className="py-2 px-4 text-xs font-medium text-white" style={{ backgroundColor: branding.primary_color }}>
-                  {items.length} partida{items.length !== 1 ? "s" : ""} en esta factura
-                </div>
-                <div className="p-3 text-xs" style={{ color: branding.text_color }}>
-                  {items.slice(0, 3).map((item, i) => (
-                    <div key={item.id} className="flex justify-between py-1">
-                      <span className="truncate mr-4">{item.description}</span>
-                      <span className="font-medium">{formatCurrency(item.total)}</span>
-                    </div>
-                  ))}
-                  {items.length > 3 && (
-                    <p className="text-center mt-2 italic" style={{ color: branding.secondary_color }}>
-                      ...y {items.length - 3} partida{items.length - 3 !== 1 ? "s" : ""} más
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Preview Footer */}
-            <div className="text-center pt-4 border-t" style={{ borderColor: `${branding.primary_color}20` }}>
-              <p className="font-semibold text-sm" style={{ color: branding.primary_color }}>Gracias por su preferencia</p>
-              {branding.tagline && <p className="text-xs italic" style={{ color: branding.secondary_color }}>{branding.tagline}</p>}
-            </div>
-          </div>
+          <InvoicePreviewDocument
+            invoice={invoice}
+            items={items}
+            palette={docPalette}
+            logoUrl={getLogoUrl(invoice.agency?.logo_url ?? null)}
+            tagline={branding.tagline}
+            fontFamily={branding.font_family}
+            sourceNotes={getSourceNotes(invoice)}
+            formatCurrency={formatCurrency}
+            formatDate={formatDate}
+          />
 
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowPrintPreview(false)}>
               Cerrar
             </Button>
-            <Button onClick={() => window.print()} style={{ backgroundColor: branding.primary_color }}>
+            <Button onClick={() => window.print()} style={{ backgroundColor: docPalette.brand, color: docPalette.onBrand }}>
               <Printer className="mr-2 h-4 w-4" />
               Imprimir
             </Button>
@@ -1194,160 +1127,17 @@ export default function InvoiceDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Printable Invoice - Hidden on screen, visible only when printing */}
-      <div className="hidden print:block print:p-8" id="printable-invoice" style={{ fontFamily: branding.font_family }}>
-        {/* Header with Agency Logo and Branding */}
-        <div className="flex justify-between items-start mb-8 border-b-4 pb-6" style={{ borderColor: branding.primary_color }}>
-          <div className="flex items-center gap-4">
-            {invoice.agency?.logo_url ? (
-              <img 
-                src={getLogoUrl(invoice.agency.logo_url) || ""} 
-                alt={invoice.agency.name || ""}
-                className="h-20 w-auto object-contain"
-              />
-            ) : (
-              <div 
-                className="h-20 w-20 rounded-lg flex items-center justify-center text-white font-bold text-2xl"
-                style={{ backgroundColor: branding.primary_color }}
-              >
-                {invoice.agency?.name?.charAt(0) || "A"}
-              </div>
-            )}
-            <div>
-              <h2 className="text-2xl font-bold" style={{ color: branding.primary_color }}>
-                {invoice.agency?.legal_name || invoice.agency?.name}
-              </h2>
-              {branding.tagline && <p className="text-sm italic" style={{ color: branding.secondary_color }}>{branding.tagline}</p>}
-              {invoice.agency?.tax_id && <p className="text-sm" style={{ color: branding.text_color }}>RFC: {invoice.agency.tax_id}</p>}
-              {invoice.agency?.address && <p className="text-sm" style={{ color: branding.text_color }}>{invoice.agency.address}</p>}
-              {invoice.agency?.phone && <p className="text-sm" style={{ color: branding.text_color }}>Tel: {invoice.agency.phone}</p>}
-            </div>
-          </div>
-          <div className="text-right">
-            <h1 className="text-4xl font-bold" style={{ color: branding.primary_color }}>FACTURA</h1>
-            <p className="text-2xl font-semibold mt-2" style={{ color: branding.text_color }}>{invoice.invoice_number}</p>
-            <div className="mt-3 text-sm" style={{ color: branding.text_color }}>
-              <p>Fecha: {formatDate(invoice.issue_date)}</p>
-              <p>Vencimiento: {formatDate(invoice.due_date)}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Client Info */}
-        <div className="grid grid-cols-2 gap-8 mb-8">
-          <div className="p-4 rounded-lg" style={{ backgroundColor: `${branding.secondary_color}15` }}>
-            <h3 className="font-bold text-sm mb-2 uppercase" style={{ color: branding.secondary_color }}>Facturar a:</h3>
-            <p className="font-bold text-lg" style={{ color: branding.text_color }}>{invoice.client?.legal_name || invoice.client?.company_name}</p>
-            {invoice.client?.rfc && <p className="text-sm" style={{ color: branding.text_color }}>RFC: {invoice.client.rfc}</p>}
-            {invoice.client?.address && <p className="text-sm" style={{ color: branding.text_color }}>{invoice.client.address}</p>}
-            {invoice.client?.email && <p className="text-sm" style={{ color: branding.text_color }}>{invoice.client.email}</p>}
-          </div>
-          <div className="text-right">
-            <div className="inline-block p-4 rounded-lg" style={{ backgroundColor: `${branding.primary_color}15` }}>
-              <p className="text-sm" style={{ color: branding.text_color }}>Total a Pagar</p>
-              <p className="text-4xl font-bold" style={{ color: branding.primary_color }}>
-                {formatCurrency(invoice.total_amount)}
-              </p>
-              <p className="text-sm" style={{ color: branding.text_color }}>{invoice.currency?.code || "MXN"}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Items Table */}
-        <table className="w-full mb-8">
-          <thead>
-            <tr style={{ backgroundColor: branding.primary_color }} className="text-white">
-              <th className="text-left py-3 px-4 rounded-tl-lg">Descripción</th>
-              <th className="text-center py-3 px-4">Cant.</th>
-              <th className="text-right py-3 px-4">Precio Unit.</th>
-              <th className="text-right py-3 px-4 rounded-tr-lg">Importe</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, index) => (
-              <tr key={item.id} style={{ backgroundColor: index % 2 === 0 ? `${branding.secondary_color}10` : "transparent" }}>
-                <td className="py-3 px-4" style={{ color: branding.text_color }}>
-                  {item.description}
-                  {item.service && <span className="text-sm block" style={{ color: `${branding.text_color}99` }}>{item.service.name}</span>}
-                </td>
-                <td className="text-center py-3 px-4" style={{ color: branding.text_color }}>{item.quantity}</td>
-                <td className="text-right py-3 px-4" style={{ color: branding.text_color }}>{formatCurrency(item.unit_price)}</td>
-                <td className="text-right py-3 px-4" style={{ color: branding.text_color }}>{formatCurrency(item.total)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* Totals */}
-        <div className="flex justify-end mb-8">
-          <div className="w-72 border rounded-lg overflow-hidden" style={{ borderColor: `${branding.primary_color}30` }}>
-            <div className="flex justify-between py-2 px-4" style={{ backgroundColor: `${branding.secondary_color}15` }}>
-              <span style={{ color: branding.text_color }}>Subtotal:</span>
-              <span style={{ color: branding.text_color }}>{formatCurrency(invoice.subtotal)}</span>
-            </div>
-            {invoice.discount_amount > 0 && (
-              <div className="flex justify-between py-2 px-4">
-                <span style={{ color: branding.text_color }}>Descuento:</span>
-                <span style={{ color: branding.accent_color }}>-{formatCurrency(invoice.discount_amount)}</span>
-              </div>
-            )}
-            <div className="flex justify-between py-2 px-4" style={{ backgroundColor: `${branding.secondary_color}15` }}>
-              <span style={{ color: branding.text_color }}>IVA ({invoice.tax_rate || 16}%):</span>
-              <span style={{ color: branding.text_color }}>{formatCurrency(invoice.tax_amount)}</span>
-            </div>
-            <div className="flex justify-between py-3 px-4 font-bold text-lg" style={{ backgroundColor: branding.primary_color, color: "white" }}>
-              <span>Total:</span>
-              <span>{formatCurrency(invoice.total_amount)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Notes */}
-        {(getSourceNotes(invoice) || invoice.notes) && (
-          <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: `${branding.accent_color}15` }}>
-            <h4 className="font-bold text-sm mb-1" style={{ color: branding.accent_color }}>Notas:</h4>
-            {getSourceNotes(invoice) && (
-              <p className="text-sm whitespace-pre-line" style={{ color: branding.text_color }}>{getSourceNotes(invoice)}</p>
-            )}
-            {invoice.notes && (
-              <p className="text-sm whitespace-pre-line mt-2 first:mt-0" style={{ color: branding.text_color }}>{invoice.notes}</p>
-            )}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="mt-8 pt-6 border-t text-center text-sm" style={{ borderColor: `${branding.primary_color}30`, color: branding.text_color }}>
-          <p className="font-semibold text-lg" style={{ color: branding.primary_color }}>Gracias por su preferencia</p>
-          {branding.tagline && <p className="italic mt-1" style={{ color: branding.secondary_color }}>{branding.tagline}</p>}
-          <p className="mt-3 font-medium">{invoice.agency?.name}</p>
-          {invoice.agency?.website && <p>{invoice.agency.website}</p>}
-          {invoice.agency?.email && <p>{invoice.agency.email}</p>}
-          {invoice.agency?.phone && <p>Tel: {invoice.agency.phone}</p>}
-        </div>
-      </div>
-
-      {/* Print Styles */}
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          #printable-invoice, #printable-invoice * {
-            visibility: visible;
-          }
-          #printable-invoice {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            padding: 20mm;
-          }
-          @page {
-            size: letter;
-            margin: 10mm;
-          }
-        }
-      `}</style>
+      <InvoicePrintDocument
+            invoice={invoice}
+            items={items}
+            palette={docPalette}
+            logoUrl={getLogoUrl(invoice.agency?.logo_url ?? null)}
+            tagline={branding.tagline}
+            fontFamily={branding.font_family}
+            sourceNotes={getSourceNotes(invoice)}
+            formatCurrency={formatCurrency}
+            formatDate={formatDate}
+      />
     </div>
   )
 }
