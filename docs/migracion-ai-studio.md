@@ -461,15 +461,15 @@ Objetos nuevos que deben existir en Cloud SQL (todo es PostgreSQL estándar, sin
 - **Dependencias de la app:** rutas de servidor que usan `createAdminClient` (service role) y `supabase.auth.getUser()` para identificar al usuario; al pasar a Firebase Auth, el `p_user` se toma del token verificado.
 - **Datos que dependen de esto:** las 8 nóminas pagadas antes del cambio siguen con movimientos agrupados por banco (`source_type = 'payroll_period'`) y se tratan como *esquema anterior*.
 
-## Anexo. Cotizaciones del cliente (`scripts/client_quotations.sql`)
+## Anexo. Cotizaciones en Cuentas y contrato en Clientes
 
-- **Tabla nueva:** `client_quotations` (`id`, `client_id` → `clients` con `ON DELETE CASCADE`, `file_url`, `file_name`, `file_size`, `mime_type`, `uploaded_by` → `users` con `ON DELETE SET NULL`, `uploaded_by_name`, `uploaded_at`). Checks: nombre no vacío y tamaño positivo. Índice `idx_client_quotations_client (client_id, uploaded_at DESC)`.
-- **Índice nuevo:** `idx_crm_prospects_converted_client` sobre `crm_prospects.converted_to_client_id` (parcial, no nulos).
-- **RLS:** activado sin políticas; solo se accede desde el servidor con service role. En Cloud SQL, permisos para el rol de la aplicación.
-- **Sin copia de datos:** las cotizaciones del prospecto de origen (`crm_prospect_quotations` vía `converted_to_client_id`) y de las cuentas del cliente (`entity_quotations` con `owner_type = 'account'`) se leen en su tabla original y se muestran solo para consulta.
-- **Cambio en datos nuevos:** `crm_prospect_quotations.uploaded_by` (→ `staff`) ahora se llena al subir; los registros anteriores no se modificaron.
-- **Archivos en Blob:** prefijo nuevo `client-quotations/<client_id>/...` (store privado, servido por `/api/file`). Tipos permitidos: PDF, Word, Excel e imagen (JPG, PNG, WEBP); máximo 25 MB, validado en el servidor (token de subida y verificación con `head()` al registrar). Las cotizaciones de prospectos (`quotations/...`) usan la misma validación.
-- **Código nuevo:** `lib/quotation-files.ts`, `lib/client-quotations-server.ts`, `app/api/clients/[id]/quotations/route.ts`, `app/api/clients/quotations-status/route.ts`, `components/clients/client-quotations-section.tsx`. Modificados: `lib/client-completion.ts` (categoría «Cotización»), `app/dashboard/clients/page.tsx`, `app/dashboard/clients/[id]/page.tsx`, `app/api/crm/quotations/route.ts` y `app/dashboard/crm/prospects/[id]/page.tsx`.
+La cotización vive en Cuentas (`entity_quotations`, `owner_type = 'account'`); en Clientes solo se mide el contrato (`clients.contract_url`). Se retiró la sección y la categoría «Cotización» del cliente (el Avance del Perfil vuelve a 26 campos).
+
+- **`client_quotations` (de `scripts/client_quotations.sql`):** quedó con 0 registros y sin llaves foráneas que la referencien. Se propone quitarla con `scripts/drop_client_quotations.sql` (pendiente de aprobación; aborta si encuentra registros). No migrar a Cloud SQL. El índice `idx_crm_prospects_converted_client` sí se conserva.
+- **Columnas nuevas en `entity_quotations` (`scripts/account_quotations_uploader.sql`, pendiente de ejecutar):** `uploaded_by` → `users` con `ON DELETE SET NULL` y `uploaded_by_name`; índice `idx_entity_quotations_owner (owner_type, owner_id, uploaded_at DESC)`. Los registros existentes quedan con `NULL`. Mientras no se ejecute, la app guarda sin esas columnas.
+- **Prospectos:** `crm_prospect_quotations.uploaded_by` (→ `staff`) se llena al subir; los registros anteriores no se modificaron.
+- **Archivos en Blob:** cuentas en `quotations/<account_id>/...` (store privado, servido por `/api/file`). Tipos permitidos: PDF, Word, Excel e imagen (JPG, PNG, WEBP); máximo 25 MB, validado en el servidor (token de subida y verificación con `head()` al registrar). Prospectos usan la misma validación.
+- **Código:** nuevos `lib/quotation-files.ts` y `lib/quotation-uploads-server.ts`. Modificados: `app/api/quotations/upload/route.ts`, `app/api/crm/quotations/route.ts`, `app/dashboard/accounts/page.tsx` (columna, indicador y filtro de cotización), `app/dashboard/accounts/[id]/page.tsx`, `app/dashboard/clients/page.tsx` (columna, indicador y filtro de contrato), `app/dashboard/clients/[id]/page.tsx`, `lib/client-completion.ts` y `app/dashboard/crm/prospects/[id]/page.tsx`. Eliminados: `lib/client-quotations-server.ts`, `app/api/clients/[id]/quotations/route.ts`, `app/api/clients/quotations-status/route.ts`, `components/clients/client-quotations-section.tsx`.
 - **Pendiente de revisar:** `entity_quotations.id = 6546b888-5e49-4282-986b-c644e33cc7f5` apunta a la cuenta `d170c62b-…` que ya no existe (archivo «Propuesta Abrek Construcción - A4R (1).pdf»). Se ignora en la app.
 
 ## Riesgos (de mayor a menor)

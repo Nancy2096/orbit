@@ -21,6 +21,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ArrowLeft, Briefcase, DollarSign, Plus, Trash2, Package, Users, Pencil, FileText, Upload, Download, Eye } from "lucide-react"
 import { getFileViewUrl, getFileDownloadUrl } from "@/lib/file-url"
 import { upload } from "@vercel/blob/client"
+import { QUOTATION_ACCEPT, validateQuotationFile } from "@/lib/quotation-files"
 
 interface Client {
   id: string
@@ -256,6 +257,13 @@ await Promise.all([
   async function handleQuotationUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+
+    const validationError = validateQuotationFile(file)
+    if (validationError) {
+      setError(validationError)
+      e.target.value = ""
+      return
+    }
 
     setUploadingQuotation(true)
     setError(null)
@@ -1607,7 +1615,7 @@ setClients([])
                 <input
                   id="quotation-upload"
                   type="file"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                  accept={QUOTATION_ACCEPT}
                   onChange={handleQuotationUpload}
                   className="hidden"
                 />

@@ -45,7 +45,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Plus, Search, MoreHorizontal, Pencil, Trash2, Building2, Mail, Globe, Settings2, Filter, X, ChevronDown, ChevronRight } from "lucide-react"
 import { ClientCompletionBar } from "@/components/client-completion-chart"
-import { getClientOverallCompletion } from "@/lib/client-completion"
+import { getClientOverallCompletion, type ClientLike } from "@/lib/client-completion"
 
 interface Client {
   id: string
@@ -65,6 +65,7 @@ interface Client {
   industry_id: string | null
   referral_source_id: string | null
   created_at: string
+  contract_url?: string | null
   agency?: { name: string } | null
   industry?: { name: string } | null
   referral_source?: { name: string } | null
@@ -96,7 +97,7 @@ const defaultColumns: ColumnDef[] = [
   { key: "location", label: "Ubicación", visible: true, filterable: true },
   { key: "payment_terms", label: "Términos", visible: true, filterable: false },
   { key: "completion", label: "Avance", visible: true, filterable: false },
-  { key: "quotation", label: "Cotización", visible: true, filterable: true },
+  { key: "contract", label: "Contrato", visible: true, filterable: true },
   { key: "status", label: "Estado", visible: true, filterable: true },
 ]
 
@@ -106,13 +107,11 @@ interface Filters {
   industry_id: string
   referral_source_id: string
   city: string
-  quotation?: "all" | "yes" | "no"
+  contract?: "all" | "yes" | "no"
 }
 
-const quotationStatusFetcher = async (url: string) => {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error("No se pudo cargar el estado de cotizaciones")
-  return res.json() as Promise<{ clientIds: string[] }>
+function hasContract(client: Client): boolean {
+  return Boolean(client.contract_url?.trim())
 }
 
 export default function ClientsPage() {
@@ -127,17 +126,9 @@ export default function ClientsPage() {
     industry_id: "all",
     referral_source_id: "all",
     city: "all",
-    quotation: "all",
+    contract: "all",
   })
   const [showFilters, setShowFilters] = useState(false)
-  const { data: quotationStatus, isLoading: quotationStatusLoading } = useSWR(
-    "/api/clients/quotations-status",
-    quotationStatusFetcher,
-  )
-  const clientsWithQuotation = useMemo(
-    () => new Set(quotationStatus?.clientIds ?? []),
-    [quotationStatus],
-  )
   const [showInactive, setShowInactive] = useState(false)
   
   // Catalogs for filters
@@ -209,12 +200,14 @@ export default function ClientsPage() {
       industry_id: "all",
       referral_source_id: "all",
       city: "all",
-      quotation: "all",
+      contract: "all",
     })
   }
 
   const activeFiltersCount = useMemo(() => {
-    return Object.values(filters).filter(v => v !== "" && v !== "all").length
+    return Object.entries(filters).filter(
+      ([key, v]) => key !== "quotation" && v !== "" && v !== "all",
+    ).length
   }, [filters])
 
   // Get unique cities for filter
@@ -241,15 +234,20 @@ export default function ClientsPage() {
       const matchesIndustry = !filters.industry_id || filters.industry_id === "all" || c.industry_id === filters.industry_id
       const matchesSource = !filters.referral_source_id || filters.referral_source_id === "all" || c.referral_source_id === filters.referral_source_id
       const matchesCity = !filters.city || filters.city === "all" || c.city === filters.city
-      const hasQuotation = clientsWithQuotation.has(c.id)
-      const matchesQuotation =
-        !filters.quotation ||
-        filters.quotation === "all" ||
-        (filters.quotation === "yes" ? hasQuotation : !hasQuotation)
+      const withContract = hasContract(c)
+      const matchesContract =
+        !filters.contract ||
+        filters.contract === "all" ||
+        (filters.contract === "yes" ? withContract : !withContract)
 
-      return matchesSearch && matchesStatus && matchesAgency && matchesIndustry && matchesSource && matchesCity && matchesQuotation
+      return matchesSearch && matchesStatus && matchesAgency && matchesIndustry && matchesSource && matchesCity && matchesContract
     })
-  }, [clients, searchTerm, filters, clientsWithQuotation])
+  }, [clients, searchTerm, filters])
+
+  const contractSummary = useMemo(() => {
+    const withContract = filteredClients.filter(hasContract).length
+    return { withContract, withoutContract: filteredClients.length - withContract }
+  }, [filteredClients])
 
   const activeClients = useMemo(
     () => filteredClients.filter((c) => c.status === "active"),
@@ -351,22 +349,15 @@ export default function ClientsPage() {
                       <div className="text-sm">{client.payment_terms} días</div>
                     )}
                     {column.key === "completion" && (
-                      <ClientCompletionBar
-                        percentage={getClientOverallCompletion({
-                          ...client,
-                          has_quotation: clientsWithQuotation.has(client.id),
-                        })}
-                      />
+                      <ClientCompletionBar percentage={getClientOverallCompletion(client as unknown as ClientLike)} />
                     )}
-                    {column.key === "quotation" &&
-                      (quotationStatusLoading ? (
-                        <span className="text-sm text-muted-foreground">...</span>
-                      ) : clientsWithQuotation.has(client.id) ? (
+                    {column.key === "contract" &&
+                      (hasContract(client) ? (
                         <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
                           Sí
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="text-muted-foreground">
+                        <Badge variant="outline" className="border-red-200 bg-red-100 text-red-700 hover:bg-red-100">
                           No
                         </Badge>
                       ))}
@@ -451,6 +442,16 @@ export default function ClientsPage() {
                 <CardDescription>
                   {filteredClients.length} de {clients.length} cliente{clients.length !== 1 ? "s" : ""}
                 </CardDescription>
+                {!loading && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm" aria-live="polite">
+                    <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100 tabular-nums">
+                      Con contrato: {contractSummary.withContract}
+                    </Badge>
+                    <Badge variant="outline" className="border-red-200 bg-red-100 text-red-700 hover:bg-red-100 tabular-nums">
+                      Sin contrato: {contractSummary.withoutContract}
+                    </Badge>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {/* Search */}
@@ -589,20 +590,20 @@ export default function ClientsPage() {
                         </div>
 
                         <div className="space-y-1.5">
-                          <Label className="text-xs">Cotización</Label>
+                          <Label className="text-xs">Contrato</Label>
                           <Select
-                            value={filters.quotation ?? "all"}
+                            value={filters.contract ?? "all"}
                             onValueChange={(value) =>
-                              setFilters({ ...filters, quotation: value as Filters["quotation"] })
+                              setFilters({ ...filters, contract: value as Filters["contract"] })
                             }
                           >
                             <SelectTrigger className="h-8">
-                              <SelectValue placeholder="Todas" />
+                              <SelectValue placeholder="Todos" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="all">Todas</SelectItem>
-                              <SelectItem value="yes">Con cotización</SelectItem>
-                              <SelectItem value="no">Sin cotización</SelectItem>
+                              <SelectItem value="all">Todos</SelectItem>
+                              <SelectItem value="yes">Con contrato</SelectItem>
+                              <SelectItem value="no">Sin contrato</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -683,12 +684,12 @@ export default function ClientsPage() {
                     />
                   </Badge>
                 )}
-                {filters.quotation && filters.quotation !== "all" && (
+                {filters.contract && filters.contract !== "all" && (
                   <Badge variant="secondary" className="gap-1">
-                    {filters.quotation === "yes" ? "Con cotización" : "Sin cotización"}
+                    {filters.contract === "yes" ? "Con contrato" : "Sin contrato"}
                     <X
                       className="h-3 w-3 cursor-pointer"
-                      onClick={() => setFilters({ ...filters, quotation: "all" })}
+                      onClick={() => setFilters({ ...filters, contract: "all" })}
                     />
                   </Badge>
                 )}
