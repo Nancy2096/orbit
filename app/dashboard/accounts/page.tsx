@@ -52,6 +52,7 @@ interface Account {
   account_manager_id: string | null
   total_contracted: number
   currency_code: string
+  has_quotation: boolean
   client: {
     company_name: string
     country: string | null
@@ -78,6 +79,7 @@ const defaultColumns: ColumnDef[] = [
   { key: "currency_code", label: "Moneda", visible: true },
   { key: "payment_terms", label: "Términos", visible: false },
   { key: "discount", label: "Descuento", visible: false },
+  { key: "quotation", label: "Cotización", visible: true },
   { key: "status", label: "Estado", visible: true },
 ]
 
@@ -86,6 +88,7 @@ interface Filters {
   agency_id: string
   account_type: string
   client_id: string
+  quotation?: "all" | "yes" | "no"
 }
 
 const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
@@ -129,6 +132,7 @@ export default function AccountsPage() {
     agency_id: "all",
     account_type: "all",
     client_id: "all",
+    quotation: "all",
   })
   const [showFilters, setShowFilters] = useState(false)
   const [showInactive, setShowInactive] = useState(false)
@@ -185,7 +189,7 @@ export default function AccountsPage() {
 
     const accountIds = data.map(a => a.id)
 
-    const [clientsRes, agenciesRes, servicesRes, currenciesRes] = await Promise.all([
+    const [clientsRes, agenciesRes, servicesRes, currenciesRes, quotationsRes] = await Promise.all([
       clientIds.length > 0 
         ? supabase.from("clients").select("id, company_name, country, state").in("id", clientIds)
         : { data: [] },
@@ -196,8 +200,14 @@ export default function AccountsPage() {
         ? supabase.from("account_services").select("account_id, final_price").eq("is_active", true).in("account_id", accountIds)
         : { data: [] },
       supabase.from("currencies").select("id, code"),
+      accountIds.length > 0
+        ? supabase.from("entity_quotations").select("owner_id").eq("owner_type", "account").in("owner_id", accountIds)
+        : { data: [] },
     ])
 
+    const accountsWithQuotation = new Set(
+      (quotationsRes.data || []).map((q: { owner_id: string }) => q.owner_id),
+    )
     const clientsMap = new Map((clientsRes.data || []).map(c => [c.id, c]))
     const agenciesMap = new Map((agenciesRes.data || []).map(a => [a.id, a]))
     const currenciesMap = new Map((currenciesRes.data || []).map((c: { id: string; code: string }) => [c.id, c.code]))
@@ -212,6 +222,7 @@ export default function AccountsPage() {
     const mappedData = data.map(account => ({
       ...account,
       total_contracted: totalsMap.get(account.id) || 0,
+      has_quotation: accountsWithQuotation.has(account.id),
       currency_code: account.retainer_currency_id ? (currenciesMap.get(account.retainer_currency_id) || "—") : "—",
       client: account.client_id ? clientsMap.get(account.client_id) || null : null,
       agency: account.agency_id ? agenciesMap.get(account.agency_id) || null : null,
@@ -280,6 +291,7 @@ export default function AccountsPage() {
       agency_id: "all",
       account_type: "all",
       client_id: "all",
+      quotation: "all",
     })
   }
 
@@ -321,9 +333,19 @@ export default function AccountsPage() {
       const matchesType = !filters.account_type || filters.account_type === "all" || a.account_type === filters.account_type
       const matchesClient = !filters.client_id || filters.client_id === "all" || a.client_id === filters.client_id
 
-      return matchesSearch && matchesStatus && matchesAgency && matchesType && matchesClient
+      const matchesQuotation =
+        !filters.quotation ||
+        filters.quotation === "all" ||
+        (filters.quotation === "yes" ? a.has_quotation : !a.has_quotation)
+
+      return matchesSearch && matchesStatus && matchesAgency && matchesType && matchesClient && matchesQuotation
     })
   }, [accounts, searchTerm, filters])
+
+  const quotationSummary = useMemo(() => {
+    const withQuotation = filteredAccounts.filter((a) => a.has_quotation).length
+    return { withQuotation, withoutQuotation: filteredAccounts.length - withQuotation }
+  }, [filteredAccounts])
 
   function computeTotals(rows: Account[]) {
     const map = new Map<string, number>()
@@ -429,6 +451,16 @@ export default function AccountsPage() {
                         {account.discount_percentage > 0 ? `${account.discount_percentage}%` : "-"}
                       </div>
                     )}
+                    {column.key === "quotation" &&
+                      (account.has_quotation ? (
+                        <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
+                          Sí
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-red-200 bg-red-100 text-red-700 hover:bg-red-100">
+                          No
+                        </Badge>
+                      ))}
                     {column.key === "status" && (
                       <Badge variant={statusLabels[account.status]?.variant || "outline"} className={statusLabels[account.status]?.className}>
                         {statusLabels[account.status]?.label || account.status}
@@ -529,6 +561,16 @@ export default function AccountsPage() {
                 <CardDescription>
                   {filteredAccounts.length} de {accounts.length} cuenta{accounts.length !== 1 ? "s" : ""}
                 </CardDescription>
+                {!loading && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm" aria-live="polite">
+                    <Badge variant="outline" className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100 tabular-nums">
+                      Con cotización: {quotationSummary.withQuotation}
+                    </Badge>
+                    <Badge variant="outline" className="border-red-200 bg-red-100 text-red-700 hover:bg-red-100 tabular-nums">
+                      Sin cotización: {quotationSummary.withoutQuotation}
+                    </Badge>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {/* Search */}
@@ -645,6 +687,25 @@ export default function AccountsPage() {
                             </SelectContent>
                           </Select>
                         </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Cotización</Label>
+                          <Select
+                            value={filters.quotation ?? "all"}
+                            onValueChange={(value) =>
+                              setFilters({ ...filters, quotation: value as Filters["quotation"] })
+                            }
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Todas" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas</SelectItem>
+                              <SelectItem value="yes">Con cotización</SelectItem>
+                              <SelectItem value="no">Sin cotización</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
                   </PopoverContent>
@@ -710,6 +771,15 @@ export default function AccountsPage() {
                     <X
                       className="h-3 w-3 cursor-pointer"
                       onClick={() => setFilters({ ...filters, client_id: "all" })}
+                    />
+                  </Badge>
+                )}
+                {filters.quotation && filters.quotation !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    {filters.quotation === "yes" ? "Con cotización" : "Sin cotización"}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setFilters({ ...filters, quotation: "all" })}
                     />
                   </Badge>
                 )}

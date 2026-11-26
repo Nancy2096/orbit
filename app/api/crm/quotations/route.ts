@@ -3,7 +3,7 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { QUOTATION_ALLOWED_CONTENT_TYPES, QUOTATION_MAX_SIZE_BYTES } from "@/lib/quotation-files"
-import { getStaffIdForUser, verifyUploadedQuotation } from "@/lib/client-quotations-server"
+import { getStaffIdForUser, verifyUploadedQuotation } from "@/lib/quotation-uploads-server"
 
 // POST: genera el token para subir el archivo DIRECTO a Vercel Blob desde el
 // cliente. Esto evita el límite de ~4.5MB de los Route Handlers, por lo que la
