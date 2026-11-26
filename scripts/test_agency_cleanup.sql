@@ -4,7 +4,7 @@
 -- Los archivos de comprobantes subidos a Vercel Blob durante las pruebas NO se borran aquí:
 -- el primer SELECT lista sus URLs para borrarlos a mano si se desea.
 
-SELECT r.file_url AS comprobante_a_borrar_en_blob
+SELECT r.file_path AS comprobante_a_borrar_en_blob
 FROM payroll_payment_receipts r
 JOIN payroll_periods p ON p.id = r.period_id
 JOIN agencies a ON a.id = p.agency_id
