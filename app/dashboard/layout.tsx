@@ -35,9 +35,9 @@ export default async function DashboardLayout({
       <PermissionsProvider>
         <SidebarProvider>
           <DashboardSidebar user={profile} />
-          <SidebarInset>
+          <SidebarInset className="min-w-0">
             <DashboardHeader user={profile} />
-            <main className="flex-1 p-6">
+            <main className="min-w-0 flex-1 p-6">
               <RouteGuard>{children}</RouteGuard>
             </main>
           </SidebarInset>

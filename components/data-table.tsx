@@ -174,8 +174,8 @@ export function DataTable<T>({
 
   return (
     <>
-      <div className="hidden md:block">
-        <div className="relative max-h-[70vh] overflow-auto rounded-md border">
+      <div className="hidden min-w-0 md:block">
+        <div className="relative isolate z-0 max-h-[70vh] w-full max-w-full overflow-auto rounded-md border">
           <table aria-label={ariaLabel} className="w-full border-separate border-spacing-0 text-sm">
             <TableHeader className="[&_tr]:border-b-0">
               <TableRow className="border-b-0 hover:bg-transparent">
