@@ -1180,12 +1180,28 @@ const fetchApproversForStaff = async (staffId: string, _agencyId: string) => {
     if (expense.agency?.id) {
       const { data } = await supabase
         .from("bank_accounts")
-        .select("id, agency_id, bank_name, account_name, account_number, current_balance, is_active")
+        .select("id, agency_id, bank_name, account_name, account_number, is_active")
         .eq("agency_id", expense.agency.id)
         .eq("is_active", true)
         .order("is_primary", { ascending: false })
         .order("bank_name")
-      setPaymentBankAccounts((data as BankAccount[]) || [])
+      const banks = (data || []) as Omit<BankAccount, "current_balance">[]
+      const { data: balances, error: balancesError } = banks.length
+        ? await supabase
+            .from("bank_account_balances")
+            .select("bank_account_id, balance")
+            .in("bank_account_id", banks.map((b) => b.id))
+        : { data: [], error: null }
+      if (balancesError) console.error("Error cargando saldos:", balancesError)
+      const balanceByBank = new Map(
+        (balances || []).map((b: { bank_account_id: string; balance: number | string }) => [
+          b.bank_account_id,
+          Number(b.balance),
+        ]),
+      )
+      setPaymentBankAccounts(
+        banks.map((b) => ({ ...b, current_balance: balanceByBank.get(b.id) ?? null })),
+      )
     } else {
       setPaymentBankAccounts([])
     }

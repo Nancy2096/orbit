@@ -253,7 +253,7 @@ Ordenadas de mayor a menor. "RLS" indica si la tabla tiene Row Level Security ac
 | `pg_stat_statements` | 1.11 | Disponible (con un flag de la instancia) |
 | `supabase_vault` | 0.3.1 | **No existe.** El vault está vacío; no se usa |
 
-No hay `pg_cron`, `pg_net`, vistas, vistas materializadas, tipos enum ni secuencias propias en `public`.
+No hay `pg_cron`, `pg_net`, vistas materializadas, tipos enum ni secuencias propias en `public`. Hay una vista: `bank_account_balances` (ver el anexo de saldos bancarios).
 
 ### 2.4 Funciones de PostgreSQL (19 en `public`)
 
@@ -486,6 +486,15 @@ Todas las tablas de listados de Orbit usan (o van a usar) el mismo componente `D
 | --- | --- | --- | --- |
 | Operaciones | Cuentas | `/dashboard/accounts` | #157 |
 | Comercial | Clientes | `/dashboard/clients` | #157 |
+
+## Anexo. Saldo oficial de bancos (`bank_account_balances`)
+
+El saldo de cada cuenta bancaria se calcula en una sola vista, creada con `scripts/bank_account_balances_view.sql`. Fórmula: saldo inicial + cobros completados (`payments.status = 'completed'`) + capital (`capital_contribution` suma, cualquier otro tipo resta) + movimientos bancarios (`ingreso` suma, `salida` resta).
+
+- **Definición:** `security_invoker = true`, así que respeta los permisos de quien consulta. Columnas: `bank_account_id`, `agency_id`, `initial_balance`, `payments_total`, `capital_total`, `movements_total` y `balance`. Migrarla a Cloud SQL tal cual, después de las tablas `bank_accounts`, `payments`, `equity_transactions` y `bank_movements`.
+- **Pantallas que la leen:** Finanzas > Bancos (`app/dashboard/payments/page.tsx`) y el diálogo de pagar gasto (`app/dashboard/expenses/page.tsx`). Movimientos bancarios no muestra un saldo, solo los totales de los movimientos filtrados, y Reportes financieros usa solo `initial_balance` como efectivo de arranque.
+- **`bank_accounts.current_balance`:** la app ya no la lee. Al crear una cuenta todavía se llena con el saldo inicial. Se retirará cuando Finanzas confirme que los saldos cuadran; no hay que migrar su valor.
+- **Cambio de regla:** antes Bancos sumaba también los cobros `pending`; ahora solo cuenta los `completed`, igual que Movimientos bancarios. Al crear la vista no había cobros pendientes ligados a un banco, así que los saldos no cambiaron.
 
 ## Riesgos (de mayor a menor)
 

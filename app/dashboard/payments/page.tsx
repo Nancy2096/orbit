@@ -276,70 +276,29 @@ export default function IncomesPage() {
     if (data) {
       const bankIds = data.map((b: Record<string, unknown>) => b.id as string)
 
-      // Pagos recibidos por banco (fuente de verdad: tabla payments).
-      // Cada pago registrado se aplica al banco seleccionado, soportando pagos parciales.
-      const { data: bankPayments } = await supabase
-        .from("payments")
-        .select("bank_account_id, amount, status")
+      // Saldo oficial desde la vista bank_account_balances
+      // (saldo inicial + cobros completados + capital + movimientos).
+      const { data: balances, error: balancesError } = await supabase
+        .from("bank_account_balances")
+        .select("bank_account_id, initial_balance, payments_total, capital_total, movements_total, balance")
         .in("bank_account_id", bankIds)
+      if (balancesError) console.error("Error cargando saldos:", balancesError)
 
-      const invoicesByBank: Record<string, number> = {}
-      if (bankPayments) {
-        bankPayments.forEach((p: { bank_account_id: string | null; amount: number; status: string | null }) => {
-          // Ignora pagos cancelados/reembolsados; cuenta pendientes y completados.
-          if (!p.bank_account_id || p.status === "cancelled" || p.status === "refunded") return
-          invoicesByBank[p.bank_account_id] = (invoicesByBank[p.bank_account_id] || 0) + (p.amount || 0)
-        })
-      }
-
-      // Aportaciones de capital por banco
-      const { data: capitalTx } = await supabase
-        .from("equity_transactions")
-        .select("bank_account_id, amount, transaction_type")
-        .in("bank_account_id", bankIds)
-
-      const capitalByBank: Record<string, number> = {}
-      if (capitalTx) {
-        capitalTx.forEach((tx: { bank_account_id: string | null; amount: number; transaction_type: string }) => {
-          if (!tx.bank_account_id) return
-          // Las aportaciones suman; retiros/dividendos restan del saldo del banco.
-          const sign = tx.transaction_type === "capital_contribution" ? 1 : -1
-          capitalByBank[tx.bank_account_id] = (capitalByBank[tx.bank_account_id] || 0) + sign * (tx.amount || 0)
-        })
-      }
-
-      // Movimientos bancarios (ingresos/salidas), incluyendo las salidas
-      // automáticas por pago de nómina y los movimientos manuales.
-      const { data: movements } = await supabase
-        .from("bank_movements")
-        .select("bank_account_id, movement_type, amount")
-        .in("bank_account_id", bankIds)
-
-      const movementsByBank: Record<string, number> = {}
-      if (movements) {
-        movements.forEach((m: { bank_account_id: string | null; movement_type: string; amount: number }) => {
-          if (!m.bank_account_id) return
-          const sign = m.movement_type === "ingreso" ? 1 : -1
-          movementsByBank[m.bank_account_id] = (movementsByBank[m.bank_account_id] || 0) + sign * (m.amount || 0)
-        })
-      }
+      const balanceByBank = new Map(
+        (balances || []).map((b: Record<string, unknown>) => [b.bank_account_id as string, b]),
+      )
 
       const mapped = data.map((bank: Record<string, unknown>) => {
-        const id = bank.id as string
-        const initial = Number(bank.initial_balance) || 0
-        const invoicesTotal = invoicesByBank[id] || 0
-        const capitalTotal = capitalByBank[id] || 0
-        const movementsTotal = movementsByBank[id] || 0
+        const row = balanceByBank.get(bank.id as string)
         return {
           ...bank,
           currency: Array.isArray(bank.currency) ? bank.currency[0] : bank.currency,
           agency: Array.isArray(bank.agency) ? bank.agency[0] : bank.agency,
-          initial_balance: initial,
-          invoices_total: invoicesTotal,
-          capital_total: capitalTotal,
-          movements_total: movementsTotal,
-          // Saldo = saldo inicial + facturas pagadas + capital + movimientos (ingresos - salidas)
-          current_balance: initial + invoicesTotal + capitalTotal + movementsTotal,
+          initial_balance: Number(row?.initial_balance ?? bank.initial_balance) || 0,
+          invoices_total: Number(row?.payments_total) || 0,
+          capital_total: Number(row?.capital_total) || 0,
+          movements_total: Number(row?.movements_total) || 0,
+          current_balance: Number(row?.balance) || 0,
         }
       }) as BankAccount[]
       setBankAccounts(mapped)
