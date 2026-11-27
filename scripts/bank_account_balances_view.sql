@@ -37,4 +37,5 @@ left join (
   group by bank_account_id
 ) m on m.bank_account_id = b.id;
 
+revoke all on public.bank_account_balances from anon, public;
 grant select on public.bank_account_balances to authenticated, service_role;
