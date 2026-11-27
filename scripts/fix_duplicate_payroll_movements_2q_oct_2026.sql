@@ -59,6 +59,13 @@ from saldo order by bank_name;
 -- =============================================================================
 begin;
 
+-- Permite registrar esta corrección en la bitácora de nómina.
+alter table payroll_audit_log drop constraint payroll_audit_log_action_check;
+alter table payroll_audit_log add constraint payroll_audit_log_action_check
+  check (action = any (array['payment_date_set', 'payment_date_corrected', 'reconciled',
+                             'unreconciled', 'entry_edited', 'staff_payment_cancelled',
+                             'period_payment_cancelled', 'duplicate_movements_removed']));
+
 do $$
 declare
   c_period constant uuid := 'a2227b44-3c92-40d3-a81d-b575ba594c07';
