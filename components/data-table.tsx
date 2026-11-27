@@ -124,7 +124,7 @@ export function useColumnVisibility<T>(
   return { columns, visibleColumns, isVisible, toggle, reset, configurable }
 }
 
-type ColumnVisibility<T> = ReturnType<typeof useColumnVisibility<T>>
+export type ColumnVisibility<T> = ReturnType<typeof useColumnVisibility<T>>
 
 export function ColumnVisibilityMenu<T>({ visibility }: { visibility: ColumnVisibility<T> }) {
   if (!visibility.configurable) return null

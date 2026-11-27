@@ -15,7 +15,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { AGING_BUCKETS, SUGGESTED_ACTION_LABELS, activityLabel, type AgingBucket } from "@/lib/collections/rules"
 import { ClientSheet } from "@/components/collections/client-sheet"
-import { CollectionsTable, type RowAction } from "@/components/collections/collections-table"
+import { CollectionsTable, buildCollectionsColumns, type RowAction } from "@/components/collections/collections-table"
+import { ColumnVisibilityMenu, useColumnVisibility } from "@/components/data-table"
 import { CallNoteDialog, PauseDialog } from "@/components/collections/note-dialogs"
 import { PromiseDialog } from "@/components/collections/promise-dialog"
 import { ReminderDialog, type ReminderChannel } from "@/components/collections/reminder-dialog"
@@ -162,6 +163,9 @@ export function CollectionsView() {
     () => Object.fromEntries(TABS.map((t) => [t.key, baseRows.filter((r) => matchesTab(r, t.key)).length])),
     [baseRows],
   )
+
+  const collectionsColumns = useMemo(() => buildCollectionsColumns((row) => setOpenClientId(row.clientId)), [])
+  const collectionsVisibility = useColumnVisibility("collections", collectionsColumns)
 
   const activeFilters = (agency !== "all" ? 1 : 0) + (bucketFilter !== "all" ? 1 : 0)
 
@@ -319,16 +323,19 @@ export function CollectionsView() {
                   ))}
                 </TabsList>
               </Tabs>
-              <div className="relative w-full xl:w-80">
-                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                <Input
-                  type="search"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar cliente, cuenta o factura"
-                  aria-label="Buscar cliente, cuenta o factura"
-                  className="pl-9"
-                />
+              <div className="flex w-full items-center gap-2 xl:w-auto">
+                <div className="relative min-w-0 flex-1 xl:w-80 xl:flex-none">
+                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                  <Input
+                    type="search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Buscar cliente, cuenta o factura"
+                    aria-label="Buscar cliente, cuenta o factura"
+                    className="pl-9"
+                  />
+                </div>
+                <ColumnVisibilityMenu visibility={collectionsVisibility} />
               </div>
             </div>
 
@@ -344,7 +351,7 @@ export function CollectionsView() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <CollectionsTable rows={filteredRows} onOpen={(row) => setOpenClientId(row.clientId)} onAction={handleAction} />
+              <CollectionsTable rows={filteredRows} visibility={collectionsVisibility} onAction={handleAction} />
             )}
           </section>
         </>
